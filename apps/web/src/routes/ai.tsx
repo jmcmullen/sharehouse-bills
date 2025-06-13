@@ -11,14 +11,14 @@ export const Route = createFileRoute("/ai")({
 
 function RouteComponent() {
 	const { messages, input, handleInputChange, handleSubmit } = useChat({
-		api: `${import.meta.env.VITE_SERVER_URL}/ai`,
+		api: "/api/ai",
 	});
 
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [messages]);
+	});
 
 	return (
 		<div className="mx-auto grid w-full grid-rows-[1fr_auto] overflow-hidden p-4">

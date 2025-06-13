@@ -12,6 +12,7 @@ function RouteComponent() {
 	const navigate = Route.useNavigate();
 	const { data: session, isPending } = authClient.useSession();
 
+	const healthCheck = useQuery(orpc.healthCheck.queryOptions());
 	const privateData = useQuery(orpc.privateData.queryOptions());
 
 	useEffect(() => {
@@ -20,7 +21,7 @@ function RouteComponent() {
 				to: "/login",
 			});
 		}
-	}, [session, isPending]);
+	}, [session, isPending, navigate]);
 
 	if (isPending) {
 		return <div>Loading...</div>;
@@ -30,7 +31,17 @@ function RouteComponent() {
 		<div>
 			<h1>Dashboard</h1>
 			<p>Welcome {session?.user.name}</p>
+			<p>
+				API Status:{" "}
+				{healthCheck.isLoading
+					? "Loading..."
+					: healthCheck.error
+						? "Disconnected"
+						: "Connected"}
+			</p>
+			<p>Health Check: {healthCheck.data}</p>
 			<p>privateData: {privateData.data?.message}</p>
+			{privateData.error && <p>Error: {privateData.error.message}</p>}
 		</div>
 	);
 }

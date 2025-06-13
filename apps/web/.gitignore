@@ -13,6 +13,7 @@
 
 # Build outputs
 /.next/
+/.tanstack/
 /out/
 /build/
 /dist/

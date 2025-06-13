@@ -3,6 +3,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"typecheck": "tsc --noEmit",
 		"build": "vite build",
 		"serve": "vite preview",
 		"dev": "vite dev --port=3001"
@@ -33,7 +34,8 @@
 		"@orpc/server": "^1.5.0",
 		"ai": "^4.3.16",
 		"@ai-sdk/react": "^1.2.12",
-		"better-auth": "^1.2.9"
+		"better-auth": "^1.2.9",
+		"@sharehouse-bills/api": "workspace:*"
 	},
 	"devDependencies": {
 		"@tanstack/react-router-devtools": "^1.121.0-alpha.27",

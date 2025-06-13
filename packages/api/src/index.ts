@@ -57,4 +57,12 @@ app.get("/", (c) => {
 	return c.text("OK");
 });
 
+// Export for standalone server usage
 export default app;
+
+// Export for package usage
+export { appRouter as router } from "./routers/index";
+export { createContext } from "./lib/context";
+export { auth } from "./lib/auth";
+export { o, publicProcedure, protectedProcedure } from "./lib/orpc";
+export type { Context } from "./lib/context";
