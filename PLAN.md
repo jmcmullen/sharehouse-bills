@@ -52,42 +52,30 @@ OPENAI_API_KEY="your-openai-api-key"
 bun db:push
 ```
 
-## Milestone 1: Core Ledger & Admin Panel
-Goal: Build the admin dashboard to view bills and manually mark debts as paid.
+## Milestone 1: Database Schema & Core API
+Goal: Set up the database schema and core API endpoints for bills management.
 
-### Create Admin Routes
+### Create Database Schema
 
-1. Create admin page at `apps/web/src/routes/admin/index.tsx`
-2. Use TanStack Query with ORPC to fetch bills data
-3. Implement server-side data fetching using ORPC protected procedures
+1. Create bills management schema in `packages/api/src/db/schema/`:
+   - `bills.ts` - Bills table with biller info, amounts, due dates
+   - `housemates.ts` - Housemates table with names and payment details
+   - `debts.ts` - Individual debt records linking bills to housemates
+   - `unreconciledTransactions.ts` - Failed payment matches
 
 ### Create ORPC Routers
 
 1. Create `packages/api/src/routers/bills.ts`:
    - `getAllBills` - Protected procedure to fetch all bills with related debts
-   - `markDebtAsPaid` - Protected procedure to mark a debt as paid
+   - `createBill` - Protected procedure to create new bills
+   - `markDebtAsPaid` - Protected procedure to mark individual debts as paid
+   - `createBillFromParsedData` - Protected procedure for webhook integration
 
-2. Update `packages/api/src/routers/index.ts` to include the bills router
+2. Create `packages/api/src/routers/housemates.ts`:
+   - `getAllHousemates` - Get all housemate records
+   - `createHousemate` - Add new housemate
 
-### Display Data in Admin Panel
-
-1. Use shadcn/ui components for the table display
-2. Create a `BillsTable` component with:
-   - Bill information display
-   - Nested debt information for each bill
-   - "Mark as Paid" buttons for unpaid debts
-
-### Implement Mark as Paid Functionality
-
-1. Use ORPC client mutation in the frontend:
-```typescript
-const markPaidMutation = client.bills.markDebtAsPaid.useMutation({
-  onSuccess: () => {
-    // Invalidate and refetch bills
-    queryClient.invalidateQueries({ queryKey: ['bills'] })
-  }
-})
-```
+3. Update `packages/api/src/routers/index.ts` to include new routers
 
 ## Milestone 2: Email Ingestion & AI Parsing
 Goal: Create webhook endpoint for SendGrid emails, parse PDFs with AI, and create bill records.
@@ -205,7 +193,44 @@ export const Route = createAPIFileRoute("/api/webhook/up-transaction")({
 
 Create `unreconciledTransactions` table and log failed matches with reasons.
 
-## Milestone 5: Deployment
+## Milestone 5: Frontend Admin Panel
+Goal: Build the admin dashboard to view bills and manually mark debts as paid.
+
+### Create Admin Routes
+
+1. Create admin page at `apps/web/src/routes/admin/index.tsx`
+2. Use TanStack Query with ORPC to fetch bills data
+3. Implement client-side data fetching using ORPC protected procedures
+
+### Display Data in Admin Panel
+
+1. Use shadcn/ui components for the table display
+2. Create a `BillsTable` component with:
+   - Bill information display
+   - Nested debt information for each bill
+   - "Mark as Paid" buttons for unpaid debts
+3. Create `HousematesManager` component for managing housemate records
+
+### Implement Mark as Paid Functionality
+
+1. Use ORPC client mutation in the frontend:
+```typescript
+const markPaidMutation = client.bills.markDebtAsPaid.useMutation({
+  onSuccess: () => {
+    // Invalidate and refetch bills
+    queryClient.invalidateQueries({ queryKey: ['bills'] })
+  }
+})
+```
+
+### Create Management Interface
+
+1. Add forms for creating new bills manually
+2. Add interface for managing housemates
+3. Add dashboard showing payment statistics
+4. Add search and filtering capabilities
+
+## Milestone 6: Deployment
 Goal: Deploy the application to production.
 
 ### Build for Production
