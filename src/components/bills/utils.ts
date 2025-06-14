@@ -112,5 +112,5 @@ export function formatDate(date: Date | string): string {
 }
 
 export const PAGINATION_CONFIG = {
-	itemsPerPage: 20,
+	itemsPerPage: 10,
 } as const;

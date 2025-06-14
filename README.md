@@ -1,10 +1,10 @@
+![Screenshot](./docs/screenshot.png)
+
 # Sharehouse Bills
 
 A modern bill management system for shared housing, built with a simplified TanStack Start architecture. Automatically processes bill PDFs via email, splits costs among housemates, and tracks payments.
 
 ## 🏗️ Architecture
-
-![System Architecture](./docs/architecture.png)
 
 - **Frontend & Backend**: TanStack Start with React 19
 - **Database**: Drizzle ORM with SQLite/Turso
