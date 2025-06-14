@@ -3,235 +3,259 @@
 ## Milestone 0: Project Setup & Configuration
 Goal: Prepare the development environment, install all dependencies, and connect to external services.
 
-### ✅ Project Already Initialized
-The project is already set up with the Better-T-Stack:
-- Frontend & API: TanStack Start with React 19 (serves both UI and API routes)
-- API Package: ORPC server in packages/api
-- Database: Drizzle ORM with SQLite/Turso
-- Authentication: Better Auth
+### ✅ Project Architecture - Simplified Single Package
+The project has been refactored to use a simplified architecture:
+- **Single Package**: Everything consolidated into root directory (no more monorepo)
+- **Frontend & API**: TanStack Start with React 19 serving both UI and server functions
+- **Database**: Drizzle ORM with SQLite/Turso (co-located in `/src/api/db/`)
+- **Authentication**: Better Auth (in `/src/api/lib/auth.ts`)
+- **Server Functions**: Direct TanStack Start server functions (in `/src/functions/`)
 
-### Install Additional Dependencies
+### Install Dependencies
 
-Navigate to the API package directory and install necessary packages:
+Install necessary packages in the root:
 ```bash
-cd packages/api
-# Twilio for WhatsApp
-bun add twilio
+# AI processing
+bun add @google/generative-ai
 
-# OpenAI SDK for PDF parsing
-bun add openai
+# Email processing
+bun add @libsql/client drizzle-orm
+bun add -D drizzle-kit
 ```
 
 ### Set Up Environment Variables
 
-Update the existing `.env` file in `apps/web/.env` with these additional keys:
+Update the `.env` file in the root with these keys:
 ```env
-# Existing keys...
+# Database
+DATABASE_URL="your-turso-database-url"
+DATABASE_AUTH_TOKEN="your-turso-auth-token"
 
-# Twilio / SendGrid
+# Authentication
+BETTER_AUTH_SECRET="your-auth-secret"
+BETTER_AUTH_URL="http://localhost:3001"
+
+# AI Processing
+GOOGLE_GENERATIVE_AI_API_KEY="your-gemini-api-key"
+
+# Email (optional for manual uploads)
 TWILIO_ACCOUNT_SID="your-twilio-account-sid"
 TWILIO_AUTH_TOKEN="your-twilio-auth-token"
-TWILIO_PHONE_NUMBER="your-twilio-whatsapp-number"
-WHATSAPP_GROUP_ID="your-whatsapp-group-id"
 
-# Up Bank API
+# Up Bank API (optional)
 UP_BANK_API_TOKEN="your-up-bank-personal-access-token"
 
 # Webhook Security
 WEBHOOK_SECRET="generate-a-strong-random-string-here"
-
-# OpenAI API
-OPENAI_API_KEY="your-openai-api-key"
 ```
 
 ### Update Database Schema
 
-1. Modify the schema file at `packages/api/src/db/schema.ts` to add the required tables for bills management
+1. Schema files are now located at `src/api/db/schema/`
 2. Push schema changes to database:
 ```bash
 bun db:push
 ```
 
-## Milestone 1: Database Schema & Core API
-Goal: Set up the database schema and core API endpoints for bills management.
+## Milestone 1: Database Schema & Core Server Functions
+Goal: Set up the database schema and core server functions for bills management.
 
-### Create Database Schema
+### ✅ Database Schema Already Created
 
-1. Create bills management schema in `packages/api/src/db/schema/`:
-   - `bills.ts` - Bills table with biller info, amounts, due dates
-   - `housemates.ts` - Housemates table with names and payment details
-   - `debts.ts` - Individual debt records linking bills to housemates
-   - `unreconciledTransactions.ts` - Failed payment matches
+The bills management schema is implemented in `src/api/db/schema/`:
+- ✅ `bills.ts` - Bills table with biller info, amounts, due dates
+- ✅ `housemates.ts` - Housemates table with names and payment details  
+- ✅ `debts.ts` - Individual debt records linking bills to housemates
+- ✅ `recurringBills.ts` - Recurring bill templates (rent, utilities)
+- ✅ `recurringBillAssignments.ts` - Housemate assignments for recurring bills
 
-### Create ORPC Routers
+### ✅ Server Functions Already Created
 
-1. Create `packages/api/src/routers/bills.ts`:
-   - `getAllBills` - Protected procedure to fetch all bills with related debts
-   - `createBill` - Protected procedure to create new bills
-   - `markDebtAsPaid` - Protected procedure to mark individual debts as paid
-   - `createBillFromParsedData` - Protected procedure for webhook integration
+The core server functions are implemented in `src/functions/`:
 
-2. Create `packages/api/src/routers/housemates.ts`:
-   - `getAllHousemates` - Get all housemate records
-   - `createHousemate` - Add new housemate
+1. ✅ `src/functions/bills.ts`:
+   - ✅ `getAllBills` - Fetch all bills with related debts
+   - ✅ `createBill` - Create new bills
+   - ✅ `deleteBill` - Delete bills and associated debts
+   - ✅ `markDebtPaid` - Mark individual debts as paid
+   - ✅ `generateWeeklyRent` - Generate recurring rent bills
 
-3. Update `packages/api/src/routers/index.ts` to include new routers
+2. ✅ `src/functions/housemates.ts`:
+   - ✅ `getAllHousemates` - Get all housemate records
+   - ✅ `createHousemate` - Add new housemate
+   - ✅ `updateHousemate` - Update housemate details
+   - ✅ `deactivateHousemate` - Soft delete housemate
+
+3. ✅ `src/functions/todo.ts`:
+   - ✅ Basic todo functionality for testing
 
 ## Milestone 2: Email Ingestion & AI Parsing
-Goal: Create webhook endpoint for SendGrid emails, parse PDFs with AI, and create bill records.
+Goal: Create webhook endpoint for email processing, parse PDFs with AI, and create bill records.
 
-### Create Webhook Endpoint
+### ✅ Email Webhook Endpoint Created
 
-1. Create webhook API route at `apps/web/src/routes/api/webhook/email.ts`
-2. Add email webhook endpoint using TanStack Start API route:
+The webhook endpoint is implemented at `src/routes/api.email-webhook.ts`:
+- Handles multipart form data from email services
+- Extracts PDF attachments
+- Processes bills using AI parsing service
+- Sends email notifications with results
+
+### ✅ AI Processing with Google Gemini
+
+The AI parsing is implemented in `src/api/services/ai-parser.ts`:
 ```typescript
-import { createAPIFileRoute } from "@tanstack/start/api"
-
-export const Route = createAPIFileRoute("/api/webhook/email")({ 
-  POST: async ({ request }) => {
-    // Handle SendGrid webhook
+// Uses Google Gemini 1.5 Flash for PDF parsing
+const result = await model.generateContent([
+  "Extract bill details from this PDF...",
+  {
+    inlineData: {
+      mimeType: "application/pdf",
+      data: pdfBase64
+    }
   }
-})
+]);
 ```
 
-### Implement PDF Processing with OpenAI
+### ✅ Bill Processing Service
 
-1. Extract PDF from multipart form data
-2. Send PDF directly to OpenAI for parsing:
+The complete processing pipeline is in `src/api/services/bill-processor.ts`:
+1. Extract PDF from email attachment
+2. Parse bill details with AI
+3. Create bill and debt records
+4. Send notification emails
+
+## Milestone 3: Recurring Bill Automation
+Goal: Implement automated recurring bill creation system for rent and other recurring expenses.
+
+### ✅ Recurring Bill Service Created
+
+The service is implemented in `src/api/services/recurringBillService.ts`:
 ```typescript
-import OpenAI from 'openai'
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-})
-
-// Convert PDF buffer to base64
-const pdfBase64 = pdfBuffer.toString('base64')
-
-const response = await openai.chat.completions.create({
-  model: "gpt-4o",
-  messages: [{
-    role: "user",
-    content: [
-      { type: "text", text: "Extract bill details from this PDF. Return JSON with billerName, totalAmount, and dueDate." },
-      { 
-        type: "image_url",
-        image_url: {
-          url: `data:application/pdf;base64,${pdfBase64}`
-        }
-      }
-    ]
-  }],
-  response_format: { type: "json_object" }
-})
-
-const billDetails = JSON.parse(response.choices[0].message.content)
-```
-
-### Create Database Records
-
-1. Add ORPC procedure `createBillFromParsedData` in bills router
-2. Create bill record and associated debt records for all housemates
-3. Trigger WhatsApp notification after successful creation
-
-## Milestone 3: WhatsApp Notifications
-Goal: Send bill notifications to WhatsApp group with PDF attachment.
-
-### Create Notifier Module
-
-1. Create `packages/api/src/lib/notifier.ts`
-2. Implement `sendWhatsAppNotification` function using Twilio
-
-### Implement Notification Logic
-
-```typescript
-export async function sendWhatsAppNotification(
-  bill: Bill,
-  debts: Debt[],
-  invoicePdfBuffer: Buffer
-) {
-  const client = twilio(
-    process.env.TWILIO_ACCOUNT_SID,
-    process.env.TWILIO_AUTH_TOKEN
-  )
-  
-  // Upload PDF and send message
+// Generates bills from recurring templates
+export class RecurringBillService {
+  static async generateDueBills(targetDate?: Date)
+  static async generateWeeklyRentBill()
+  static getNextThursday(fromDate?: Date)
 }
 ```
 
-### Integrate with Email Webhook
+### ✅ Cron Job Integration
 
-Update the email webhook to call `sendWhatsAppNotification` after bill creation.
+Cron endpoint implemented at `src/routes/api.cron.generate-bills.ts`:
+- Daily check for due recurring bills
+- Automatic generation based on schedule
+- Manual trigger capability
 
-## Milestone 4: Up Bank Reconciliation Engine
+### Weekly Rent Configuration
+- **Amount**: $1890.00 weekly
+- **Schedule**: Every Thursday
+- **Splitting**: Equal division among active housemates
+- **Automation**: Fully automated with manual override
+
+## Milestone 4: Up Bank Payment Reconciliation Engine
 Goal: Create webhook for Up Bank transactions and implement smart payment reconciliation.
 
-### Create Transaction Webhook
+### 🚧 Planned: Transaction Webhook
 
-1. Add Up Bank webhook endpoint at `apps/web/src/routes/api/webhook/up-transaction.ts`:
+1. **Add Up Bank webhook endpoint** at `src/routes/api.up-transaction.ts`:
 ```typescript
-import { createAPIFileRoute } from "@tanstack/start/api"
+import { createServerFileRoute } from "@tanstack/react-start/server";
 
-export const Route = createAPIFileRoute("/api/webhook/up-transaction")({ 
+export const ServerRoute = createServerFileRoute("/api/up-transaction").methods({
   POST: async ({ request }) => {
     // Handle Up Bank webhook
+    // Verify webhook signature for security
+    // Parse transaction details
+    // Match payments to outstanding debts
   }
-})
+});
 ```
 
-### Implement Reconciliation Engine
+### 🚧 Planned: Smart Payment Reconciliation
 
-1. Verify webhook signature for security
-2. Parse transaction details
-3. Identify payer by matching bank alias
-4. Implement matching algorithms:
-   - Simple match: exact amount match
-   - Combination match: subset sum algorithm
-5. Update database records accordingly
+1. **Implement reconciliation algorithms:**
+   - **Exact match**: Match transaction amount to single debt amount
+   - **Combination match**: Use subset sum algorithm for multiple debt payments
+   - **Fuzzy match**: Handle small discrepancies (fees, rounding)
+   - **Housemate identification**: Match by bank alias or transaction description
 
-### Handle Unmatched Transactions
-
-Create `unreconciledTransactions` table and log failed matches with reasons.
-
-## Milestone 5: Frontend Admin Panel
-Goal: Build the admin dashboard to view bills and manually mark debts as paid.
-
-### Create Admin Routes
-
-1. Create admin page at `apps/web/src/routes/admin/index.tsx`
-2. Use TanStack Query with ORPC to fetch bills data
-3. Implement client-side data fetching using ORPC protected procedures
-
-### Display Data in Admin Panel
-
-1. Use shadcn/ui components for the table display
-2. Create a `BillsTable` component with:
-   - Bill information display
-   - Nested debt information for each bill
-   - "Mark as Paid" buttons for unpaid debts
-3. Create `HousematesManager` component for managing housemate records
-
-### Implement Mark as Paid Functionality
-
-1. Use ORPC client mutation in the frontend:
+2. **Add reconciliation service** (`src/api/services/payment-reconciliation.ts`):
 ```typescript
-const markPaidMutation = client.bills.markDebtAsPaid.useMutation({
-  onSuccess: () => {
-    // Invalidate and refetch bills
-    queryClient.invalidateQueries({ queryKey: ['bills'] })
-  }
-})
+export class PaymentReconciliationService {
+  static async processTransaction(transaction: UpBankTransaction): Promise<ReconciliationResult>
+  static async findExactMatches(amount: number, housemateId?: number): Promise<Debt[]>
+  static async findCombinationMatches(amount: number, housemateId?: number): Promise<Debt[][]>
+  static async identifyHousemate(transaction: UpBankTransaction): Promise<number | null>
+}
 ```
 
-### Create Management Interface
+### 🚧 Planned: Unmatched Transaction Handling
 
-1. Add forms for creating new bills manually
-2. Add interface for managing housemates
-3. Add dashboard showing payment statistics
-4. Add search and filtering capabilities
+1. **Enhance unreconciledTransactions table:**
+   - Store failed transaction matches with reasons
+   - Add manual reconciliation interface
+   - Track reconciliation success rates
+
+2. **Add manual reconciliation UI:**
+   - Dashboard for unmatched transactions
+   - Manual debt assignment interface
+   - Reconciliation history and statistics
+
+### 🚧 Planned: Integration Points
+
+1. **Environment variables:**
+```env
+# Up Bank API
+UP_BANK_API_TOKEN="your-up-bank-personal-access-token"
+UP_BANK_WEBHOOK_SECRET="your-webhook-secret"
+```
+
+2. **Webhook URL for Up Bank:**
+   - Production: `https://your-app.vercel.app/api/up-transaction`
+   - Development: Use ngrok for local testing
+
+3. **Dashboard enhancements:**
+   - Payment reconciliation status
+   - Unmatched transaction alerts
+   - Housemate payment history with bank transaction details
+
+## Milestone 5: Frontend Dashboard Application
+Goal: Build a protected dashboard with bills management and webhook monitoring.
+
+### ✅ Authentication Protection
+
+- All routes protected with Better Auth
+- Automatic redirect to `/login` for unauthenticated users
+- Session management with server-side validation
+
+### ✅ Dashboard Pages
+
+1. **Main Dashboard** (`/bills`):
+   - Bills overview with summary cards
+   - Bills table with payment tracking
+   - Manual bill upload functionality
+   - Mark debts as paid interface
+
+2. **Housemates Management** (`/housemates`):
+   - Housemate list with statistics
+   - Add/edit/deactivate housemates
+   - View individual debt history
+
+3. **Developer Tools**:
+   - Webhook statistics monitoring
+   - Manual bill processing
+
+### ✅ UI Components
+
+Built with shadcn/ui components:
+- `Card` components for sections
+- `Table` for data display
+- `Button` for actions
+- `Dialog` for modals
+- `Input` and `Label` for forms
 
 ## Milestone 6: Deployment
-Goal: Deploy the application to production.
+Goal: Deploy the simplified single-package application.
 
 ### Build for Production
 
@@ -241,24 +265,54 @@ bun build
 
 ### Deploy to Vercel
 
-Since TanStack Start serves both frontend and API:
+Since everything is now in a single package:
 
 1. **Deploy to Vercel**:
    - Push code to GitHub
    - Connect repository to Vercel
-   - Configure all environment variables in Vercel dashboard
-   - Vercel will automatically detect TanStack Start and configure build settings
+   - Configure environment variables
+   - Automatic TanStack Start detection
 
 ### Configure Webhooks
 
-Update SendGrid and Up Bank webhook URLs to point to production endpoints:
-- SendGrid: `https://your-vercel-url.vercel.app/api/webhook/email`
-- Up Bank: `https://your-vercel-url.vercel.app/api/webhook/up-transaction`
+Update webhook URLs:
+- Email: `https://your-vercel-url.vercel.app/api/email-webhook`
+- Cron: `https://your-vercel-url.vercel.app/api/cron/generate-bills`
 
-### Environment Variables
+### Vercel Cron Jobs
 
-Ensure all environment variables are set in production:
-- Database credentials (Turso)
-- API keys (Twilio, Up Bank, OpenAI)
-- Authentication secrets
-- CORS origins
+Add to `vercel.json`:
+```json
+{
+  "crons": [
+    {
+      "path": "/api/cron/generate-bills",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
+```
+
+## Architecture Benefits
+
+### ✅ Simplified Structure
+- **Before**: Complex monorepo with oRPC and React Query
+- **After**: Single package with direct server function calls
+
+### ✅ Better Developer Experience
+- **Before**: `orpcClient.bills.getAllBills.query()`
+- **After**: `await getAllBills()` (direct calls)
+
+### ✅ Reduced Complexity
+- No more API package compilation
+- No React Query cache management
+- Direct server-side state management
+- Co-located server functions with UI
+
+### ✅ Maintainability
+- Single package.json
+- Simplified dependency management
+- Direct import paths
+- Better TypeScript integration
+
+This refactored architecture provides the same functionality with significantly reduced complexity and better maintainability.
