@@ -1,16 +1,14 @@
-import type { Context as HonoContext } from "hono";
 import { auth } from "./auth";
 
 export type CreateContextOptions = {
-	context?: HonoContext;
 	req?: Request;
 };
 
-export async function createContext({ context, req }: CreateContextOptions) {
-	const headers = context ? context.req.raw.headers : req?.headers;
+export async function createContext({ req }: CreateContextOptions) {
+	const headers = req?.headers;
 
 	if (!headers) {
-		throw new Error("Either context or req must be provided");
+		throw new Error("Request must be provided");
 	}
 
 	const session = await auth.api.getSession({

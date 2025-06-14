@@ -14,10 +14,30 @@ export const parsedBillSchema = z.object({
 
 export type ParsedBill = z.infer<typeof parsedBillSchema>;
 
-const vertex = createVertex({
+// Configure Google Cloud credentials
+interface VertexConfig {
+	project?: string;
+	location?: string;
+	credentials?: {
+		client_email: string;
+		private_key: string;
+	};
+}
+
+const vertexConfig: VertexConfig = {
 	project: process.env.GOOGLE_VERTEX_PROJECT,
 	location: process.env.GOOGLE_CLOUD_REGION || "us-central1",
-});
+};
+
+// For Vercel deployment, use individual credential fields
+if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+	vertexConfig.credentials = {
+		client_email: process.env.GOOGLE_CLIENT_EMAIL,
+		private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+	};
+}
+
+const vertex = createVertex(vertexConfig);
 
 export class AIParserService {
 	// Vertex AI will use environment variables for authentication

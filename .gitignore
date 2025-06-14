@@ -1,4 +1,61 @@
+# Dependencies
 node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Build outputs
+/.next/
+/.tanstack/
+/out/
+/build/
+/dist/
+.vinxi
+.output
+.react-router/
 .turbo
-.env
+.tanstack
+packages/api/dist/
+packages/api/tsconfig.tsbuildinfo
+
+# Testing
+/coverage
+
+# Deployment
+.vercel
+.netlify
+.wrangler
+
+# Environment & local files
+.env*
+!.env.example
+.DS_Store
+*.pem
+*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log*
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Seed files (contains personal data)
 src/scripts/seed.ts
+packages/api/src/scripts/seed.ts
+
+# Other
+dev-dist
