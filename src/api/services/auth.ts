@@ -13,6 +13,6 @@ export const auth = betterAuth({
 	trustedOrigins: [process.env.VITE_BASE_URL || ""],
 	emailAndPassword: {
 		enabled: true,
-		// disableSignUp: true,
+		disableSignUp: true,
 	},
 });
