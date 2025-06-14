@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import {
 	SidebarGroup,
 	SidebarGroupContent,
+	SidebarGroupLabel,
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
@@ -11,15 +12,18 @@ import {
 
 export function NavMain({
 	items,
+	title = "Main",
 }: {
 	items: {
 		title: string;
 		url: string;
 		icon?: Icon;
 	}[];
+	title?: string;
 }) {
 	return (
 		<SidebarGroup>
+			<SidebarGroupLabel>{title}</SidebarGroupLabel>
 			<SidebarGroupContent>
 				<SidebarMenu>
 					{items.map((item) => (

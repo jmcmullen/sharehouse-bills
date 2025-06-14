@@ -16,7 +16,6 @@ import { Route as HousematesRouteImport } from './routes/housemates'
 import { Route as BillsRouteImport } from './routes/bills'
 import { Route as AiRouteImport } from './routes/ai'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as HookTestRouteImport } from './routes/hook/test'
 import { ServerRoute as ApiUpWebhookServerRouteImport } from './routes/api.up-webhook'
 import { ServerRoute as ApiEmailWebhookServerRouteImport } from './routes/api.email-webhook'
 import { ServerRoute as ApiAiServerRouteImport } from './routes/api.ai'
@@ -49,11 +48,6 @@ const AiRoute = AiRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const HookTestRoute = HookTestRouteImport.update({
-  id: '/hook/test',
-  path: '/hook/test',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiUpWebhookServerRoute = ApiUpWebhookServerRouteImport.update({
@@ -94,7 +88,6 @@ export interface FileRoutesByFullPath {
   '/bills': typeof BillsRoute
   '/housemates': typeof HousematesRoute
   '/login': typeof LoginRoute
-  '/hook/test': typeof HookTestRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -102,7 +95,6 @@ export interface FileRoutesByTo {
   '/bills': typeof BillsRoute
   '/housemates': typeof HousematesRoute
   '/login': typeof LoginRoute
-  '/hook/test': typeof HookTestRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -111,21 +103,13 @@ export interface FileRoutesById {
   '/bills': typeof BillsRoute
   '/housemates': typeof HousematesRoute
   '/login': typeof LoginRoute
-  '/hook/test': typeof HookTestRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/ai' | '/bills' | '/housemates' | '/login' | '/hook/test'
+  fullPaths: '/' | '/ai' | '/bills' | '/housemates' | '/login'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/ai' | '/bills' | '/housemates' | '/login' | '/hook/test'
-  id:
-    | '__root__'
-    | '/'
-    | '/ai'
-    | '/bills'
-    | '/housemates'
-    | '/login'
-    | '/hook/test'
+  to: '/' | '/ai' | '/bills' | '/housemates' | '/login'
+  id: '__root__' | '/' | '/ai' | '/bills' | '/housemates' | '/login'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -134,7 +118,6 @@ export interface RootRouteChildren {
   BillsRoute: typeof BillsRoute
   HousematesRoute: typeof HousematesRoute
   LoginRoute: typeof LoginRoute
-  HookTestRoute: typeof HookTestRoute
 }
 export interface FileServerRoutesByFullPath {
   '/api/$': typeof ApiSplatServerRoute
@@ -234,13 +217,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/hook/test': {
-      id: '/hook/test'
-      path: '/hook/test'
-      fullPath: '/hook/test'
-      preLoaderRoute: typeof HookTestRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 declare module '@tanstack/react-start/server' {
@@ -296,7 +272,6 @@ const rootRouteChildren: RootRouteChildren = {
   BillsRoute: BillsRoute,
   HousematesRoute: HousematesRoute,
   LoginRoute: LoginRoute,
-  HookTestRoute: HookTestRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

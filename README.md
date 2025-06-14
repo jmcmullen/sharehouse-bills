@@ -4,12 +4,13 @@ A modern bill management system for shared housing, built with a simplified TanS
 
 ## 🏗️ Architecture
 
-This project uses a **simplified single-package architecture** with TanStack Start server functions:
+![System Architecture](./docs/architecture.png)
 
 - **Frontend & Backend**: TanStack Start with React 19
 - **Database**: Drizzle ORM with SQLite/Turso
 - **Authentication**: Better Auth with session management
-- **AI Processing**: Google Gemini 1.5 Flash for PDF parsing
+- **AI Processing**: Google Gemini 2.5 Flash for PDF parsing
+- **Payment Integration**: Up Bank webhooks for automatic reconciliation
 - **UI Components**: shadcn/ui with Tailwind CSS
 - **Type Safety**: End-to-end TypeScript
 
@@ -17,14 +18,15 @@ This project uses a **simplified single-package architecture** with TanStack Sta
 
 ### 📧 Email Bill Processing
 
-- Forward bill PDFs to a webhook email
+- Forward emails to sendgrid to trigger the webhook
 - AI automatically extracts bill details (amount, due date, biller)
 - Creates bills and splits costs among active housemates
 - Sends email notifications with processing results
+- Posts in a WhatsApp group telling housemates about the new bill
 
 ### 🔄 Recurring Bills
 
-- Automated weekly rent generation ($1890 every Thursday)
+- Automated weekly rent generation
 - Customizable recurring bill templates
 - Automatic splitting among active housemates
 - Cron job integration for automation
@@ -43,13 +45,6 @@ This project uses a **simplified single-package architecture** with TanStack Sta
 - Summary dashboard with payment statistics
 - Individual housemate debt views
 
-### 🛠️ Developer Tools
-
-- Manual bill upload interface
-- Webhook statistics and monitoring
-- Test bill processing functionality
-- Cron job manual triggers
-
 ### 🚧 Planned Features
 
 - **Up Bank Integration**: Automatic payment reconciliation via bank webhooks
@@ -57,40 +52,20 @@ This project uses a **simplified single-package architecture** with TanStack Sta
 
 ## 🚀 Getting Started
 
-### Prerequisites
-
-- [Bun](https://bun.sh) runtime
-- [Turso](https://turso.tech) database (or local SQLite)
-- [Google AI Studio](https://makersuite.google.com/app/apikey) API key
-
 ### Installation
 
 1. **Clone and install dependencies:**
 
 ```bash
-git clone <repository>
+git clone https://github.com/jmcmullen/sharehouse-bills.git
 cd sharehouse-bills
 bun install
 ```
 
 2. **Set up environment variables:**
-   Create a `.env` file in the root:
 
-```env
-# Database
-DATABASE_URL="your-turso-database-url"
-DATABASE_AUTH_TOKEN="your-turso-auth-token"
-
-# Authentication
-BETTER_AUTH_SECRET="your-auth-secret"
-BETTER_AUTH_URL="http://localhost:3001"
-
-# AI Processing
-GOOGLE_GENERATIVE_AI_API_KEY="your-gemini-api-key"
-
-# Optional: Email notifications
-TWILIO_ACCOUNT_SID="your-twilio-account-sid"
-TWILIO_AUTH_TOKEN="your-twilio-auth-token"
+```bash
+cp .env.example .env
 ```
 
 3. **Set up the database:**
@@ -138,8 +113,8 @@ sharehouse-bills/
 ### Development
 
 ```bash
-bun dev                    # Start development server (port 3001)
-bun build                  # Build for production
+bun dev                   # Start development server (port 3001)
+bun build                 # Build for production
 bun typecheck             # Check TypeScript types
 bun check                 # Run Biome formatting and linting
 ```
@@ -148,101 +123,10 @@ bun check                 # Run Biome formatting and linting
 
 ```bash
 bun db:push               # Push schema changes to database
-bun db:studio             # Open Drizzle Studio for database management
+bun db:studio             # Open Drizzle Studio
 bun db:generate           # Generate database migrations
 bun db:migrate            # Run database migrations
 ```
-
-## 🔧 Usage
-
-### 1. Set Up Housemates
-
-- Navigate to `/housemates`
-- Add all housemates with their names and optional bank aliases
-- Ensure at least one housemate is marked as "owner" (non-debt-paying)
-
-### 2. Process Bills
-
-**Via Email (Recommended):**
-
-- Set up email forwarding to your webhook endpoint
-- Forward bill PDFs to the email address
-- Bills are automatically processed and split
-
-**Manual Upload:**
-
-- Navigate to `/bills`
-- Click "Add Bill"
-- Upload a PDF file
-- AI extracts details and creates the bill
-
-### 3. Track Payments
-
-- View all bills on the `/bills` dashboard
-- Click "Mark as Paid" for any bill
-- Enter payment amounts for each housemate
-- Track payment status and statistics
-
-### 4. Manage Recurring Bills
-
-- Weekly rent is automatically generated every Thursday
-- Manual generation available via cron endpoint
-- Customize amounts and schedules via database
-
-## 📊 API Endpoints
-
-### Server Functions
-
-- `getAllBills()` - Fetch all bills with debt information
-- `createBill(data)` - Create a new bill
-- `markDebtPaid(debtId, isPaid)` - Update payment status
-- `getAllHousemates()` - Fetch all housemates
-- `createHousemate(data)` - Add new housemate
-
-### HTTP Routes
-
-- `POST /api/email-webhook` - Process email attachments
-- `POST /api/cron/generate-bills` - Generate recurring bills
-- `GET/POST /api/auth/*` - Authentication endpoints
-
-## 🚀 Deployment
-
-### Vercel (Recommended)
-
-1. Connect your repository to Vercel
-2. Set environment variables in Vercel dashboard
-3. Deploy automatically with git push
-
-### Vercel Cron Jobs
-
-Add to `vercel.json`:
-
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/generate-bills",
-      "schedule": "0 0 * * *"
-    }
-  ]
-}
-```
-
-## 🔒 Authentication
-
-The application uses Better Auth with email/password authentication:
-
-- All routes are protected except `/login`
-- Session-based authentication
-- Automatic redirect to login for unauthenticated users
-
-## 🤖 AI Processing
-
-Bills are processed using Google Gemini 1.5 Flash:
-
-- Extracts biller name, total amount, and due date from PDFs
-- Handles various bill formats automatically
-- Structured JSON output for database insertion
 
 ## 🤝 Contributing
 
@@ -251,7 +135,3 @@ Bills are processed using Google Gemini 1.5 Flash:
 3. Run `bun check` for linting
 4. Run `bun typecheck` for type checking
 5. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License.
