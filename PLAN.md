@@ -152,72 +152,78 @@ Cron endpoint implemented at `src/routes/api.cron.generate-bills.ts`:
 - **Splitting**: Equal division among active housemates
 - **Automation**: Fully automated with manual override
 
-## Milestone 4: Up Bank Payment Reconciliation Engine
+## Milestone 4: Up Bank Payment Reconciliation Engine ✅
 Goal: Create webhook for Up Bank transactions and implement smart payment reconciliation.
 
-### 🚧 Planned: Transaction Webhook
+### ✅ Transaction Webhook Implementation
 
-1. **Add Up Bank webhook endpoint** at `src/routes/api.up-transaction.ts`:
+1. **Up Bank webhook endpoint** implemented at `src/routes/api.up-webhook.ts`:
+   - **Security**: HMAC SHA-256 signature verification using `UP_BANK_WEBHOOK_SECRET`
+   - **Event filtering**: Only processes `TRANSACTION_SETTLED` events to avoid duplicates
+   - **Transaction validation**: Only processes incoming transactions (positive amounts)
+   - **Error handling**: Comprehensive error responses and logging
+
+### ✅ Smart Payment Reconciliation Service
+
+**Payment reconciliation service** (`src/api/services/payment-reconciliation.ts`):
+
+1. **Reconciliation algorithms implemented:**
+   - **Exact match with tolerance**: Match transaction amount to single debt (±1¢ tolerance for rounding)
+   - **Combination match**: Find multiple debts that sum to transaction amount (up to 3 debts)
+   - **Fuzzy matching**: 1¢ tolerance handles rounding discrepancies
+   - **Housemate identification**: Match by bank alias or name in transaction description
+
+2. **Core functions:**
 ```typescript
-import { createServerFileRoute } from "@tanstack/react-start/server";
-
-export const ServerRoute = createServerFileRoute("/api/up-transaction").methods({
-  POST: async ({ request }) => {
-    // Handle Up Bank webhook
-    // Verify webhook signature for security
-    // Parse transaction details
-    // Match payments to outstanding debts
-  }
-});
+export async function processTransaction(transaction: UpBankTransaction): Promise<ReconciliationResult>
+export async function findExactMatches(amount: number, housemateId?: number | null): Promise<Debt[]>
+export async function findCombinationMatches(amount: number, housemateId?: number | null): Promise<Debt[][]>
+export async function identifyHousemate(transaction: UpBankTransaction): Promise<number | null>
+export async function markDebtsAsPaid(debtsToMark: Debt[]): Promise<void>
+export async function storeUnreconciledTransaction(transaction, reason): Promise<void>
+export async function manuallyReconcileTransaction(transactionId: string, debtIds: number[]): Promise<ReconciliationResult>
 ```
 
-### 🚧 Planned: Smart Payment Reconciliation
+### ✅ Unmatched Transaction Handling
 
-1. **Implement reconciliation algorithms:**
-   - **Exact match**: Match transaction amount to single debt amount
-   - **Combination match**: Use subset sum algorithm for multiple debt payments
-   - **Fuzzy match**: Handle small discrepancies (fees, rounding)
-   - **Housemate identification**: Match by bank alias or transaction description
+1. **unreconciledTransactions table** (already existed):
+   - Stores failed transaction matches with reasons (`no_match`, `ambiguous_match`, `insufficient_data`)
+   - Includes full transaction data for debugging
+   - Prevents duplicate processing with transaction ID tracking
 
-2. **Add reconciliation service** (`src/api/services/payment-reconciliation.ts`):
-```typescript
-export class PaymentReconciliationService {
-  static async processTransaction(transaction: UpBankTransaction): Promise<ReconciliationResult>
-  static async findExactMatches(amount: number, housemateId?: number): Promise<Debt[]>
-  static async findCombinationMatches(amount: number, housemateId?: number): Promise<Debt[][]>
-  static async identifyHousemate(transaction: UpBankTransaction): Promise<number | null>
-}
-```
+2. **Manual reconciliation capability:**
+   - `getUnreconciledTransactions()` - Retrieve all unmatched transactions
+   - `manuallyReconcileTransaction()` - Manually assign transactions to specific debts
+   - Automatic cleanup when manual reconciliation is successful
 
-### 🚧 Planned: Unmatched Transaction Handling
+### ✅ Integration Points
 
-1. **Enhance unreconciledTransactions table:**
-   - Store failed transaction matches with reasons
-   - Add manual reconciliation interface
-   - Track reconciliation success rates
-
-2. **Add manual reconciliation UI:**
-   - Dashboard for unmatched transactions
-   - Manual debt assignment interface
-   - Reconciliation history and statistics
-
-### 🚧 Planned: Integration Points
-
-1. **Environment variables:**
+1. **Environment variables configured:**
 ```env
-# Up Bank API
+# Up Bank API Integration
 UP_BANK_API_TOKEN="your-up-bank-personal-access-token"
 UP_BANK_WEBHOOK_SECRET="your-webhook-secret"
 ```
 
 2. **Webhook URL for Up Bank:**
-   - Production: `https://your-app.vercel.app/api/up-transaction`
+   - Production: `https://your-app.vercel.app/api/up-webhook`
    - Development: Use ngrok for local testing
+   - Endpoint: `/api/up-webhook` (POST)
 
-3. **Dashboard enhancements:**
-   - Payment reconciliation status
-   - Unmatched transaction alerts
-   - Housemate payment history with bank transaction details
+3. **Features implemented:**
+   - ✅ Real-time payment processing
+   - ✅ Automatic debt reconciliation
+   - ✅ Duplicate transaction prevention
+   - ✅ Comprehensive error handling and logging
+   - ✅ 1¢ tolerance for rounding differences
+   - ✅ Housemate identification from transaction descriptions
+   - 🚧 Dashboard UI for unmatched transactions (planned for Milestone 5)
+
+### Key Improvements Made:
+- **Rounding tolerance**: ±1¢ tolerance handles rounded payments (e.g., $25.43 debt paid as $25.00)
+- **Event deduplication**: Only processes `TRANSACTION_SETTLED` events to avoid duplicate processing
+- **Function-based architecture**: Replaced static class with individual functions for better maintainability
+- **Comprehensive error handling**: Detailed logging and error responses for debugging
 
 ## Milestone 5: Frontend Application
 Goal: Build a protected application with bills and housemates management.
