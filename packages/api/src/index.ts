@@ -10,6 +10,7 @@ export type { Context } from "./lib/context";
 // Export services
 export { AIParserService } from "./services/ai-parser";
 export { BillProcessorService } from "./services/bill-processor";
+export { EmailNotifierService } from "./services/email-notifier";
 export type { ParsedBill } from "./services/ai-parser";
 export type {
 	FileAttachment,

@@ -9,16 +9,16 @@ node_modules
 !.yarn/versions
 
 # Build outputs
-/.next/
-/.tanstack/
-/out/
-/build/
-/dist/
+.next/
+.tanstack
+out/
+build/
+dist/
 .vinxi
 .output
 .react-router/
 .turbo
-.tanstack
+.nitro
 packages/api/dist/
 packages/api/tsconfig.tsbuildinfo
 

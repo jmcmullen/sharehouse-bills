@@ -1,8 +1,13 @@
+import {
+	BillProcessorService,
+	EmailNotifierService,
+} from "@sharehouse-bills/api";
 import { createServerFileRoute } from "@tanstack/react-start/server";
-import { BillProcessorService } from "../../../../packages/api/src/services/bill-processor";
 
 export const ServerRoute = createServerFileRoute("/api/email-webhook").methods({
 	POST: async ({ request }) => {
+		let emailMetadata = { from: "", subject: "", numAttachments: 0 };
+
 		try {
 			console.log("Email webhook received");
 
@@ -14,6 +19,9 @@ export const ServerRoute = createServerFileRoute("/api/email-webhook").methods({
 			const subject = formData.get("subject") as string;
 			const numAttachments =
 				Number.parseInt(formData.get("attachments") as string) || 0;
+
+			// Store for error handling
+			emailMetadata = { from, subject, numAttachments };
 
 			console.log("Email from:", from);
 			console.log("Subject:", subject);
@@ -101,6 +109,19 @@ export const ServerRoute = createServerFileRoute("/api/email-webhook").methods({
 				`Processing complete: ${successCount} successful, ${errorCount} failed`,
 			);
 
+			// Send email notification with results
+			try {
+				const emailNotifier = new EmailNotifierService();
+				await emailNotifier.sendWebhookResult(results, {
+					from,
+					subject,
+					numAttachments,
+				});
+			} catch (emailError) {
+				console.error("Failed to send email notification:", emailError);
+				// Continue processing even if email fails
+			}
+
 			return new Response(
 				JSON.stringify({
 					success: true,
@@ -122,6 +143,18 @@ export const ServerRoute = createServerFileRoute("/api/email-webhook").methods({
 			console.error("Email webhook error:", error);
 			const errorMessage =
 				error instanceof Error ? error.message : String(error);
+
+			// Send error notification email
+			try {
+				const emailNotifier = new EmailNotifierService();
+				await emailNotifier.sendErrorNotification(
+					error instanceof Error ? error : new Error(errorMessage),
+					emailMetadata,
+				);
+			} catch (emailError) {
+				console.error("Failed to send error notification:", emailError);
+				// Continue with original error response
+			}
 
 			return new Response(
 				JSON.stringify({
