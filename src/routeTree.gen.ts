@@ -11,14 +11,12 @@
 import { createServerRootRoute } from '@tanstack/react-start/server'
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TodosRouteImport } from './routes/todos'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as HousematesRouteImport } from './routes/housemates'
 import { Route as BillsRouteImport } from './routes/bills'
 import { Route as AiRouteImport } from './routes/ai'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as HookTestRouteImport } from './routes/hook/test'
-import { Route as HookStatsRouteImport } from './routes/hook/stats'
 import { ServerRoute as ApiEmailWebhookServerRouteImport } from './routes/api.email-webhook'
 import { ServerRoute as ApiAiServerRouteImport } from './routes/api.ai'
 import { ServerRoute as ApiSplatServerRouteImport } from './routes/api.$'
@@ -27,11 +25,6 @@ import { ServerRoute as ApiAuthSplatServerRouteImport } from './routes/api.auth.
 
 const rootServerRouteImport = createServerRootRoute()
 
-const TodosRoute = TodosRouteImport.update({
-  id: '/todos',
-  path: '/todos',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -60,11 +53,6 @@ const IndexRoute = IndexRouteImport.update({
 const HookTestRoute = HookTestRouteImport.update({
   id: '/hook/test',
   path: '/hook/test',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const HookStatsRoute = HookStatsRouteImport.update({
-  id: '/hook/stats',
-  path: '/hook/stats',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiEmailWebhookServerRoute = ApiEmailWebhookServerRouteImport.update({
@@ -100,8 +88,6 @@ export interface FileRoutesByFullPath {
   '/bills': typeof BillsRoute
   '/housemates': typeof HousematesRoute
   '/login': typeof LoginRoute
-  '/todos': typeof TodosRoute
-  '/hook/stats': typeof HookStatsRoute
   '/hook/test': typeof HookTestRoute
 }
 export interface FileRoutesByTo {
@@ -110,8 +96,6 @@ export interface FileRoutesByTo {
   '/bills': typeof BillsRoute
   '/housemates': typeof HousematesRoute
   '/login': typeof LoginRoute
-  '/todos': typeof TodosRoute
-  '/hook/stats': typeof HookStatsRoute
   '/hook/test': typeof HookTestRoute
 }
 export interface FileRoutesById {
@@ -121,31 +105,13 @@ export interface FileRoutesById {
   '/bills': typeof BillsRoute
   '/housemates': typeof HousematesRoute
   '/login': typeof LoginRoute
-  '/todos': typeof TodosRoute
-  '/hook/stats': typeof HookStatsRoute
   '/hook/test': typeof HookTestRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/ai'
-    | '/bills'
-    | '/housemates'
-    | '/login'
-    | '/todos'
-    | '/hook/stats'
-    | '/hook/test'
+  fullPaths: '/' | '/ai' | '/bills' | '/housemates' | '/login' | '/hook/test'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/ai'
-    | '/bills'
-    | '/housemates'
-    | '/login'
-    | '/todos'
-    | '/hook/stats'
-    | '/hook/test'
+  to: '/' | '/ai' | '/bills' | '/housemates' | '/login' | '/hook/test'
   id:
     | '__root__'
     | '/'
@@ -153,8 +119,6 @@ export interface FileRouteTypes {
     | '/bills'
     | '/housemates'
     | '/login'
-    | '/todos'
-    | '/hook/stats'
     | '/hook/test'
   fileRoutesById: FileRoutesById
 }
@@ -164,8 +128,6 @@ export interface RootRouteChildren {
   BillsRoute: typeof BillsRoute
   HousematesRoute: typeof HousematesRoute
   LoginRoute: typeof LoginRoute
-  TodosRoute: typeof TodosRoute
-  HookStatsRoute: typeof HookStatsRoute
   HookTestRoute: typeof HookTestRoute
 }
 export interface FileServerRoutesByFullPath {
@@ -224,13 +186,6 @@ export interface RootServerRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/todos': {
-      id: '/todos'
-      path: '/todos'
-      fullPath: '/todos'
-      preLoaderRoute: typeof TodosRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -271,13 +226,6 @@ declare module '@tanstack/react-router' {
       path: '/hook/test'
       fullPath: '/hook/test'
       preLoaderRoute: typeof HookTestRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/hook/stats': {
-      id: '/hook/stats'
-      path: '/hook/stats'
-      fullPath: '/hook/stats'
-      preLoaderRoute: typeof HookStatsRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -328,8 +276,6 @@ const rootRouteChildren: RootRouteChildren = {
   BillsRoute: BillsRoute,
   HousematesRoute: HousematesRoute,
   LoginRoute: LoginRoute,
-  TodosRoute: TodosRoute,
-  HookStatsRoute: HookStatsRoute,
   HookTestRoute: HookTestRoute,
 }
 export const routeTree = rootRouteImport
