@@ -157,7 +157,7 @@ Important guidelines:
 	async testConnection(): Promise<boolean> {
 		try {
 			const { text } = await generateText({
-				model: vertex("gemini-1.5-flash"),
+				model: vertex("gemini-2.0-flash-lite-preview-02-05"),
 				messages: [
 					{
 						role: "user",
