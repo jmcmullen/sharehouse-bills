@@ -15,25 +15,20 @@ export const parsedBillSchema = z.object({
 export type ParsedBill = z.infer<typeof parsedBillSchema>;
 
 // Configure Google Cloud credentials
-interface VertexConfig {
-	project?: string;
-	location?: string;
-	credentials?: {
-		client_email: string;
-		private_key: string;
-	};
-}
-
-const vertexConfig: VertexConfig = {
+const vertexConfig: Parameters<typeof createVertex>[0] = {
 	project: process.env.GOOGLE_VERTEX_PROJECT,
 	location: process.env.GOOGLE_CLOUD_REGION || "us-central1",
 };
 
 // For Vercel deployment, use individual credential fields
 if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
-	vertexConfig.credentials = {
-		client_email: process.env.GOOGLE_CLIENT_EMAIL,
-		private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+	console.log("Setting up Google Vertex credentials...");
+	vertexConfig.googleAuthOptions = {
+		credentials: {
+			client_email: process.env.GOOGLE_CLIENT_EMAIL,
+			private_key: process.env.GOOGLE_PRIVATE_KEY,
+		},
+		scopes: ["https://www.googleapis.com/auth/cloud-platform"],
 	};
 }
 

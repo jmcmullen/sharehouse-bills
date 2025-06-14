@@ -11,6 +11,7 @@
 import { createServerRootRoute } from '@tanstack/react-start/server'
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WebhookStatsRouteImport } from './routes/webhook-stats'
 import { Route as TodosRouteImport } from './routes/todos'
 import { Route as TestWebhookRouteImport } from './routes/test-webhook'
 import { Route as LoginRouteImport } from './routes/login'
@@ -25,6 +26,11 @@ import { ServerRoute as ApiAuthSplatServerRouteImport } from './routes/api.auth.
 
 const rootServerRouteImport = createServerRootRoute()
 
+const WebhookStatsRoute = WebhookStatsRouteImport.update({
+  id: '/webhook-stats',
+  path: '/webhook-stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TodosRoute = TodosRouteImport.update({
   id: '/todos',
   path: '/todos',
@@ -88,6 +94,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/test-webhook': typeof TestWebhookRoute
   '/todos': typeof TodosRoute
+  '/webhook-stats': typeof WebhookStatsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -96,6 +103,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/test-webhook': typeof TestWebhookRoute
   '/todos': typeof TodosRoute
+  '/webhook-stats': typeof WebhookStatsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -105,12 +113,27 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/test-webhook': typeof TestWebhookRoute
   '/todos': typeof TodosRoute
+  '/webhook-stats': typeof WebhookStatsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/ai' | '/dashboard' | '/login' | '/test-webhook' | '/todos'
+  fullPaths:
+    | '/'
+    | '/ai'
+    | '/dashboard'
+    | '/login'
+    | '/test-webhook'
+    | '/todos'
+    | '/webhook-stats'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/ai' | '/dashboard' | '/login' | '/test-webhook' | '/todos'
+  to:
+    | '/'
+    | '/ai'
+    | '/dashboard'
+    | '/login'
+    | '/test-webhook'
+    | '/todos'
+    | '/webhook-stats'
   id:
     | '__root__'
     | '/'
@@ -119,6 +142,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/test-webhook'
     | '/todos'
+    | '/webhook-stats'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -128,6 +152,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   TestWebhookRoute: typeof TestWebhookRoute
   TodosRoute: typeof TodosRoute
+  WebhookStatsRoute: typeof WebhookStatsRoute
 }
 export interface FileServerRoutesByFullPath {
   '/api/$': typeof ApiSplatServerRoute
@@ -180,6 +205,13 @@ export interface RootServerRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/webhook-stats': {
+      id: '/webhook-stats'
+      path: '/webhook-stats'
+      fullPath: '/webhook-stats'
+      preLoaderRoute: typeof WebhookStatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/todos': {
       id: '/todos'
       path: '/todos'
@@ -271,6 +303,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   TestWebhookRoute: TestWebhookRoute,
   TodosRoute: TodosRoute,
+  WebhookStatsRoute: WebhookStatsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

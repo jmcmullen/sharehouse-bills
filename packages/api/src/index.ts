@@ -11,8 +11,14 @@ export type { Context } from "./lib/context";
 export { AIParserService } from "./services/ai-parser";
 export { BillProcessorService } from "./services/bill-processor";
 export { EmailNotifierService } from "./services/email-notifier";
+export { WebhookStatsService } from "./services/webhook-stats";
 export type { ParsedBill } from "./services/ai-parser";
 export type {
 	FileAttachment,
 	ProcessingResult,
 } from "./services/bill-processor";
+export type {
+	WebhookStatsParams,
+	WebhookStatistic,
+	WebhookStatsResponse,
+} from "./services/webhook-stats";
