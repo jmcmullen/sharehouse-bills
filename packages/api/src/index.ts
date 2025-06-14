@@ -66,3 +66,12 @@ export { createContext } from "./lib/context";
 export { auth } from "./lib/auth";
 export { o, publicProcedure, protectedProcedure } from "./lib/orpc";
 export type { Context } from "./lib/context";
+
+// Export services
+export { AIParserService } from "./services/ai-parser";
+export { BillProcessorService } from "./services/bill-processor";
+export type { ParsedBill } from "./services/ai-parser";
+export type {
+	FileAttachment,
+	ProcessingResult,
+} from "./services/bill-processor";

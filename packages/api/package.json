@@ -3,28 +3,27 @@
 	"main": "src/index.ts",
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts",
-		"./db": "./src/db/index.ts",
-		"./routers": "./src/routers/index.ts",
-		"./lib": "./src/lib/index.ts"
+		"./*": "./src/*.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
 		"db:generate": "drizzle-kit generate",
-		"db:migrate": "drizzle-kit migrate"
+		"db:migrate": "drizzle-kit migrate",
+		"db:seed": "bun run src/scripts/seed.ts"
 	},
 	"dependencies": {
-		"dotenv": "^16.4.7",
-		"zod": "^3.25.16",
-		"@orpc/server": "^1.5.0",
-		"@orpc/client": "^1.5.0",
-		"drizzle-orm": "^0.38.4",
-		"@libsql/client": "^0.14.0",
-		"ai": "^4.3.16",
 		"@ai-sdk/google": "^1.2.3",
-		"better-auth": "^1.2.9"
+		"@ai-sdk/google-vertex": "^2.2.24",
+		"@libsql/client": "^0.14.0",
+		"@orpc/client": "^1.5.0",
+		"@orpc/server": "^1.5.0",
+		"ai": "^4.3.16",
+		"better-auth": "^1.2.9",
+		"dotenv": "^16.4.7",
+		"drizzle-orm": "^0.38.4",
+		"zod": "^3.25.16"
 	},
 	"devDependencies": {
 		"typescript": "^5.8.2",

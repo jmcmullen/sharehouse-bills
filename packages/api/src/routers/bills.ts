@@ -212,4 +212,80 @@ export const billsRouter = {
 			outstandingAmount: totalAmount - paidAmount,
 		};
 	}),
+
+	// Create bill from email processing (webhook usage)
+	createBillFromEmail: publicProcedure
+		.input(
+			z.object({
+				billerName: z.string().min(1, "Biller name is required"),
+				totalAmount: z.number().positive("Amount must be positive"),
+				dueDate: z.string().datetime("Invalid due date format"),
+				emailFrom: z.string().email("Invalid email format"),
+				emailSubject: z.string().min(1, "Email subject is required"),
+				filename: z.string().min(1, "Filename is required"),
+				billType: z.string().optional(),
+				accountNumber: z.string().optional(),
+				referenceNumber: z.string().optional(),
+			}),
+		)
+		.handler(async ({ input }) => {
+			// Validate that active housemates exist before creating bill
+			const activeHousemates = await db
+				.select()
+				.from(housemates)
+				.where(eq(housemates.isActive, true));
+
+			if (activeHousemates.length === 0) {
+				throw new Error("No active housemates found to assign bill to");
+			}
+
+			// Create the bill
+			const [newBill] = await db
+				.insert(bills)
+				.values({
+					billerName: input.billerName,
+					totalAmount: input.totalAmount,
+					dueDate: new Date(input.dueDate),
+					pdfUrl: null, // Could be enhanced to store PDF content/URL
+				})
+				.returning();
+
+			// Split the bill equally among active housemates
+			const amountPerPerson = input.totalAmount / activeHousemates.length;
+
+			// Create debt records for each housemate
+			const debtRecords = activeHousemates.map((housemate) => ({
+				billId: newBill.id,
+				housemateId: housemate.id,
+				amountOwed: amountPerPerson,
+			}));
+
+			await db.insert(debts).values(debtRecords);
+
+			// Return bill with debt information
+			const billWithDebts = await db
+				.select({
+					bill: bills,
+					debt: debts,
+					housemate: housemates,
+				})
+				.from(bills)
+				.leftJoin(debts, eq(bills.id, debts.billId))
+				.leftJoin(housemates, eq(debts.housemateId, housemates.id))
+				.where(eq(bills.id, newBill.id));
+
+			return {
+				bill: newBill,
+				debts: billWithDebts.map((row) => ({
+					debt: row.debt,
+					housemate: row.housemate,
+				})),
+				metadata: {
+					emailFrom: input.emailFrom,
+					emailSubject: input.emailSubject,
+					filename: input.filename,
+					processingDate: new Date(),
+				},
+			};
+		}),
 };

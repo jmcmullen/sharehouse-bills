@@ -1,6 +1,6 @@
 import { RPCHandler } from "@orpc/server/fetch";
-import { router } from "@sharehouse-bills/api";
-import { createContext } from "@sharehouse-bills/api/lib";
+import { router } from "@sharehouse-bills/api/index";
+import { createContext } from "@sharehouse-bills/api/lib/context";
 import { createServerFileRoute } from "@tanstack/react-start/server";
 
 const handler = new RPCHandler(router);

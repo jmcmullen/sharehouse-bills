@@ -1,0 +1,1 @@
+ALTER TABLE `housemates` ADD `is_owner` integer DEFAULT false NOT NULL;

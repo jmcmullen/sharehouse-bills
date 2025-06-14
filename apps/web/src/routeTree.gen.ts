@@ -12,10 +12,12 @@ import { createServerRootRoute } from '@tanstack/react-start/server'
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TodosRouteImport } from './routes/todos'
+import { Route as TestWebhookRouteImport } from './routes/test-webhook'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AiRouteImport } from './routes/ai'
 import { Route as IndexRouteImport } from './routes/index'
+import { ServerRoute as ApiEmailWebhookServerRouteImport } from './routes/api.email-webhook'
 import { ServerRoute as ApiAiServerRouteImport } from './routes/api.ai'
 import { ServerRoute as ApiSplatServerRouteImport } from './routes/api.$'
 import { ServerRoute as ApiRpcSplatServerRouteImport } from './routes/api.rpc.$'
@@ -26,6 +28,11 @@ const rootServerRouteImport = createServerRootRoute()
 const TodosRoute = TodosRouteImport.update({
   id: '/todos',
   path: '/todos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TestWebhookRoute = TestWebhookRouteImport.update({
+  id: '/test-webhook',
+  path: '/test-webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -47,6 +54,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ApiEmailWebhookServerRoute = ApiEmailWebhookServerRouteImport.update({
+  id: '/api/email-webhook',
+  path: '/api/email-webhook',
+  getParentRoute: () => rootServerRouteImport,
 } as any)
 const ApiAiServerRoute = ApiAiServerRouteImport.update({
   id: '/api/ai',
@@ -74,6 +86,7 @@ export interface FileRoutesByFullPath {
   '/ai': typeof AiRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/test-webhook': typeof TestWebhookRoute
   '/todos': typeof TodosRoute
 }
 export interface FileRoutesByTo {
@@ -81,6 +94,7 @@ export interface FileRoutesByTo {
   '/ai': typeof AiRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/test-webhook': typeof TestWebhookRoute
   '/todos': typeof TodosRoute
 }
 export interface FileRoutesById {
@@ -89,14 +103,22 @@ export interface FileRoutesById {
   '/ai': typeof AiRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/test-webhook': typeof TestWebhookRoute
   '/todos': typeof TodosRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/ai' | '/dashboard' | '/login' | '/todos'
+  fullPaths: '/' | '/ai' | '/dashboard' | '/login' | '/test-webhook' | '/todos'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/ai' | '/dashboard' | '/login' | '/todos'
-  id: '__root__' | '/' | '/ai' | '/dashboard' | '/login' | '/todos'
+  to: '/' | '/ai' | '/dashboard' | '/login' | '/test-webhook' | '/todos'
+  id:
+    | '__root__'
+    | '/'
+    | '/ai'
+    | '/dashboard'
+    | '/login'
+    | '/test-webhook'
+    | '/todos'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -104,17 +126,20 @@ export interface RootRouteChildren {
   AiRoute: typeof AiRoute
   DashboardRoute: typeof DashboardRoute
   LoginRoute: typeof LoginRoute
+  TestWebhookRoute: typeof TestWebhookRoute
   TodosRoute: typeof TodosRoute
 }
 export interface FileServerRoutesByFullPath {
   '/api/$': typeof ApiSplatServerRoute
   '/api/ai': typeof ApiAiServerRoute
+  '/api/email-webhook': typeof ApiEmailWebhookServerRoute
   '/api/auth/$': typeof ApiAuthSplatServerRoute
   '/api/rpc/$': typeof ApiRpcSplatServerRoute
 }
 export interface FileServerRoutesByTo {
   '/api/$': typeof ApiSplatServerRoute
   '/api/ai': typeof ApiAiServerRoute
+  '/api/email-webhook': typeof ApiEmailWebhookServerRoute
   '/api/auth/$': typeof ApiAuthSplatServerRoute
   '/api/rpc/$': typeof ApiRpcSplatServerRoute
 }
@@ -122,20 +147,33 @@ export interface FileServerRoutesById {
   __root__: typeof rootServerRouteImport
   '/api/$': typeof ApiSplatServerRoute
   '/api/ai': typeof ApiAiServerRoute
+  '/api/email-webhook': typeof ApiEmailWebhookServerRoute
   '/api/auth/$': typeof ApiAuthSplatServerRoute
   '/api/rpc/$': typeof ApiRpcSplatServerRoute
 }
 export interface FileServerRouteTypes {
   fileServerRoutesByFullPath: FileServerRoutesByFullPath
-  fullPaths: '/api/$' | '/api/ai' | '/api/auth/$' | '/api/rpc/$'
+  fullPaths:
+    | '/api/$'
+    | '/api/ai'
+    | '/api/email-webhook'
+    | '/api/auth/$'
+    | '/api/rpc/$'
   fileServerRoutesByTo: FileServerRoutesByTo
-  to: '/api/$' | '/api/ai' | '/api/auth/$' | '/api/rpc/$'
-  id: '__root__' | '/api/$' | '/api/ai' | '/api/auth/$' | '/api/rpc/$'
+  to: '/api/$' | '/api/ai' | '/api/email-webhook' | '/api/auth/$' | '/api/rpc/$'
+  id:
+    | '__root__'
+    | '/api/$'
+    | '/api/ai'
+    | '/api/email-webhook'
+    | '/api/auth/$'
+    | '/api/rpc/$'
   fileServerRoutesById: FileServerRoutesById
 }
 export interface RootServerRouteChildren {
   ApiSplatServerRoute: typeof ApiSplatServerRoute
   ApiAiServerRoute: typeof ApiAiServerRoute
+  ApiEmailWebhookServerRoute: typeof ApiEmailWebhookServerRoute
   ApiAuthSplatServerRoute: typeof ApiAuthSplatServerRoute
   ApiRpcSplatServerRoute: typeof ApiRpcSplatServerRoute
 }
@@ -147,6 +185,13 @@ declare module '@tanstack/react-router' {
       path: '/todos'
       fullPath: '/todos'
       preLoaderRoute: typeof TodosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/test-webhook': {
+      id: '/test-webhook'
+      path: '/test-webhook'
+      fullPath: '/test-webhook'
+      preLoaderRoute: typeof TestWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -181,6 +226,13 @@ declare module '@tanstack/react-router' {
 }
 declare module '@tanstack/react-start/server' {
   interface ServerFileRoutesByPath {
+    '/api/email-webhook': {
+      id: '/api/email-webhook'
+      path: '/api/email-webhook'
+      fullPath: '/api/email-webhook'
+      preLoaderRoute: typeof ApiEmailWebhookServerRouteImport
+      parentRoute: typeof rootServerRouteImport
+    }
     '/api/ai': {
       id: '/api/ai'
       path: '/api/ai'
@@ -217,6 +269,7 @@ const rootRouteChildren: RootRouteChildren = {
   AiRoute: AiRoute,
   DashboardRoute: DashboardRoute,
   LoginRoute: LoginRoute,
+  TestWebhookRoute: TestWebhookRoute,
   TodosRoute: TodosRoute,
 }
 export const routeTree = rootRouteImport
@@ -225,6 +278,7 @@ export const routeTree = rootRouteImport
 const rootServerRouteChildren: RootServerRouteChildren = {
   ApiSplatServerRoute: ApiSplatServerRoute,
   ApiAiServerRoute: ApiAiServerRoute,
+  ApiEmailWebhookServerRoute: ApiEmailWebhookServerRoute,
   ApiAuthSplatServerRoute: ApiAuthSplatServerRoute,
   ApiRpcSplatServerRoute: ApiRpcSplatServerRoute,
 }

@@ -6,6 +6,7 @@ export const housemates = sqliteTable("housemates", {
 	email: text("email").unique(),
 	bankAlias: text("bank_alias"), // For matching Up Bank transactions (e.g., "John", "Johnny", "J Smith")
 	isActive: integer("is_active", { mode: "boolean" }).default(true).notNull(),
+	isOwner: integer("is_owner", { mode: "boolean" }).default(false).notNull(), // True for the person who pays bills
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()
 		.$defaultFn(() => new Date()),
