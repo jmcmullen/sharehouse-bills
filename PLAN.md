@@ -219,8 +219,8 @@ UP_BANK_WEBHOOK_SECRET="your-webhook-secret"
    - Unmatched transaction alerts
    - Housemate payment history with bank transaction details
 
-## Milestone 5: Frontend Dashboard Application
-Goal: Build a protected dashboard with bills management and webhook monitoring.
+## Milestone 5: Frontend Application
+Goal: Build a protected application with bills and housemates management.
 
 ### ✅ Authentication Protection
 
@@ -228,9 +228,9 @@ Goal: Build a protected dashboard with bills management and webhook monitoring.
 - Automatic redirect to `/login` for unauthenticated users
 - Session management with server-side validation
 
-### ✅ Dashboard Pages
+### ✅ Application Pages
 
-1. **Main Dashboard** (`/bills`):
+1. **Bills Management** (`/bills`):
    - Bills overview with summary cards
    - Bills table with payment tracking
    - Manual bill upload functionality
@@ -240,10 +240,6 @@ Goal: Build a protected dashboard with bills management and webhook monitoring.
    - Housemate list with statistics
    - Add/edit/deactivate housemates
    - View individual debt history
-
-3. **Developer Tools**:
-   - Webhook statistics monitoring
-   - Manual bill processing
 
 ### ✅ UI Components
 

@@ -230,7 +230,7 @@ function TestWebhook() {
 					<h3 className="mb-3 font-semibold text-lg">🔗 Quick Actions</h3>
 					<div className="space-y-2">
 						<Button variant="link" className="h-auto justify-start p-0" asChild>
-							<a href="/dashboard">→ View Dashboard (see created bills)</a>
+							<a href="/bills">→ View Bills (see created bills)</a>
 						</Button>
 						<Button variant="link" className="h-auto justify-start p-0" asChild>
 							<a

@@ -8,17 +8,10 @@ export const Route = createFileRoute("/")({
 				to: "/login",
 			});
 		}
+
+		// Redirect to bills page as the main landing page
+		throw redirect({
+			to: "/bills",
+		});
 	},
-	component: RouteComponent,
 });
-
-function RouteComponent() {
-	const { session } = Route.useRouteContext();
-
-	return (
-		<div className="container mx-auto px-4 py-8">
-			<h1 className="mb-6 font-bold text-3xl">Dashboard</h1>
-			<p className="mb-4 text-lg">Welcome {session?.user.name}</p>
-		</div>
-	);
-}

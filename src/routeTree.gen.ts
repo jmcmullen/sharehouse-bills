@@ -17,6 +17,7 @@ import { Route as BillsRouteImport } from './routes/bills'
 import { Route as AiRouteImport } from './routes/ai'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as HookTestRouteImport } from './routes/hook/test'
+import { ServerRoute as ApiUpWebhookServerRouteImport } from './routes/api.up-webhook'
 import { ServerRoute as ApiEmailWebhookServerRouteImport } from './routes/api.email-webhook'
 import { ServerRoute as ApiAiServerRouteImport } from './routes/api.ai'
 import { ServerRoute as ApiSplatServerRouteImport } from './routes/api.$'
@@ -54,6 +55,11 @@ const HookTestRoute = HookTestRouteImport.update({
   id: '/hook/test',
   path: '/hook/test',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ApiUpWebhookServerRoute = ApiUpWebhookServerRouteImport.update({
+  id: '/api/up-webhook',
+  path: '/api/up-webhook',
+  getParentRoute: () => rootServerRouteImport,
 } as any)
 const ApiEmailWebhookServerRoute = ApiEmailWebhookServerRouteImport.update({
   id: '/api/email-webhook',
@@ -134,6 +140,7 @@ export interface FileServerRoutesByFullPath {
   '/api/$': typeof ApiSplatServerRoute
   '/api/ai': typeof ApiAiServerRoute
   '/api/email-webhook': typeof ApiEmailWebhookServerRoute
+  '/api/up-webhook': typeof ApiUpWebhookServerRoute
   '/api/auth/$': typeof ApiAuthSplatServerRoute
   '/api/cron/generate-bills': typeof ApiCronGenerateBillsServerRoute
 }
@@ -141,6 +148,7 @@ export interface FileServerRoutesByTo {
   '/api/$': typeof ApiSplatServerRoute
   '/api/ai': typeof ApiAiServerRoute
   '/api/email-webhook': typeof ApiEmailWebhookServerRoute
+  '/api/up-webhook': typeof ApiUpWebhookServerRoute
   '/api/auth/$': typeof ApiAuthSplatServerRoute
   '/api/cron/generate-bills': typeof ApiCronGenerateBillsServerRoute
 }
@@ -149,6 +157,7 @@ export interface FileServerRoutesById {
   '/api/$': typeof ApiSplatServerRoute
   '/api/ai': typeof ApiAiServerRoute
   '/api/email-webhook': typeof ApiEmailWebhookServerRoute
+  '/api/up-webhook': typeof ApiUpWebhookServerRoute
   '/api/auth/$': typeof ApiAuthSplatServerRoute
   '/api/cron/generate-bills': typeof ApiCronGenerateBillsServerRoute
 }
@@ -158,6 +167,7 @@ export interface FileServerRouteTypes {
     | '/api/$'
     | '/api/ai'
     | '/api/email-webhook'
+    | '/api/up-webhook'
     | '/api/auth/$'
     | '/api/cron/generate-bills'
   fileServerRoutesByTo: FileServerRoutesByTo
@@ -165,6 +175,7 @@ export interface FileServerRouteTypes {
     | '/api/$'
     | '/api/ai'
     | '/api/email-webhook'
+    | '/api/up-webhook'
     | '/api/auth/$'
     | '/api/cron/generate-bills'
   id:
@@ -172,6 +183,7 @@ export interface FileServerRouteTypes {
     | '/api/$'
     | '/api/ai'
     | '/api/email-webhook'
+    | '/api/up-webhook'
     | '/api/auth/$'
     | '/api/cron/generate-bills'
   fileServerRoutesById: FileServerRoutesById
@@ -180,6 +192,7 @@ export interface RootServerRouteChildren {
   ApiSplatServerRoute: typeof ApiSplatServerRoute
   ApiAiServerRoute: typeof ApiAiServerRoute
   ApiEmailWebhookServerRoute: typeof ApiEmailWebhookServerRoute
+  ApiUpWebhookServerRoute: typeof ApiUpWebhookServerRoute
   ApiAuthSplatServerRoute: typeof ApiAuthSplatServerRoute
   ApiCronGenerateBillsServerRoute: typeof ApiCronGenerateBillsServerRoute
 }
@@ -232,6 +245,13 @@ declare module '@tanstack/react-router' {
 }
 declare module '@tanstack/react-start/server' {
   interface ServerFileRoutesByPath {
+    '/api/up-webhook': {
+      id: '/api/up-webhook'
+      path: '/api/up-webhook'
+      fullPath: '/api/up-webhook'
+      preLoaderRoute: typeof ApiUpWebhookServerRouteImport
+      parentRoute: typeof rootServerRouteImport
+    }
     '/api/email-webhook': {
       id: '/api/email-webhook'
       path: '/api/email-webhook'
@@ -285,6 +305,7 @@ const rootServerRouteChildren: RootServerRouteChildren = {
   ApiSplatServerRoute: ApiSplatServerRoute,
   ApiAiServerRoute: ApiAiServerRoute,
   ApiEmailWebhookServerRoute: ApiEmailWebhookServerRoute,
+  ApiUpWebhookServerRoute: ApiUpWebhookServerRoute,
   ApiAuthSplatServerRoute: ApiAuthSplatServerRoute,
   ApiCronGenerateBillsServerRoute: ApiCronGenerateBillsServerRoute,
 }
