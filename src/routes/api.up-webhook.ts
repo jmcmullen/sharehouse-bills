@@ -102,16 +102,21 @@ interface UpBankWebhookPayload {
 					type: string;
 					id: string;
 				};
+				links?: {
+					related: string;
+				};
 			};
 			transaction: {
 				data: {
 					type: string;
 					id: string;
 				};
+				links?: {
+					related: string;
+				};
 			};
 		};
 	};
-	included?: UpBankTransaction[];
 }
 
 function verifyWebhookSignature(
@@ -172,13 +177,41 @@ export const ServerRoute = createServerFileRoute("/api/up-webhook").methods({
 				});
 			}
 
-			// Extract transaction data from included array
-			const transaction = payload.included?.find(
-				(item) => item.type === "transactions",
-			);
+			// Get Up Bank API token
+			const upBankApiToken = process.env.UP_BANK_API_TOKEN;
+			if (!upBankApiToken) {
+				console.error("UP_BANK_API_TOKEN not configured");
+				return new Response(
+					JSON.stringify({ error: "API token not configured" }),
+					{ status: 500, headers: { "Content-Type": "application/json" } },
+				);
+			}
+
+			// Fetch transaction details from Up Bank API
+			const transactionId = payload.data.relationships.transaction.data.id;
+			const transactionUrl = `https://api.up.com.au/api/v1/transactions/${transactionId}`;
+
+			const transactionResponse = await fetch(transactionUrl, {
+				headers: {
+					Authorization: `Bearer ${upBankApiToken}`,
+				},
+			});
+
+			if (!transactionResponse.ok) {
+				console.error(
+					`Failed to fetch transaction ${transactionId}: ${transactionResponse.status}`,
+				);
+				return new Response(
+					JSON.stringify({ error: "Failed to fetch transaction" }),
+					{ status: 500, headers: { "Content-Type": "application/json" } },
+				);
+			}
+
+			const transactionData = await transactionResponse.json();
+			const transaction = transactionData.data as UpBankTransaction;
 
 			if (!transaction) {
-				console.error("No transaction data found in webhook payload");
+				console.error("No transaction data found in API response");
 				return new Response(
 					JSON.stringify({ error: "No transaction data found" }),
 					{ status: 400, headers: { "Content-Type": "application/json" } },
