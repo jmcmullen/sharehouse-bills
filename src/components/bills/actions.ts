@@ -7,6 +7,7 @@ export async function deleteBillAction(billId: number) {
 export async function markDebtPaidAction(data: {
 	payments: Array<{ debtId: number; amountPaid: number }>;
 }) {
+	// Process all payments, including those with 0 amount (mark as unpaid)
 	await Promise.all(
 		data.payments.map((payment) =>
 			markDebtPaid({

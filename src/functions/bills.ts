@@ -161,6 +161,42 @@ export const deleteBill = createServerFn({ method: "POST" })
 		return { success: true };
 	});
 
+// Helper function to update bill status based on debt payment status
+async function updateBillStatus(billId: number) {
+	// Get all debts for this bill
+	const billDebts = await db
+		.select()
+		.from(debts)
+		.where(eq(debts.billId, billId));
+
+	if (billDebts.length === 0) {
+		return;
+	}
+
+	// Calculate payment status
+	const paidDebts = billDebts.filter((debt) => debt.isPaid);
+	const totalDebts = billDebts.length;
+
+	let status: "pending" | "partially_paid" | "paid";
+
+	if (paidDebts.length === 0) {
+		status = "pending";
+	} else if (paidDebts.length === totalDebts) {
+		status = "paid";
+	} else {
+		status = "partially_paid";
+	}
+
+	// Update the bill status
+	await db
+		.update(bills)
+		.set({
+			status,
+			updatedAt: new Date(),
+		})
+		.where(eq(bills.id, billId));
+}
+
 // Mark a debt as paid or unpaid
 export const markDebtPaid = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
@@ -171,11 +207,21 @@ export const markDebtPaid = createServerFn({ method: "POST" })
 		}),
 	)
 	.handler(async ({ data }) => {
+		const now = new Date();
 		const [updatedDebt] = await db
 			.update(debts)
-			.set({ isPaid: data.isPaid })
+			.set({
+				isPaid: data.isPaid,
+				paidAt: data.isPaid ? now : null,
+				updatedAt: now,
+			})
 			.where(eq(debts.id, data.debtId))
 			.returning();
+
+		// Update the bill status after marking debt as paid/unpaid
+		if (updatedDebt) {
+			await updateBillStatus(updatedDebt.billId);
+		}
 
 		return updatedDebt;
 	});

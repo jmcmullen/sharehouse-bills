@@ -164,6 +164,7 @@ export function HousematesPage() {
 			<EditHousemateModal
 				open={editModalOpen}
 				onOpenChange={closeEditModal}
+				housemate={selectedHousemate}
 				formData={editFormData}
 				onFormDataChange={setEditFormData}
 				onSubmit={handleEditSubmit}

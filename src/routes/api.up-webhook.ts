@@ -161,11 +161,10 @@ export const ServerRoute = createServerFileRoute("/api/up-webhook").methods({
 			// Parse the webhook payload
 			const payload: UpBankWebhookPayload = JSON.parse(body);
 
-			// Only process TRANSACTION_SETTLED events to avoid duplicate processing
-			// TRANSACTION_CREATED fires first, then TRANSACTION_SETTLED when finalized
-			if (payload.data.attributes.eventType !== "TRANSACTION_SETTLED") {
+			// Only process  events to avoid duplicate processing
+			if (payload.data.attributes.eventType !== "TRANSACTION_CREATED") {
 				console.log(
-					`Ignoring event type: ${payload.data.attributes.eventType} (only processing SETTLED events)`,
+					`Ignoring event type: ${payload.data.attributes.eventType} (only processing CREATED events)`,
 				);
 				return new Response(JSON.stringify({ success: true }), {
 					status: 200,
