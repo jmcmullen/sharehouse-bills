@@ -217,16 +217,24 @@ export async function identifyHousemate(
 		}
 	}
 
-	// Fall back to name matching
+	// Prioritize name matches in description field (for wrong account transfers)
+	for (const housemate of activeHousemates) {
+		const name = housemate.name.toLowerCase();
+		const firstName = name.split(" ")[0];
+
+		if (description.includes(name) || description.includes(firstName)) {
+			return housemate.id;
+		}
+	}
+
+	// Fall back to name matching in other fields
 	for (const housemate of activeHousemates) {
 		const name = housemate.name.toLowerCase();
 		const firstName = name.split(" ")[0];
 
 		if (
-			description.includes(name) ||
 			rawText.includes(name) ||
 			message.includes(name) ||
-			description.includes(firstName) ||
 			rawText.includes(firstName) ||
 			message.includes(firstName)
 		) {
