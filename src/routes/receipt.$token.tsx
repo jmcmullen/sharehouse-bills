@@ -1,7 +1,7 @@
 import { BillPdfStorageService } from "@/api/services/bill-pdf-storage";
-import { getReceiptBillLabel } from "@/api/services/debt-receipt-page";
 import { Button } from "@/components/ui/button";
 import { getPublicDebtReceipt } from "@/functions/public-debt-receipt";
+import { getReceiptBillLabel } from "@/lib/debt-receipt";
 import { buildOpenGraphMeta, formatCurrency } from "@/lib/share-preview";
 import { createFileRoute } from "@tanstack/react-router";
 

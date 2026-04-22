@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import sharp from "sharp";
-import { getPublicBillPageData } from "../api/services/public-bill-page";
+import { getPublicBillPageData } from "../api/services/public-bill-page.server";
 import { buildOgCardSvg, formatCurrency, truncate } from "../lib/share-preview";
 
 export const Route = createFileRoute("/api/cards/$pdfSha256")({

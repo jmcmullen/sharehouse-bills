@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { eq } from "drizzle-orm";
 import type { RequestLogger } from "evlog";
-import { db } from "../api/db";
+import { db } from "../api/db/index.server";
 import { bills } from "../api/db/schema/bills";
 import { BillPdfStorageService } from "../api/services/bill-pdf-storage";
 import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";

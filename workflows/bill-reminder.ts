@@ -47,7 +47,7 @@ async function sendBillReminderSummary(notificationId: string) {
 		"../src/api/services/bill-pdf-storage"
 	);
 	const { createAbsolutePayUrl } = await import(
-		"../src/api/services/housemate-pay-page"
+		"../src/api/services/housemate-pay-page.server"
 	);
 	const { getWahaChatIdForPhoneNumber, sendWhatsappTextMessage } = await import(
 		"../src/api/services/waha"

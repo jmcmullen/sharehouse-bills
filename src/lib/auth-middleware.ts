@@ -1,7 +1,7 @@
 import { redirect } from "@tanstack/react-router";
 import { createMiddleware } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
-import { auth } from "../api/services/auth";
+import { auth } from "../api/services/auth.server";
 
 /**
  * Authentication middleware for server functions

@@ -1,11 +1,11 @@
 import { and, eq } from "drizzle-orm";
-import { db } from "../db";
+import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
-import { createPayPath } from "./housemate-pay-page";
+import { createPayPath } from "./housemate-pay-page.server";
 import {
 	createSignedPublicLinkToken,
 	publicLinkSignaturesMatch,
@@ -47,21 +47,6 @@ export type PublicDebtReceiptPageData = {
 		payUrl: string | null;
 	};
 };
-
-function formatRecurringTemplateLabel(templateName: string) {
-	return templateName.replace(/^(weekly|monthly|yearly)\s+/i, "").trim();
-}
-
-export function getReceiptBillLabel(input: {
-	billerName: string;
-	recurringTemplateName?: string | null;
-}) {
-	if (input.recurringTemplateName?.trim()) {
-		return formatRecurringTemplateLabel(input.recurringTemplateName);
-	}
-
-	return input.billerName;
-}
 
 export function createDebtReceiptToken(input: DebtReceiptTokenInput) {
 	const debtId = input.debtId.trim();

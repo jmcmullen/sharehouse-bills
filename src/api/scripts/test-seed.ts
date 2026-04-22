@@ -1,4 +1,4 @@
-import { db } from "../db";
+import { db } from "../db/index.server";
 import { bills, debts, housemates } from "../db/schema";
 
 // Test data for realistic sharehouse scenario

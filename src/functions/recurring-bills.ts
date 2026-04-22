@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "../api/db";
+import { db } from "../api/db/index.server";
 import { bills } from "../api/db/schema/bills";
 import { housemates } from "../api/db/schema/housemates";
 import { recurringBillAssignments } from "../api/db/schema/recurring-bill-assignments";

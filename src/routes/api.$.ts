@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { RequestLogger } from "evlog";
-import { auth } from "../api/services/auth";
+import { auth } from "../api/services/auth.server";
 import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";
 import { getRequestLogger } from "../lib/request-logger";
 

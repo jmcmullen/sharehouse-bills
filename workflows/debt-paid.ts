@@ -68,7 +68,7 @@ async function sendDebtPaidSummary(notificationId: string) {
 		"../src/api/services/bill-pdf-storage"
 	);
 	const { createAbsoluteDebtReceiptUrl } = await import(
-		"../src/api/services/debt-receipt-page"
+		"../src/api/services/debt-receipt-page.server"
 	);
 	const { getWahaChatIdForPhoneNumber, sendWhatsappTextMessage } = await import(
 		"../src/api/services/waha"

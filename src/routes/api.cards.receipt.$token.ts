@@ -1,9 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import sharp from "sharp";
-import {
-	getPublicDebtReceiptPageData,
-	getReceiptBillLabel,
-} from "../api/services/debt-receipt-page";
+import { getPublicDebtReceiptPageData } from "../api/services/debt-receipt-page.server";
+import { getReceiptBillLabel } from "../lib/debt-receipt";
 import { buildOgCardSvg, formatCurrency, truncate } from "../lib/share-preview";
 
 export const Route = createFileRoute("/api/cards/receipt/$token")({

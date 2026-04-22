@@ -104,10 +104,10 @@ async function sendDueCommandSummary(notificationId: string) {
 		"../src/api/services/bill-pdf-storage"
 	);
 	const { createAbsoluteDebtReceiptUrl } = await import(
-		"../src/api/services/debt-receipt-page"
+		"../src/api/services/debt-receipt-page.server"
 	);
 	const { createAbsolutePayUrl } = await import(
-		"../src/api/services/housemate-pay-page"
+		"../src/api/services/housemate-pay-page.server"
 	);
 	const {
 		getActiveHousematePaymentNames,

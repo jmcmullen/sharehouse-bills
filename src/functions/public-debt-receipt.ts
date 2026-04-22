@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { getPublicDebtReceiptPageData } from "../api/services/debt-receipt-page";
+import { getPublicDebtReceiptPageData } from "../api/services/debt-receipt-page.server";
 
 export const getPublicDebtReceipt = createServerFn({ method: "GET" })
 	.inputValidator(

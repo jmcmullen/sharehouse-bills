@@ -4,13 +4,13 @@ import {
 	type InboundCommandType,
 	parseStoredInboundCommandType,
 } from "../../lib/whatsapp-commands";
-import { db } from "../db";
+import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { whatsappNotifications } from "../db/schema/whatsapp-notifications";
-import { createAbsolutePayUrl } from "./housemate-pay-page";
+import { createAbsolutePayUrl } from "./housemate-pay-page.server";
 import {
 	whatsappChatIdToNumber,
 	whatsappNumberToChatId,

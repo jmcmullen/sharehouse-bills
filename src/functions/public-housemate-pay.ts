@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { getPublicHousematePayPageData } from "../api/services/housemate-pay-page";
+import { getPublicHousematePayPageData } from "../api/services/housemate-pay-page.server";
 
 function serializePayItem<
 	T extends {

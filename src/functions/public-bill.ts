@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { getPublicBillPageData } from "../api/services/public-bill-page";
+import { getPublicBillPageData } from "../api/services/public-bill-page.server";
 
 export const getPublicBillByPdfSha = createServerFn({ method: "GET" })
 	.inputValidator(

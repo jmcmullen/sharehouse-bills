@@ -2,7 +2,7 @@ import { and, asc, eq, gte, isNull, lte, or } from "drizzle-orm";
 import { createError } from "evlog";
 import { toBillReminderDbValues } from "../../lib/bill-reminder-config";
 import { getRequestLogger } from "../../lib/request-logger";
-import { db } from "../db";
+import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";

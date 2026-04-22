@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import sharp from "sharp";
-import { getPublicHousematePayPageData } from "../api/services/housemate-pay-page";
+import { getPublicHousematePayPageData } from "../api/services/housemate-pay-page.server";
 import {
 	buildOgCardSvg,
 	formatCurrency,

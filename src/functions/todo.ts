@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "../api/db";
+import { db } from "../api/db/index.server";
 import { todo } from "../api/db/schema/todo";
 import { entityIdSchema } from "../lib/id";
 

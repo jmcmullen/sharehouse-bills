@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
-import { auth } from "../api/services/auth";
+import { auth } from "../api/services/auth.server";
 
 export const serverAuth = createServerFn({ method: "GET" }).handler(
 	async () => {
