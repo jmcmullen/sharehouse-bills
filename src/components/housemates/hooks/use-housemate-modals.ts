@@ -4,6 +4,7 @@ import type { Housemate, HousemateFormData } from "../types";
 const initialFormData: HousemateFormData = {
 	name: "",
 	email: "",
+	whatsappNumber: "",
 	bankAlias: "",
 };
 
@@ -35,6 +36,7 @@ export function useHousemateModals() {
 		setEditFormData({
 			name: housemate.name || "",
 			email: housemate.email || "",
+			whatsappNumber: housemate.whatsappNumber || "",
 			bankAlias: housemate.bankAlias || "",
 		});
 		setEditModalOpen(true);

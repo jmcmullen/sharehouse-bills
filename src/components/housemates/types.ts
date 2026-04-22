@@ -1,7 +1,8 @@
 export interface Housemate {
-	id: number;
+	id: string;
 	name: string;
 	email?: string | null;
+	whatsappNumber?: string | null;
 	bankAlias?: string | null;
 	creditBalance?: number;
 	isActive: boolean;
@@ -16,7 +17,7 @@ export interface HousemateStats {
 }
 
 export interface HousemateBalanceMetric {
-	id: number;
+	id: string;
 	name: string;
 	isActive: boolean;
 	amount: number;
@@ -24,14 +25,14 @@ export interface HousemateBalanceMetric {
 
 export interface HousemateDebt {
 	debt: {
-		id: number;
+		id: string;
 		amountOwed: number;
 		amountPaid: number;
 		isPaid: boolean;
 		paidAt?: Date | null;
 	};
 	bill: {
-		id: number;
+		id: string;
 		billerName: string;
 		dueDate: Date;
 	};
@@ -40,5 +41,6 @@ export interface HousemateDebt {
 export interface HousemateFormData {
 	name: string;
 	email: string;
+	whatsappNumber: string;
 	bankAlias: string;
 }

@@ -1,5 +1,6 @@
 import { and, asc, eq, gte, isNull, lte, or } from "drizzle-orm";
 import { createError } from "evlog";
+import { toBillReminderDbValues } from "../../lib/bill-reminder-config";
 import { getRequestLogger } from "../../lib/request-logger";
 import { db } from "../db";
 import { bills } from "../db/schema/bills";
@@ -11,13 +12,14 @@ import {
 	applyHousemateCreditToDebt,
 	roundCurrency,
 } from "./debt-payment-state";
+import { enqueueBillCreatedNotification } from "./whatsapp-notification-events";
 
 type RecurringBillRecord = typeof recurringBills.$inferSelect;
 
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 export interface RecurringAssignmentPreview {
-	housemateId: number;
+	housemateId: string;
 	name: string;
 	isOwner: boolean;
 	customAmount: number | null;
@@ -204,7 +206,7 @@ function getNextDueDateAfterLastGenerated(recurringBill: RecurringBillRecord) {
 }
 
 async function getExistingBillForDueDate(
-	recurringBillId: number,
+	recurringBillId: string,
 	dueDate: Date,
 ) {
 	const [existingBill] = await db
@@ -221,7 +223,7 @@ async function getExistingBillForDueDate(
 	return existingBill ?? null;
 }
 
-async function getActiveAssignments(recurringBillId: number) {
+async function getActiveAssignments(recurringBillId: string) {
 	return await db
 		.select({
 			housemateId: recurringBillAssignments.housemateId,
@@ -359,7 +361,7 @@ export async function previewRecurringBill(
 async function generateBillFromTemplate(
 	recurringBill: RecurringBillRecord,
 	dueDate: Date,
-): Promise<number | null> {
+): Promise<string | null> {
 	const log = getRequestLogger();
 	try {
 		const activeAssignments = await getActiveAssignments(recurringBill.id);
@@ -381,15 +383,31 @@ async function generateBillFromTemplate(
 				recurringBillId: recurringBill.id,
 				pdfUrl: null,
 				sourceFilename: recurringBill.templateName,
+				...toBillReminderDbValues({
+					remindersEnabled: recurringBill.remindersEnabled,
+					reminderMode: recurringBill.reminderMode,
+					stackGroup: recurringBill.stackGroup,
+					preDueOffsetsDays: recurringBill.preDueOffsetsDays,
+					overdueCadence: recurringBill.overdueCadence,
+					overdueWeekday: recurringBill.overdueWeekday,
+				}),
 			})
 			.returning({ id: bills.id });
 
 		const nonOwnerAssignments = activeAssignments.filter(
 			(assignment) => !assignment.isOwner,
 		);
+		if (nonOwnerAssignments.length === 0) {
+			throw createError({
+				message: "No active non-owner assignments found for recurring bill",
+				status: 500,
+				why: `${recurringBill.templateName} only creates debts for non-owner assignments, but none are active.`,
+				fix: "Add at least one active non-owner assignment before generating this recurring bill.",
+			});
+		}
 		let debtEntries: Array<{
-			billId: number;
-			housemateId: number;
+			billId: string;
+			housemateId: string;
 			amountOwed: number;
 			amountPaid: number;
 			isPaid: boolean;
@@ -397,7 +415,7 @@ async function generateBillFromTemplate(
 
 		if (recurringBill.splitStrategy === "equal") {
 			const amountPerPerson = roundCurrency(
-				recurringBill.totalAmount / activeAssignments.length,
+				recurringBill.totalAmount / nonOwnerAssignments.length,
 			);
 			debtEntries = nonOwnerAssignments.map((assignment) => ({
 				billId: newBill.id,
@@ -439,6 +457,7 @@ async function generateBillFromTemplate(
 				dueDate: startOfUtcDay(dueDate).toISOString(),
 			},
 		});
+		await enqueueBillCreatedNotification(newBill.id, "recurring");
 
 		await db
 			.update(recurringBills)
@@ -460,7 +479,7 @@ async function generateBillFromTemplate(
 	}
 }
 
-export async function generateRecurringBillById(recurringBillId: number) {
+export async function generateRecurringBillById(recurringBillId: string) {
 	const log = getRequestLogger();
 	log?.set({
 		recurringBillGeneration: {
@@ -538,7 +557,7 @@ export async function generateRecurringBillById(recurringBillId: number) {
 
 export async function generateDueBills(targetDate: Date = new Date()): Promise<{
 	generated: number;
-	bills: Array<{ recurringBillId: number; billId: number }>;
+	bills: Array<{ recurringBillId: string; billId: string }>;
 }> {
 	const log = getRequestLogger();
 	log?.set({
@@ -566,7 +585,7 @@ export async function generateDueBills(targetDate: Date = new Date()): Promise<{
 		},
 	});
 
-	const generatedBills: Array<{ recurringBillId: number; billId: number }> = [];
+	const generatedBills: Array<{ recurringBillId: string; billId: string }> = [];
 
 	for (const recurringBill of activeRecurringBills) {
 		const nextDueDate = getNextDueDateAfterLastGenerated(recurringBill);
@@ -606,7 +625,7 @@ export function getNextThursday(fromDate: Date = new Date()) {
 	return addUtcDays(date, daysUntilThursday === 0 ? 7 : daysUntilThursday);
 }
 
-export async function generateWeeklyRentBill(): Promise<number | null> {
+export async function generateWeeklyRentBill(): Promise<string | null> {
 	const [rentTemplate] = await db
 		.select()
 		.from(recurringBills)

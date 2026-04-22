@@ -1,7 +1,12 @@
+import type {
+	BillReminderMode,
+	BillReminderOverdueCadence,
+} from "@/lib/bill-reminder-config";
+
 export interface RecurringBillListAssignment {
-	id: number;
-	recurringBillId: number;
-	housemateId: number;
+	id: string;
+	recurringBillId: string;
+	housemateId: string;
 	customAmount: number | null;
 	isActive: boolean;
 	housemateName: string;
@@ -10,7 +15,7 @@ export interface RecurringBillListAssignment {
 }
 
 export interface RecurringBillTemplate {
-	id: number;
+	id: string;
 	templateName: string;
 	billerName: string;
 	totalAmount: number;
@@ -21,13 +26,19 @@ export interface RecurringBillTemplate {
 	endDate: string | Date | null;
 	isActive: boolean;
 	splitStrategy: "equal" | "custom";
+	remindersEnabled: boolean;
+	reminderMode: BillReminderMode;
+	stackGroup: string | null;
+	preDueOffsetsDays: number[];
+	overdueCadence: BillReminderOverdueCadence;
+	overdueWeekday: number | null;
 	lastGeneratedDate: string | Date | null;
 	createdAt: string | Date;
 	updatedAt: string | Date;
 }
 
 export interface RecurringBillPreviewAssignment {
-	housemateId: number;
+	housemateId: string;
 	name: string;
 	isOwner: boolean;
 	customAmount: number | null;
@@ -49,7 +60,7 @@ export interface RecurringBillListItem {
 }
 
 export interface HousemateOption {
-	id: number;
+	id: string;
 	name: string;
 	email: string | null;
 	bankAlias: string | null;
@@ -58,7 +69,7 @@ export interface HousemateOption {
 }
 
 export interface RecurringBillAssignmentFormData {
-	housemateId: number;
+	housemateId: string;
 	name: string;
 	isOwner: boolean;
 	isActive: boolean;
@@ -66,7 +77,7 @@ export interface RecurringBillAssignmentFormData {
 }
 
 export interface RecurringBillFormData {
-	id: number | null;
+	id: string | null;
 	templateName: string;
 	billerName: string;
 	totalAmount: string;
@@ -77,6 +88,12 @@ export interface RecurringBillFormData {
 	endDate: string;
 	isActive: boolean;
 	splitStrategy: "equal" | "custom";
+	remindersEnabled: boolean;
+	reminderMode: BillReminderMode;
+	stackGroup: string;
+	preDueOffsetsInput: string;
+	overdueCadence: BillReminderOverdueCadence;
+	overdueWeekday: string;
 	assignments: RecurringBillAssignmentFormData[];
 }
 
@@ -86,7 +103,7 @@ export interface RecurringBillPreviewSummary {
 	ownerShare: number;
 	nonOwnerTotal: number;
 	assignments: Array<{
-		housemateId: number;
+		housemateId: string;
 		name: string;
 		isOwner: boolean;
 		isActive: boolean;

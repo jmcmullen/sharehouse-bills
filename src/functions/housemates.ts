@@ -6,10 +6,12 @@ import { bills } from "../api/db/schema/bills";
 import { debts } from "../api/db/schema/debts";
 import { housemates } from "../api/db/schema/housemates";
 import { getRemainingDebtAmount } from "../api/services/debt-payment-state";
+import { normalizeWhatsappNumber } from "../api/services/whatsapp-phone";
 import { authMiddleware } from "../lib/auth-middleware";
+import { entityIdSchema } from "../lib/id";
 
 interface HousemateBalanceRow {
-	id: number;
+	id: string;
 	name: string;
 	isActive: boolean;
 	amount: number;
@@ -61,9 +63,9 @@ export const getHousemateOutstandingBalances = createServerFn({ method: "GET" })
 						return map;
 					},
 					new Map<
-						number,
+						string,
 						{
-							id: number;
+							id: string;
 							name: string;
 							isActive: boolean;
 							amount: number;
@@ -118,7 +120,7 @@ export const getHousemateOverdueBalances = createServerFn({ method: "GET" })
 
 					map.set(row.id, existing);
 					return map;
-				}, new Map<number, HousemateBalanceRow>())
+				}, new Map<string, HousemateBalanceRow>())
 				.values(),
 		);
 
@@ -141,7 +143,7 @@ export const getActiveHousemates = createServerFn({ method: "GET" })
 // Get a specific housemate by ID
 export const getHousemateById = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ id: z.number() }))
+	.inputValidator(z.object({ id: entityIdSchema }))
 	.handler(async ({ data }) => {
 		const [housemate] = await db
 			.select()
@@ -162,6 +164,7 @@ export const createHousemate = createServerFn({ method: "POST" })
 		z.object({
 			name: z.string().min(1),
 			email: z.string().email().optional(),
+			whatsappNumber: z.string().optional(),
 			bankAlias: z.string().optional(),
 		}),
 	)
@@ -171,6 +174,7 @@ export const createHousemate = createServerFn({ method: "POST" })
 			.values({
 				name: data.name,
 				email: data.email,
+				whatsappNumber: normalizeWhatsappNumber(data.whatsappNumber),
 				bankAlias: data.bankAlias,
 				isActive: true,
 				isOwner: false,
@@ -185,20 +189,27 @@ export const updateHousemate = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
 	.inputValidator(
 		z.object({
-			id: z.number(),
+			id: entityIdSchema,
 			name: z.string().min(1).optional(),
 			email: z.string().email().optional(),
+			whatsappNumber: z.string().optional(),
 			bankAlias: z.string().optional(),
 			isActive: z.boolean().optional(),
 		}),
 	)
 	.handler(async ({ data }) => {
 		const { id, ...updateData } = data;
+		const shouldUpdateWhatsappNumber = Object.hasOwn(data, "whatsappNumber");
 
 		const [updatedHousemate] = await db
 			.update(housemates)
 			.set({
 				...updateData,
+				...(shouldUpdateWhatsappNumber
+					? {
+							whatsappNumber: normalizeWhatsappNumber(data.whatsappNumber),
+						}
+					: {}),
 				updatedAt: new Date(),
 			})
 			.where(eq(housemates.id, id))
@@ -214,7 +225,7 @@ export const updateHousemate = createServerFn({ method: "POST" })
 // Get housemate's debt history
 export const getHousemateDebts = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ housemateId: z.number() }))
+	.inputValidator(z.object({ housemateId: entityIdSchema }))
 	.handler(async ({ data }) => {
 		return await db
 			.select({
@@ -230,7 +241,7 @@ export const getHousemateDebts = createServerFn({ method: "GET" })
 // Get housemate's outstanding debts
 export const getHousemateOutstandingDebts = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ housemateId: z.number() }))
+	.inputValidator(z.object({ housemateId: entityIdSchema }))
 	.handler(async ({ data }) => {
 		return await db
 			.select({
@@ -248,7 +259,7 @@ export const getHousemateOutstandingDebts = createServerFn({ method: "GET" })
 // Get housemate payment statistics
 export const getHousemateStats = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ housemateId: z.number() }))
+	.inputValidator(z.object({ housemateId: entityIdSchema }))
 	.handler(async ({ data }) => {
 		const allDebts = await db
 			.select()
@@ -286,7 +297,7 @@ export const getHousemateStats = createServerFn({ method: "GET" })
 // Deactivate a housemate (soft delete)
 export const deactivateHousemate = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ id: z.number() }))
+	.inputValidator(z.object({ id: entityIdSchema }))
 	.handler(async ({ data }) => {
 		const [updatedHousemate] = await db
 			.update(housemates)
@@ -307,7 +318,7 @@ export const deactivateHousemate = createServerFn({ method: "POST" })
 // Reactivate a housemate
 export const reactivateHousemate = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ id: z.number() }))
+	.inputValidator(z.object({ id: entityIdSchema }))
 	.handler(async ({ data }) => {
 		const [updatedHousemate] = await db
 			.update(housemates)

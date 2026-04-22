@@ -244,6 +244,133 @@ export function RecurringBillModal({
 							</div>
 						</div>
 
+						<div className="space-y-4 rounded-lg border p-4">
+							<div>
+								<h3 className="font-medium">Reminder Defaults</h3>
+								<p className="text-muted-foreground text-sm">
+									Generated bills copy these reminder settings and can still be
+									edited later bill-by-bill.
+								</p>
+							</div>
+
+							<div className="flex items-start gap-3 rounded-lg border p-4">
+								<Checkbox
+									id="remindersEnabled"
+									checked={formData.remindersEnabled}
+									onCheckedChange={(checked) =>
+										updateField("remindersEnabled", checked === true)
+									}
+								/>
+								<div className="space-y-1">
+									<Label htmlFor="remindersEnabled">Reminders enabled</Label>
+									<p className="text-muted-foreground text-sm">
+										Disable this if the template should never message
+										housemates.
+									</p>
+								</div>
+							</div>
+
+							<div className="grid gap-4 sm:grid-cols-2">
+								<div className="space-y-2">
+									<Label htmlFor="reminderMode">Reminder mode</Label>
+									<Select
+										value={formData.reminderMode}
+										onValueChange={(value) =>
+											updateField(
+												"reminderMode",
+												value as RecurringBillFormData["reminderMode"],
+											)
+										}
+									>
+										<SelectTrigger id="reminderMode" className="w-full">
+											<SelectValue placeholder="Select reminder mode" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="individual">Individual</SelectItem>
+											<SelectItem value="stacked">Stacked</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+
+								<div className="space-y-2">
+									<Label htmlFor="overdueCadence">Overdue cadence</Label>
+									<Select
+										value={formData.overdueCadence}
+										onValueChange={(value) =>
+											updateField(
+												"overdueCadence",
+												value as RecurringBillFormData["overdueCadence"],
+											)
+										}
+									>
+										<SelectTrigger id="overdueCadence" className="w-full">
+											<SelectValue placeholder="Select overdue cadence" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="none">No overdue reminders</SelectItem>
+											<SelectItem value="daily">Daily</SelectItem>
+											<SelectItem value="weekly">Weekly</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+							</div>
+
+							{formData.reminderMode === "individual" ? (
+								<div className="space-y-2">
+									<Label htmlFor="preDueOffsetsInput">
+										Pre-due offsets in days
+									</Label>
+									<Input
+										id="preDueOffsetsInput"
+										value={formData.preDueOffsetsInput}
+										onChange={(event) =>
+											updateField("preDueOffsetsInput", event.target.value)
+										}
+										placeholder="2, 1, 0"
+									/>
+									<p className="text-muted-foreground text-sm">
+										Comma-separated day offsets before due date, like{" "}
+										<code>2, 1, 0</code>.
+									</p>
+								</div>
+							) : (
+								<div className="space-y-2">
+									<Label htmlFor="stackGroup">Stack group</Label>
+									<Input
+										id="stackGroup"
+										value={formData.stackGroup}
+										onChange={(event) =>
+											updateField("stackGroup", event.target.value)
+										}
+										placeholder="utilities"
+									/>
+								</div>
+							)}
+
+							{formData.overdueCadence === "weekly" ? (
+								<div className="space-y-2">
+									<Label htmlFor="overdueWeekday">Reminder weekday</Label>
+									<Select
+										value={formData.overdueWeekday}
+										onValueChange={(value) =>
+											updateField("overdueWeekday", value)
+										}
+									>
+										<SelectTrigger id="overdueWeekday" className="w-full">
+											<SelectValue placeholder="Select weekday" />
+										</SelectTrigger>
+										<SelectContent>
+											{weekdayOptions.map((option) => (
+												<SelectItem key={option.value} value={option.value}>
+													{option.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+							) : null}
+						</div>
+
 						<div className="space-y-3 rounded-lg border p-4">
 							<div>
 								<h3 className="font-medium">Housemate Assignments</h3>

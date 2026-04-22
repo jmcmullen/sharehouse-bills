@@ -1,9 +1,11 @@
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { generateEntityId } from "../../../lib/id";
 
 export const housemates = sqliteTable("housemates", {
-	id: integer("id").primaryKey({ autoIncrement: true }),
+	id: text("id").primaryKey().$defaultFn(generateEntityId),
 	name: text("name").notNull(),
 	email: text("email").unique(),
+	whatsappNumber: text("whatsapp_number").unique(),
 	bankAlias: text("bank_alias"), // For matching Up Bank transactions (e.g., "John", "Johnny", "J Smith")
 	creditBalance: real("credit_balance").default(0).notNull(),
 	isActive: integer("is_active", { mode: "boolean" }).default(true).notNull(),

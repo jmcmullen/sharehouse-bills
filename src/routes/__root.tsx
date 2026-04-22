@@ -1,5 +1,4 @@
-import { AppSidebar } from "@/components/app-sidebar";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { ThemeProvider } from "@/components/theme-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { serverAuth } from "@/lib/auth-server";
@@ -14,7 +13,6 @@ import {
 } from "@tanstack/react-router";
 import { createMiddleware } from "@tanstack/react-start";
 import { Suspense } from "react";
-import { useTheme } from "../hooks/use-theme";
 import appCss from "../index.css?url";
 
 export interface RouterAppContext {
@@ -38,13 +36,51 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 			},
 			{
 				name: "viewport",
-				content: "width=device-width, initial-scale=1",
+				content: "width=device-width, initial-scale=1, viewport-fit=cover",
 			},
 			{
 				title: "Sharehouse Bills",
 			},
+			{
+				property: "og:site_name",
+				content: "Sharehouse Bills",
+			},
+			{
+				property: "og:locale",
+				content: "en_AU",
+			},
+			{
+				name: "theme-color",
+				content: "#1f221b",
+			},
+			{
+				name: "color-scheme",
+				content: "dark",
+			},
 		],
 		links: [
+			{
+				rel: "preconnect",
+				href: "https://fonts.googleapis.com",
+			},
+			{
+				rel: "preconnect",
+				href: "https://fonts.gstatic.com",
+				crossOrigin: "anonymous",
+			},
+			{
+				rel: "stylesheet",
+				href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap",
+			},
+			{
+				rel: "icon",
+				type: "image/svg+xml",
+				href: "/icon.svg",
+			},
+			{
+				rel: "apple-touch-icon",
+				href: "/icon.svg",
+			},
 			{
 				rel: "stylesheet",
 				href: appCss,
@@ -56,29 +92,17 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 });
 
 function RootDocument() {
-	const { session } = Route.useRouteContext();
-	useTheme();
-
-	const isAuthenticated = !!session?.user;
-
 	return (
-		<html lang="en">
+		<html lang="en-AU" className="dark" suppressHydrationWarning>
 			<head>
 				<HeadContent />
 			</head>
 			<body>
-				{isAuthenticated ? (
-					<SidebarProvider>
-						<AppSidebar />
-						<SidebarInset>
-							<div className="flex-1 p-4">
-								<Suspense fallback={<PageSkeleton />}>
-									<Outlet />
-								</Suspense>
-							</div>
-						</SidebarInset>
-					</SidebarProvider>
-				) : (
+				<ThemeProvider
+					attribute="class"
+					forcedTheme="dark"
+					disableTransitionOnChange
+				>
 					<div className="flex min-h-screen flex-col">
 						<div className="flex-1">
 							<Suspense fallback={<PageSkeleton />}>
@@ -86,8 +110,8 @@ function RootDocument() {
 							</Suspense>
 						</div>
 					</div>
-				)}
-				<Toaster richColors />
+					<Toaster richColors />
+				</ThemeProvider>
 				<Scripts />
 			</body>
 		</html>

@@ -10,6 +10,7 @@ import {
 	roundCurrency,
 	updateBillStatusFromDebts,
 } from "./debt-payment-state";
+import { enqueueDebtPaidNotification } from "./whatsapp-notification-events";
 
 interface UpBankTransaction {
 	type: string;
@@ -54,22 +55,27 @@ type ReconciliationResultType =
 interface ReconciliationResult {
 	success: boolean;
 	type: ReconciliationResultType;
-	matchedDebts?: number[];
-	housemateId?: number | null;
+	matchedDebts?: string[];
+	housemateId?: string | null;
 	reason?: string;
 	amountProcessed?: number;
 	creditCreated?: number;
 }
 
 interface DebtCandidate {
-	id: number;
-	billId: number;
-	housemateId: number;
+	id: string;
+	billId: string;
+	housemateId: string;
 	amountOwed: number;
 	amountPaid: number;
 	createdAt: Date;
 	billDueDate: Date;
 }
+
+type DebtAllocationCandidate = DebtCandidate & {
+	remainingAmount: number;
+	remainingAmountCents: number;
+};
 
 type HousemateRecord = typeof housemates.$inferSelect;
 
@@ -84,7 +90,7 @@ type ParsedPaymentIntent =
 	  }
 	| {
 			kind: "bill_payment";
-			housemateId: number;
+			housemateId: string;
 			matchedBy: "explicit_beneficiary" | "sender_fallback";
 	  };
 
@@ -114,7 +120,7 @@ function normalizeText(value: string | null | undefined) {
 
 function tokenize(value: string) {
 	if (!value) {
-		return [] as string[];
+		return [];
 	}
 
 	return value.split(" ").filter(Boolean);
@@ -144,7 +150,7 @@ function parseAliasPhrases(housemate: HousemateRecord) {
 
 function findPhraseStartIndexes(tokens: string[], phraseTokens: string[]) {
 	if (phraseTokens.length === 0 || phraseTokens.length > tokens.length) {
-		return [] as number[];
+		return [];
 	}
 
 	const matches: number[] = [];
@@ -195,6 +201,140 @@ function resolveUniqueHousemate(matches: HousemateRecord[]) {
 	return "ambiguous" as const;
 }
 
+function compareDebtCandidates(left: DebtCandidate, right: DebtCandidate) {
+	const leftDueDate = left.billDueDate.getTime();
+	const rightDueDate = right.billDueDate.getTime();
+
+	if (leftDueDate !== rightDueDate) {
+		return leftDueDate - rightDueDate;
+	}
+
+	const leftCreatedAt = left.createdAt.getTime();
+	const rightCreatedAt = right.createdAt.getTime();
+
+	if (leftCreatedAt !== rightCreatedAt) {
+		return leftCreatedAt - rightCreatedAt;
+	}
+
+	return left.id.localeCompare(right.id);
+}
+
+function compareDebtPlans(
+	left: DebtAllocationCandidate[],
+	right: DebtAllocationCandidate[],
+) {
+	if (left.length !== right.length) {
+		return left.length - right.length;
+	}
+
+	const sortedLeft = [...left].sort(compareDebtCandidates);
+	const sortedRight = [...right].sort(compareDebtCandidates);
+
+	for (let index = 0; index < sortedLeft.length; index += 1) {
+		const comparison = compareDebtCandidates(
+			sortedLeft[index],
+			sortedRight[index],
+		);
+		if (comparison !== 0) {
+			return comparison;
+		}
+	}
+
+	return 0;
+}
+
+function findExactAmountDebtPlan(
+	debtCandidates: DebtAllocationCandidate[],
+	targetAmountCents: number,
+) {
+	if (targetAmountCents <= 0) {
+		return null;
+	}
+
+	const exactSingleMatch = debtCandidates.find(
+		(candidate) => candidate.remainingAmountCents === targetAmountCents,
+	);
+	if (exactSingleMatch) {
+		return [exactSingleMatch];
+	}
+
+	let bestPlan: DebtAllocationCandidate[] | null = null;
+
+	function visit(
+		startIndex: number,
+		currentPlan: DebtAllocationCandidate[],
+		currentTotalCents: number,
+	) {
+		if (currentTotalCents === targetAmountCents) {
+			if (!bestPlan || compareDebtPlans(currentPlan, bestPlan) < 0) {
+				bestPlan = [...currentPlan];
+			}
+			return;
+		}
+
+		if (
+			currentTotalCents > targetAmountCents ||
+			startIndex >= debtCandidates.length ||
+			(bestPlan && currentPlan.length >= bestPlan.length)
+		) {
+			return;
+		}
+
+		for (let index = startIndex; index < debtCandidates.length; index += 1) {
+			const candidate = debtCandidates[index];
+			const nextTotalCents = currentTotalCents + candidate.remainingAmountCents;
+
+			if (nextTotalCents > targetAmountCents) {
+				continue;
+			}
+
+			currentPlan.push(candidate);
+			visit(index + 1, currentPlan, nextTotalCents);
+			currentPlan.pop();
+		}
+	}
+
+	visit(0, [], 0);
+
+	return bestPlan;
+}
+
+function prioritizeDebtCandidatesByAmountMatch(
+	debtCandidates: DebtCandidate[],
+	amountInDollars: number,
+) {
+	const allocationCandidates = debtCandidates
+		.map((candidate) => {
+			const remainingAmount = getRemainingDebtAmount(candidate);
+
+			if (remainingAmount <= 0.009) {
+				return null;
+			}
+
+			return {
+				...candidate,
+				remainingAmount,
+				remainingAmountCents: toCents(remainingAmount),
+			} satisfies DebtAllocationCandidate;
+		})
+		.filter((candidate) => candidate !== null);
+
+	const exactPlan = findExactAmountDebtPlan(
+		allocationCandidates,
+		toCents(amountInDollars),
+	);
+	if (!exactPlan) {
+		return debtCandidates;
+	}
+
+	const exactPlanIds = new Set(exactPlan.map((candidate) => candidate.id));
+
+	return [
+		...debtCandidates.filter((candidate) => exactPlanIds.has(candidate.id)),
+		...debtCandidates.filter((candidate) => !exactPlanIds.has(candidate.id)),
+	];
+}
+
 function getExplicitBeneficiaryMatches(
 	activeHousemates: HousemateRecord[],
 	noteTokens: string[],
@@ -228,7 +368,7 @@ function getMatchesByStrategy(
 	strategy: "bankAlias" | "fullName" | "firstName",
 ) {
 	if (!normalizedText) {
-		return [] as HousemateRecord[];
+		return [];
 	}
 
 	return activeHousemates.filter((housemate) => {
@@ -351,10 +491,10 @@ function parsePaymentIntent(
 async function recordPaymentTransaction(
 	transaction: UpBankTransaction,
 	options: {
-		housemateId?: number | null;
+		housemateId?: string | null;
 		status: "matched" | "unreconciled" | "ignored";
 		matchType: ReconciliationMatchType;
-		matchedDebtIds?: number[];
+		matchedDebtIds?: string[];
 	},
 ) {
 	await db.insert(paymentTransactions).values({
@@ -421,7 +561,7 @@ async function getExistingTransactionResult(
 async function storeUnreconciledTransaction(
 	transaction: UpBankTransaction,
 	reason: UnreconciledReason,
-	housemateId: number | null,
+	housemateId: string | null,
 ) {
 	const amountInDollars = transaction.attributes.amount.valueInBaseUnits / 100;
 
@@ -496,29 +636,32 @@ export async function processTransaction(
 		};
 	}
 
-	const matchedDebtIds: number[] = [];
-	const affectedBillIds = new Set<number>();
+	const matchedDebtIds: string[] = [];
+	const affectedBillIds = new Set<string>();
 	const now = new Date();
 	const result = await db.transaction(async (tx) => {
-		const debtCandidates: DebtCandidate[] = await tx
-			.select({
-				id: debts.id,
-				billId: debts.billId,
-				housemateId: debts.housemateId,
-				amountOwed: debts.amountOwed,
-				amountPaid: debts.amountPaid,
-				createdAt: debts.createdAt,
-				billDueDate: bills.dueDate,
-			})
-			.from(debts)
-			.innerJoin(bills, eq(debts.billId, bills.id))
-			.where(
-				and(
-					eq(debts.housemateId, parsedPaymentIntent.housemateId),
-					eq(debts.isPaid, false),
-				),
-			)
-			.orderBy(asc(bills.dueDate), asc(debts.createdAt), asc(debts.id));
+		const debtCandidates = prioritizeDebtCandidatesByAmountMatch(
+			await tx
+				.select({
+					id: debts.id,
+					billId: debts.billId,
+					housemateId: debts.housemateId,
+					amountOwed: debts.amountOwed,
+					amountPaid: debts.amountPaid,
+					createdAt: debts.createdAt,
+					billDueDate: bills.dueDate,
+				})
+				.from(debts)
+				.innerJoin(bills, eq(debts.billId, bills.id))
+				.where(
+					and(
+						eq(debts.housemateId, parsedPaymentIntent.housemateId),
+						eq(debts.isPaid, false),
+					),
+				)
+				.orderBy(asc(bills.dueDate), asc(debts.createdAt), asc(debts.id)),
+			amountInDollars,
+		);
 
 		let remainingAmount = amountInDollars;
 		let partiallyAllocated = false;
@@ -579,38 +722,6 @@ export async function processTransaction(
 				.where(eq(housemates.id, parsedPaymentIntent.housemateId));
 		}
 
-		for (const billId of affectedBillIds) {
-			const billDebts = await tx
-				.select({
-					amountOwed: debts.amountOwed,
-					amountPaid: debts.amountPaid,
-				})
-				.from(debts)
-				.where(eq(debts.billId, billId));
-
-			const totalRemainingAmount = billDebts.reduce((sum, debt) => {
-				return sum + getRemainingDebtAmount(debt);
-			}, 0);
-			const totalPaidAmount = billDebts.reduce((sum, debt) => {
-				return sum + roundCurrency(debt.amountPaid);
-			}, 0);
-
-			let status: "pending" | "partially_paid" | "paid" = "pending";
-			if (totalRemainingAmount <= 0.009) {
-				status = "paid";
-			} else if (totalPaidAmount > 0.009) {
-				status = "partially_paid";
-			}
-
-			await tx
-				.update(bills)
-				.set({
-					status,
-					updatedAt: now,
-				})
-				.where(eq(bills.id, billId));
-		}
-
 		let matchType: ReconciliationResultType = "credit_created";
 		if (creditCreated > 0.009 || matchedDebtIds.length === 0) {
 			matchType = "credit_created";
@@ -647,12 +758,31 @@ export async function processTransaction(
 		} satisfies ReconciliationResult;
 	});
 
+	if (result.success && result.matchedDebts?.length) {
+		for (const billId of affectedBillIds) {
+			await updateBillStatusFromDebts(billId);
+		}
+
+		const fullyPaidDebts = await db
+			.select({
+				id: debts.id,
+			})
+			.from(debts)
+			.where(
+				and(inArray(debts.id, result.matchedDebts), eq(debts.isPaid, true)),
+			);
+
+		for (const debt of fullyPaidDebts) {
+			await enqueueDebtPaidNotification(debt.id, "up_bank");
+		}
+	}
+
 	return result;
 }
 
 export async function manuallyReconcileTransaction(
 	transactionId: string,
-	debtIds: number[],
+	debtIds: string[],
 ): Promise<ReconciliationResult> {
 	const [unreconciledTransaction] = await db
 		.select()
@@ -757,6 +887,10 @@ export async function manuallyReconcileTransaction(
 	await db
 		.delete(unreconciledTransactions)
 		.where(eq(unreconciledTransactions.transactionId, transactionId));
+
+	for (const debtId of debtIds) {
+		await enqueueDebtPaidNotification(debtId, "manual_reconciliation");
+	}
 
 	return {
 		success: true,

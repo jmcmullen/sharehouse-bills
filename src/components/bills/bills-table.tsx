@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
+	IconBell,
 	IconCalendar,
 	IconChevronLeft,
 	IconChevronRight,
@@ -27,6 +28,7 @@ import {
 	formatDate,
 	getAmountPerPerson,
 	getDebtSummary,
+	getReminderSummaryLabel,
 } from "./utils";
 
 interface BillsTableProps {
@@ -40,12 +42,13 @@ interface BillsTableProps {
 	onPrevious: () => void;
 	onNext: () => void;
 	onMarkPaid: (bill: GroupedBill) => void;
-	onDeleteBill: (billId: number) => void;
+	onDeleteBill: (billId: string) => void;
 	onViewPdf: (bill: GroupedBill) => void;
+	onEditReminders: (bill: GroupedBill) => void;
 	onAddBill: () => void;
 	processingPayments: boolean;
 	deletingBill: boolean;
-	billToDelete: number | null;
+	billToDelete: string | null;
 }
 
 export function BillsTable({
@@ -61,6 +64,7 @@ export function BillsTable({
 	onMarkPaid,
 	onDeleteBill,
 	onViewPdf,
+	onEditReminders,
 	onAddBill,
 	processingPayments,
 	deletingBill,
@@ -138,7 +142,12 @@ export function BillsTable({
 											<TableCell className="font-medium">
 												<div className="flex items-center gap-2">
 													<IconReceipt className="h-4 w-4 text-muted-foreground" />
-													{bill.billerName}
+													<div>
+														<div>{bill.billerName}</div>
+														<p className="text-muted-foreground text-xs">
+															{getReminderSummaryLabel(bill)}
+														</p>
+													</div>
 												</div>
 											</TableCell>
 											<TableCell>
@@ -195,6 +204,14 @@ export function BillsTable({
 																: "Mark Paid"}
 														</Button>
 													)}
+													<Button
+														variant="outline"
+														size="sm"
+														onClick={() => onEditReminders({ bill, debts })}
+													>
+														<IconBell className="h-4 w-4" />
+														Reminders
+													</Button>
 													<Button
 														variant="destructive"
 														size="sm"

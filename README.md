@@ -211,7 +211,8 @@ manual review instead of being guessed.
 Once a beneficiary is identified, the payment is applied to that housemate's
 debts using these rules:
 
-- oldest unpaid debts are paid first
+- the system first tries to match debts whose remaining amounts add up to the transfer amount
+- if there is no exact amount match, it falls back to oldest unpaid debts first
 - payments can be split across multiple debts automatically
 - partial payments are supported
 - debts track both `amountOwed` and `amountPaid`

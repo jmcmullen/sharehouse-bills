@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { type RequestLogger, createError } from "evlog";
+import { enqueueDueBillReminders } from "../api/services/bill-reminder";
 import { generateDueBills } from "../api/services/recurring-bill";
 import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";
 import { getRequestLogger } from "../lib/request-logger";
 
-export const Route = createFileRoute("/api/cron/generate-bills")({
+export const Route = createFileRoute("/api/cron")({
 	server: {
 		handlers: {
 			GET: async ({ request }) => {
@@ -45,11 +46,13 @@ export const Route = createFileRoute("/api/cron/generate-bills")({
 					});
 				}
 
-				const result = await generateDueBills(new Date());
+				const generatedBills = await generateDueBills(new Date());
+				const reminders = await enqueueDueBillReminders(new Date());
 				log?.set({
 					cron: {
-						job: "generate-bills",
-						generatedCount: result.generated,
+						job: "generate-bills-and-reminders",
+						generatedCount: generatedBills.generated,
+						reminderCount: reminders.scheduledCount,
 					},
 				});
 				setApiResponseContext(log, {
@@ -58,7 +61,10 @@ export const Route = createFileRoute("/api/cron/generate-bills")({
 
 				return Response.json({
 					success: true,
-					result,
+					result: {
+						generatedBills,
+						reminders,
+					},
 					timestamp: new Date().toISOString(),
 				});
 			},

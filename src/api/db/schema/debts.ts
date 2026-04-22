@@ -1,13 +1,14 @@
-import { integer, real, sqliteTable } from "drizzle-orm/sqlite-core";
+import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { generateEntityId } from "../../../lib/id";
 import { bills } from "./bills";
 import { housemates } from "./housemates";
 
 export const debts = sqliteTable("debts", {
-	id: integer("id").primaryKey({ autoIncrement: true }),
-	billId: integer("bill_id")
+	id: text("id").primaryKey().$defaultFn(generateEntityId),
+	billId: text("bill_id")
 		.notNull()
 		.references(() => bills.id, { onDelete: "cascade" }),
-	housemateId: integer("housemate_id")
+	housemateId: text("housemate_id")
 		.notNull()
 		.references(() => housemates.id, { onDelete: "cascade" }),
 	amountOwed: real("amount_owed").notNull(),

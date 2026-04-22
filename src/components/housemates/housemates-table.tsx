@@ -19,7 +19,7 @@ interface HousematesTableProps {
 	onViewDetails: (housemate: Housemate) => void;
 	onEdit: (housemate: Housemate) => void;
 	onDeactivate: (housemate: Housemate) => void;
-	onReactivate: (housemateId: number) => void;
+	onReactivate: (housemateId: string) => void;
 	isReactivating: boolean;
 }
 

@@ -1,16 +1,9 @@
 import { RecurringBillsPage } from "@/components/recurring-bills";
 import { getActiveHousemates } from "@/functions/housemates";
 import { getRecurringBills } from "@/functions/recurring-bills";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/recurring-bills")({
-	beforeLoad: async ({ context }) => {
-		if (!context.session?.user) {
-			throw redirect({
-				to: "/login",
-			});
-		}
-	},
+export const Route = createFileRoute("/_app/recurring-bills")({
 	loader: async () => {
 		const [recurringBillsData, activeHousemates] = await Promise.all([
 			getRecurringBills(),

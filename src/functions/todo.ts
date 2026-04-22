@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../api/db";
 import { todo } from "../api/db/schema/todo";
+import { entityIdSchema } from "../lib/id";
 
 // Get all todos
 export const getAllTodos = createServerFn({ method: "GET" }).handler(
@@ -27,7 +28,7 @@ export const createTodo = createServerFn({ method: "POST" })
 
 // Toggle todo completion
 export const toggleTodo = createServerFn({ method: "POST" })
-	.inputValidator(z.object({ id: z.number(), completed: z.boolean() }))
+	.inputValidator(z.object({ id: entityIdSchema, completed: z.boolean() }))
 	.handler(async ({ data }) => {
 		await db
 			.update(todo)
@@ -38,7 +39,7 @@ export const toggleTodo = createServerFn({ method: "POST" })
 
 // Delete a todo
 export const deleteTodo = createServerFn({ method: "POST" })
-	.inputValidator(z.object({ id: z.number() }))
+	.inputValidator(z.object({ id: entityIdSchema }))
 	.handler(async ({ data }) => {
 		await db.delete(todo).where(eq(todo.id, data.id));
 		return { success: true };

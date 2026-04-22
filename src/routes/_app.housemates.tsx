@@ -4,16 +4,9 @@ import {
 	getHousemateOutstandingBalances,
 	getHousemateOverdueBalances,
 } from "@/functions/housemates";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/housemates")({
-	beforeLoad: async ({ context }) => {
-		if (!context.session?.user) {
-			throw redirect({
-				to: "/login",
-			});
-		}
-	},
+export const Route = createFileRoute("/_app/housemates")({
 	loader: async () => {
 		const [housematesData, outstandingBalances, overdueBalances] =
 			await Promise.all([

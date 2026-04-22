@@ -5,16 +5,17 @@ import {
 	text,
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import { generateEntityId } from "../../../lib/id";
 import { housemates } from "./housemates";
 
 export const paymentTransactions = sqliteTable(
 	"payment_transactions",
 	{
-		id: integer("id").primaryKey({ autoIncrement: true }),
+		id: text("id").primaryKey().$defaultFn(generateEntityId),
 		transactionId: text("transaction_id").notNull(),
 		description: text("description").notNull(),
 		amount: real("amount").notNull(),
-		housemateId: integer("housemate_id").references(() => housemates.id, {
+		housemateId: text("housemate_id").references(() => housemates.id, {
 			onDelete: "set null",
 		}),
 		status: text("status", {
@@ -36,7 +37,7 @@ export const paymentTransactions = sqliteTable(
 			],
 		}).notNull(),
 		matchedDebtIds: text("matched_debt_ids", { mode: "json" }).$type<
-			number[]
+			string[]
 		>(),
 		rawData: text("raw_data", { mode: "json" }),
 		settledAt: integer("settled_at", { mode: "timestamp" }),

@@ -10,7 +10,12 @@ export const auth = betterAuth({
 	}),
 	secret: process.env.BETTER_AUTH_SECRET || "",
 	baseURL: process.env.VITE_BASE_URL || "",
-	trustedOrigins: [process.env.VITE_BASE_URL || ""],
+	trustedOrigins: [
+		process.env.VITE_BASE_URL || "",
+		...(process.env.NODE_ENV === "development"
+			? ["http://localhost:4000"]
+			: []),
+	],
 	emailAndPassword: {
 		enabled: true,
 		disableSignUp: true,

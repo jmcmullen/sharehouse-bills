@@ -2,6 +2,6 @@ tunnel: 00000000-0000-0000-0000-000000000000
 credentials-file: /Users/j/.cloudflared/00000000-0000-0000-0000-000000000000.json
 
 ingress:
-  - hostname: webhook.bills.1f.io
+  - hostname: local.1f.io
     service: http://localhost:4000
   - service: http_status:404

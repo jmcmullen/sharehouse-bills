@@ -24,7 +24,7 @@ import {
 
 export function RecurringBillsPage() {
 	const { recurringBillsData, activeHousemates } = useLoaderData({
-		from: "/recurring-bills",
+		from: "/_app/recurring-bills",
 	});
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();

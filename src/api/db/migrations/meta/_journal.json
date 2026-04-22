@@ -29,6 +29,27 @@
 			"when": 1776831465266,
 			"tag": "0003_daily_maginty",
 			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "6",
+			"when": 1776835690480,
+			"tag": "0004_milky_doctor_doom",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "6",
+			"when": 1776858734282,
+			"tag": "0005_yellow_dragon_lord",
+			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "6",
+			"when": 1776859800000,
+			"tag": "0006_solid_titania",
+			"breakpoints": true
 		}
 	]
 }

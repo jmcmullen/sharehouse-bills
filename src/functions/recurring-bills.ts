@@ -12,9 +12,14 @@ import {
 	previewRecurringBill,
 } from "../api/services/recurring-bill";
 import { authMiddleware } from "../lib/auth-middleware";
+import {
+	billReminderConfigInputSchema,
+	toBillReminderDbValues,
+} from "../lib/bill-reminder-config";
+import { entityIdSchema } from "../lib/id";
 
 const recurringBillAssignmentInputSchema = z.object({
-	housemateId: z.number(),
+	housemateId: entityIdSchema,
 	isActive: z.boolean(),
 	customAmount: z.number().min(0).nullable(),
 });
@@ -30,6 +35,7 @@ const recurringBillInputObjectSchema = z.object({
 	endDate: z.string().nullable(),
 	isActive: z.boolean(),
 	splitStrategy: z.enum(["equal", "custom"]),
+	reminderConfig: billReminderConfigInputSchema,
 	assignments: z.array(recurringBillAssignmentInputSchema).min(1),
 });
 
@@ -71,7 +77,7 @@ const recurringBillInputSchema = recurringBillInputObjectSchema.superRefine(
 
 const recurringBillUpdateInputSchema = recurringBillInputObjectSchema
 	.extend({
-		id: z.number(),
+		id: entityIdSchema,
 	})
 	.superRefine(validateRecurringBillInput);
 
@@ -84,7 +90,7 @@ function parseDateInput(value: string | null) {
 }
 
 async function replaceAssignments(
-	recurringBillId: number,
+	recurringBillId: string,
 	assignments: z.infer<typeof recurringBillAssignmentInputSchema>[],
 ) {
 	await db
@@ -121,9 +127,9 @@ export const getRecurringBills = createServerFn({ method: "GET" })
 			templateIds.length === 0
 				? Promise.resolve<
 						Array<{
-							id: number;
-							recurringBillId: number;
-							housemateId: number;
+							id: string;
+							recurringBillId: string;
+							housemateId: string;
 							customAmount: number | null;
 							isActive: boolean;
 							housemateName: string;
@@ -152,7 +158,7 @@ export const getRecurringBills = createServerFn({ method: "GET" })
 						),
 			templateIds.length === 0
 				? Promise.resolve<
-						Array<{ id: number; recurringBillId: number | null }>
+						Array<{ id: string; recurringBillId: string | null }>
 					>([])
 				: db
 						.select({
@@ -163,7 +169,7 @@ export const getRecurringBills = createServerFn({ method: "GET" })
 						.where(inArray(bills.recurringBillId, templateIds)),
 		]);
 
-		const generatedCountByTemplateId = new Map<number, number>();
+		const generatedCountByTemplateId = new Map<string, number>();
 		for (const bill of generatedBills) {
 			if (bill.recurringBillId === null) {
 				continue;
@@ -175,7 +181,7 @@ export const getRecurringBills = createServerFn({ method: "GET" })
 			);
 		}
 
-		const assignmentsByTemplateId = new Map<number, typeof assignments>();
+		const assignmentsByTemplateId = new Map<string, typeof assignments>();
 		for (const assignment of assignments) {
 			const existingAssignments =
 				assignmentsByTemplateId.get(assignment.recurringBillId) ?? [];
@@ -224,6 +230,7 @@ export const createRecurringBill = createServerFn({ method: "POST" })
 				endDate: parseDateInput(data.endDate),
 				isActive: data.isActive,
 				splitStrategy: data.splitStrategy,
+				...toBillReminderDbValues(data.reminderConfig),
 			})
 			.returning();
 
@@ -249,6 +256,7 @@ export const updateRecurringBill = createServerFn({ method: "POST" })
 				endDate: parseDateInput(data.endDate),
 				isActive: data.isActive,
 				splitStrategy: data.splitStrategy,
+				...toBillReminderDbValues(data.reminderConfig),
 				updatedAt: new Date(),
 			})
 			.where(eq(recurringBills.id, data.id))
@@ -264,7 +272,7 @@ export const updateRecurringBill = createServerFn({ method: "POST" })
 
 export const deleteRecurringBill = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ id: z.number() }))
+	.inputValidator(z.object({ id: entityIdSchema }))
 	.handler(async ({ data }) => {
 		await db.delete(recurringBills).where(eq(recurringBills.id, data.id));
 
@@ -275,7 +283,7 @@ export const setRecurringBillActive = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
 	.inputValidator(
 		z.object({
-			id: z.number(),
+			id: entityIdSchema,
 			isActive: z.boolean(),
 		}),
 	)
@@ -298,7 +306,7 @@ export const setRecurringBillActive = createServerFn({ method: "POST" })
 
 export const generateRecurringBillNow = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ id: z.number() }))
+	.inputValidator(z.object({ id: entityIdSchema }))
 	.handler(async ({ data }) => {
 		return await generateRecurringBillById(data.id);
 	});

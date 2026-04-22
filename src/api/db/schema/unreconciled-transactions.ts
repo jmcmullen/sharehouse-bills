@@ -1,9 +1,10 @@
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { generateEntityId } from "../../../lib/id";
 
 export const unreconciledTransactions = sqliteTable(
 	"unreconciled_transactions",
 	{
-		id: integer("id").primaryKey({ autoIncrement: true }),
+		id: text("id").primaryKey().$defaultFn(generateEntityId),
 		transactionId: text("transaction_id").notNull().unique(), // Up Bank transaction ID
 		description: text("description").notNull(),
 		amount: real("amount").notNull(),

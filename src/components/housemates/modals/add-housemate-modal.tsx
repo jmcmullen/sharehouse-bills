@@ -134,6 +134,21 @@ export function AddHousemateModal({
 							)}
 						</form.Field>
 
+						<form.Field name="whatsappNumber">
+							{(field) => (
+								<div className="space-y-2">
+									<Label htmlFor="add-whatsappNumber">WhatsApp Number</Label>
+									<Input
+										id="add-whatsappNumber"
+										value={field.state.value}
+										onChange={(e) => field.handleChange(e.target.value)}
+										onBlur={field.handleBlur}
+										placeholder="+61400111222"
+									/>
+								</div>
+							)}
+						</form.Field>
+
 						<form.Field name="bankAlias">
 							{(field) => (
 								<div className="space-y-2">

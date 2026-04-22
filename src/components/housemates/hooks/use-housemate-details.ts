@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { HousemateDebt, HousemateStats } from "../types";
 
 export function useHousemateDetails(
-	housemateId: number | null,
+	housemateId: string | null,
 	isModalOpen: boolean,
 ) {
 	const [stats, setStats] = useState<HousemateStats | null>(null);
@@ -11,7 +11,7 @@ export function useHousemateDetails(
 	const [statsLoading, setStatsLoading] = useState(false);
 	const [debtsLoading, setDebtsLoading] = useState(false);
 
-	const loadStats = useCallback(async (id: number) => {
+	const loadStats = useCallback(async (id: string) => {
 		try {
 			setStatsLoading(true);
 			const data = await getHousemateStats({ data: { housemateId: id } });
@@ -23,7 +23,7 @@ export function useHousemateDetails(
 		}
 	}, []);
 
-	const loadDebts = useCallback(async (id: number) => {
+	const loadDebts = useCallback(async (id: string) => {
 		try {
 			setDebtsLoading(true);
 			const data = await getHousemateDebts({ data: { housemateId: id } });

@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
 	index,
 	integer,
@@ -6,12 +7,13 @@ import {
 	text,
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import { generateEntityId } from "../../../lib/id";
 import { recurringBills } from "./recurring-bills";
 
 export const bills = sqliteTable(
 	"bills",
 	{
-		id: integer("id").primaryKey({ autoIncrement: true }),
+		id: text("id").primaryKey().$defaultFn(generateEntityId),
 		billerName: text("biller_name").notNull(),
 		provider: text("provider"),
 		billType: text("bill_type", {
@@ -36,7 +38,26 @@ export const bills = sqliteTable(
 		sourceFingerprint: text("source_fingerprint"),
 		pdfSha256: text("pdf_sha256"),
 		pdfUrl: text("pdf_url"), // Optional URL to the original PDF invoice
-		recurringBillId: integer("recurring_bill_id").references(
+		remindersEnabled: integer("reminders_enabled", { mode: "boolean" })
+			.notNull()
+			.default(true),
+		reminderMode: text("reminder_mode", {
+			enum: ["individual", "stacked"],
+		})
+			.notNull()
+			.default("individual"),
+		stackGroup: text("stack_group"),
+		preDueOffsetsDays: text("pre_due_offsets_days", { mode: "json" })
+			.$type<number[]>()
+			.notNull()
+			.default(sql`json_array(1, 0)`),
+		overdueCadence: text("overdue_cadence", {
+			enum: ["none", "daily", "weekly"],
+		})
+			.notNull()
+			.default("weekly"),
+		overdueWeekday: integer("overdue_weekday").default(2),
+		recurringBillId: text("recurring_bill_id").references(
 			() => recurringBills.id,
 			{ onDelete: "set null" },
 		), // Link to recurring bill template

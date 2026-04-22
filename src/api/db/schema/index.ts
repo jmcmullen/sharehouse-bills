@@ -5,4 +5,6 @@ export * from "./housemates";
 export * from "./payment-transactions";
 export * from "./recurring-bills";
 export * from "./recurring-bill-assignments";
+export * from "./todo";
 export * from "./unreconciled-transactions";
+export * from "./whatsapp-notifications";

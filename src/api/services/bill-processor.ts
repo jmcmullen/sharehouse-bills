@@ -1,5 +1,9 @@
 import { eq, or } from "drizzle-orm";
 import { createError } from "evlog";
+import {
+	getDefaultBillReminderConfig,
+	toBillReminderDbValues,
+} from "../../lib/bill-reminder-config";
 import { getRequestLogger } from "../../lib/request-logger";
 import { db } from "../db";
 import { bills } from "../db/schema/bills";
@@ -11,6 +15,7 @@ import {
 	type ExtractedBillData,
 	PdfBillExtractorService,
 } from "./pdf-bill-extractor";
+import { enqueueBillCreatedNotification } from "./whatsapp-notification-events";
 
 export interface FileAttachment {
 	filename: string;
@@ -22,8 +27,8 @@ export interface FileAttachment {
 export interface ProcessingResult {
 	success: boolean;
 	status: "processed" | "duplicate" | "failed";
-	billId?: number;
-	duplicateOfBillId?: number;
+	billId?: string;
+	duplicateOfBillId?: string;
 	filename: string;
 	error?: string;
 	parsedData?: ExtractedBillData;
@@ -181,6 +186,13 @@ export class BillProcessorService {
 							sourceFingerprint: parsedData.sourceFingerprint,
 							pdfSha256: parsedData.pdfSha256,
 							pdfUrl,
+							...toBillReminderDbValues(
+								getDefaultBillReminderConfig({
+									billerName: parsedData.billerName,
+									billType: parsedData.billType,
+									templateName: parsedData.sourceFilename,
+								}),
+							),
 						})
 						.returning();
 					log?.set({
@@ -208,16 +220,26 @@ export class BillProcessorService {
 						});
 					}
 
+					const nonOwnerHousemates = activeHousemates.filter(
+						(housemate) => !housemate.isOwner,
+					);
+					if (nonOwnerHousemates.length === 0) {
+						throw createError({
+							message: "No active non-owner housemates found to assign bill to",
+							status: 500,
+							why: "The bill processor only creates debts for non-owner housemates, but none are active.",
+							fix: "Mark at least one active housemate as a non-owner before importing bills.",
+						});
+					}
+
 					const amountPerPerson =
-						parsedData.totalAmount / activeHousemates.length;
-					const debtRecords = activeHousemates
-						.filter((housemate) => !housemate.isOwner)
-						.map((housemate) => ({
-							billId: newBill.id,
-							housemateId: housemate.id,
-							amountOwed: amountPerPerson,
-							amountPaid: 0,
-						}));
+						parsedData.totalAmount / nonOwnerHousemates.length;
+					const debtRecords = nonOwnerHousemates.map((housemate) => ({
+						billId: newBill.id,
+						housemateId: housemate.id,
+						amountOwed: amountPerPerson,
+						amountPaid: 0,
+					}));
 
 					const insertedDebts = await db
 						.insert(debts)
@@ -239,6 +261,7 @@ export class BillProcessorService {
 							amountPerPerson,
 						},
 					});
+					await enqueueBillCreatedNotification(newBill.id, "email_import");
 
 					results.push({
 						success: true,

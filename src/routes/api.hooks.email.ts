@@ -1,5 +1,3 @@
-import { request as httpRequest } from "node:http";
-import { request as httpsRequest } from "node:https";
 import { createFileRoute } from "@tanstack/react-router";
 import { EvlogError, type RequestLogger, createError } from "evlog";
 import { type EmailReceivedEvent, Resend } from "resend";
@@ -23,6 +21,14 @@ interface ReceivedEmailContent {
 	subject: string;
 	text: string | null;
 	html: string | null;
+}
+
+interface ResendAttachmentSummary {
+	id: string;
+	filename?: string | null;
+	content_type: string;
+	download_url: string;
+	size: number;
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -71,33 +77,6 @@ function isPdfAttachment(
 	return filename?.toLowerCase().endsWith(".pdf") ?? false;
 }
 
-async function extractMultipartPdfAttachments(formData: FormData) {
-	const pdfAttachments: FileAttachment[] = [];
-	const numAttachments =
-		Number.parseInt(String(formData.get("attachments") ?? "0"), 10) || 0;
-
-	for (let index = 1; index <= numAttachments; index++) {
-		const attachment = formData.get(`attachment${index}`);
-		if (!(attachment instanceof File)) {
-			continue;
-		}
-
-		if (!isPdfAttachment(attachment.name, attachment.type)) {
-			continue;
-		}
-
-		const buffer = Buffer.from(await attachment.arrayBuffer());
-		pdfAttachments.push({
-			filename: attachment.name,
-			buffer,
-			size: attachment.size,
-			contentType: attachment.type,
-		});
-	}
-
-	return pdfAttachments;
-}
-
 function getResendWebhookHeaders(request: Request) {
 	const id = request.headers.get("svix-id");
 	const timestamp = request.headers.get("svix-timestamp");
@@ -119,6 +98,29 @@ function getResendErrorMessage(error: { message: string } | null) {
 	return error?.message ?? "Unknown Resend API error";
 }
 
+function toResendWebhookVerificationError(error: unknown) {
+	if (error instanceof EvlogError) {
+		return error;
+	}
+
+	const message = error instanceof Error ? error.message : String(error);
+
+	return createError({
+		message: "Invalid Resend webhook signature",
+		status: 401,
+		why: message,
+		fix: "Ensure the request uses the raw body, the correct Resend webhook secret, and the original svix signature headers.",
+	});
+}
+
+function shouldSendErrorNotification(error: Error) {
+	if (!(error instanceof EvlogError)) {
+		return true;
+	}
+
+	return error.status >= 500;
+}
+
 function decodeQuotedPrintableContent(value: string | null | undefined) {
 	if (!value) {
 		return "";
@@ -131,31 +133,73 @@ function decodeQuotedPrintableContent(value: string | null | undefined) {
 }
 
 function extractAglPdfLink(content: ReceivedEmailContent) {
-	const normalizedBodies = [
-		decodeQuotedPrintableContent(content.text),
-		decodeQuotedPrintableContent(content.html),
-	];
 	const normalizedSubject = decodeQuotedPrintableContent(content.subject);
-	const aglPdfLinkPattern =
-		/https?:\/\/(?:www\.)?agl\.com\.au\/ebillredirect\.aspx\?[^"'\\s<]*token=viewbill[^"'\\s<]*/i;
 	const aglBillMarkerPattern =
 		/\bAGL\b|monthly (?:electricity|gas) bill|download your bill \(pdf\)|bill period \d{1,2} [A-Za-z]{3} \d{4} to \d{1,2} [A-Za-z]{3} \d{4}/i;
+	const normalizedHtml = decodeQuotedPrintableContent(content.html);
+	const normalizedText = decodeQuotedPrintableContent(content.text);
 
-	for (const body of normalizedBodies) {
-		const match = body.match(aglPdfLinkPattern);
-		if (!match?.[0]) {
-			continue;
-		}
+	if (
+		!aglBillMarkerPattern.test(normalizedText) &&
+		!aglBillMarkerPattern.test(normalizedHtml) &&
+		!aglBillMarkerPattern.test(normalizedSubject)
+	) {
+		return null;
+	}
 
-		if (
-			aglBillMarkerPattern.test(body) ||
-			aglBillMarkerPattern.test(normalizedSubject)
-		) {
-			return match[0];
-		}
+	const htmlLinkMatch = normalizedHtml.match(
+		/href=["'](https?:\/\/(?:www\.)?agl\.com\.au\/ebillredirect\.aspx\?token=viewbill&payload=[^"']+)["']/i,
+	);
+	if (htmlLinkMatch?.[1]) {
+		return htmlLinkMatch[1];
+	}
+
+	const textLinkMatch = normalizedText.match(
+		/https?:\/\/(?:www\.)?agl\.com\.au\/ebillredirect\.aspx\?token=viewbill&payload=[A-Za-z0-9+/=_\s-]+/i,
+	);
+	if (textLinkMatch?.[0]) {
+		return textLinkMatch[0].replaceAll(/\s+/g, "");
 	}
 
 	return null;
+}
+
+function isHudsonMcHughEmail(content: ReceivedEmailContent) {
+	const normalizedSubject = decodeQuotedPrintableContent(content.subject);
+	const normalizedHtml = decodeQuotedPrintableContent(content.html);
+	const normalizedText = decodeQuotedPrintableContent(content.text);
+	const hudsonMcHughMarkerPattern =
+		/hudson\s*mchugh|statement of outstanding items|tenancy reference|invoice\s+#\s+due\s+description/i;
+
+	return (
+		hudsonMcHughMarkerPattern.test(content.from) ||
+		hudsonMcHughMarkerPattern.test(normalizedSubject) ||
+		hudsonMcHughMarkerPattern.test(normalizedHtml) ||
+		hudsonMcHughMarkerPattern.test(normalizedText)
+	);
+}
+
+function selectPdfAttachmentsForEmail(
+	attachments: ResendAttachmentSummary[],
+	emailContent: ReceivedEmailContent,
+) {
+	const pdfAttachments = attachments.filter((attachment) =>
+		isPdfAttachment(attachment.filename, attachment.content_type),
+	);
+
+	if (!isHudsonMcHughEmail(emailContent)) {
+		return pdfAttachments;
+	}
+
+	const numberedInvoiceAttachments = pdfAttachments.filter((attachment) =>
+		attachment.filename
+			? /^Invoice_\d+\.pdf$/i.test(attachment.filename.trim())
+			: false,
+	);
+
+	return numberedInvoiceAttachments.length > 0
+		? numberedInvoiceAttachments
+		: pdfAttachments;
 }
 
 function looksLikePdf(buffer: Buffer, contentType: string | null) {
@@ -168,69 +212,25 @@ function looksLikePdf(buffer: Buffer, contentType: string | null) {
 
 async function downloadBuffer(
 	url: string,
-	redirectsRemaining = 5,
 ): Promise<{ buffer: Buffer; contentType: string | null }> {
-	return await new Promise((resolve, reject) => {
-		const targetUrl = new URL(url);
-		const requestImpl =
-			targetUrl.protocol === "https:" ? httpsRequest : httpRequest;
-		const request = requestImpl(
-			targetUrl,
-			{
-				headers: {
-					"User-Agent": "sharehouse-bills-webhook/1.0",
-					Accept: "application/pdf,application/octet-stream;q=0.9,*/*;q=0.8",
-				},
-			},
-			(response) => {
-				const statusCode = response.statusCode ?? 0;
-				const location = response.headers.location;
-
-				if (
-					statusCode >= 300 &&
-					statusCode < 400 &&
-					location &&
-					redirectsRemaining > 0
-				) {
-					response.resume();
-					const nextUrl = new URL(location, targetUrl).toString();
-					void downloadBuffer(nextUrl, redirectsRemaining - 1)
-						.then(resolve)
-						.catch(reject);
-					return;
-				}
-
-				if (statusCode < 200 || statusCode >= 300) {
-					response.resume();
-					reject(
-						new Error(
-							`Unexpected response downloading PDF: ${statusCode} ${response.statusMessage ?? ""}`.trim(),
-						),
-					);
-					return;
-				}
-
-				const chunks: Buffer[] = [];
-				response.on("data", (chunk: Buffer | string) => {
-					chunks.push(
-						typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk),
-					);
-				});
-				response.on("end", () => {
-					resolve({
-						buffer: Buffer.concat(chunks),
-						contentType:
-							typeof response.headers["content-type"] === "string"
-								? response.headers["content-type"]
-								: null,
-					});
-				});
-			},
-		);
-
-		request.on("error", reject);
-		request.end();
+	const response = await fetch(url, {
+		redirect: "follow",
+		headers: {
+			"User-Agent": "sharehouse-bills-webhook/1.0",
+			Accept: "application/pdf,application/octet-stream;q=0.9,*/*;q=0.8",
+		},
 	});
+
+	if (!response.ok) {
+		throw new Error(
+			`Unexpected response downloading PDF: ${response.status} ${response.statusText}`.trim(),
+		);
+	}
+
+	return {
+		buffer: Buffer.from(await response.arrayBuffer()),
+		contentType: response.headers.get("content-type"),
+	};
 }
 
 async function downloadAglPdfAttachment(content: ReceivedEmailContent) {
@@ -263,11 +263,16 @@ async function extractResendWebhookPayload(
 	request: Request,
 ): Promise<EmailReceivedEvent | null> {
 	const resend = getResendClient();
-	const event = resend.webhooks.verify({
-		payload: await request.text(),
-		headers: getResendWebhookHeaders(request),
-		webhookSecret: getResendWebhookSecret(),
-	});
+	let event: ReturnType<typeof resend.webhooks.verify>;
+	try {
+		event = resend.webhooks.verify({
+			payload: await request.text(),
+			headers: getResendWebhookHeaders(request),
+			webhookSecret: getResendWebhookSecret(),
+		});
+	} catch (error) {
+		throw toResendWebhookVerificationError(error);
+	}
 
 	if (event.type !== "email.received") {
 		return null;
@@ -307,29 +312,30 @@ async function extractResendPdfAttachments(event: EmailReceivedEvent) {
 		html: emailResponse.data.html,
 	} satisfies ReceivedEmailContent;
 
-	const pdfAttachments = await Promise.all(
-		attachmentResponse.data.data
-			.filter((attachment) =>
-				isPdfAttachment(attachment.filename, attachment.content_type),
-			)
-			.map(async (attachment) => {
-				const response = await fetch(attachment.download_url);
-				if (!response.ok) {
-					throw createError({
-						message: "Failed to download Resend attachment",
-						status: 502,
-						why: `Attachment ${attachment.filename ?? attachment.id} returned ${response.status} ${response.statusText}.`,
-						fix: "Retry the webhook after verifying Resend attachment download URLs are still valid.",
-					});
-				}
+	const selectedPdfAttachments = selectPdfAttachmentsForEmail(
+		attachmentResponse.data.data,
+		emailContent,
+	);
 
-				return {
-					filename: attachment.filename ?? `${attachment.id}.pdf`,
-					buffer: Buffer.from(await response.arrayBuffer()),
-					size: attachment.size,
-					contentType: attachment.content_type,
-				} satisfies FileAttachment;
-			}),
+	const pdfAttachments = await Promise.all(
+		selectedPdfAttachments.map(async (attachment) => {
+			const response = await fetch(attachment.download_url);
+			if (!response.ok) {
+				throw createError({
+					message: "Failed to download Resend attachment",
+					status: 502,
+					why: `Attachment ${attachment.filename ?? attachment.id} returned ${response.status} ${response.statusText}.`,
+					fix: "Retry the webhook after verifying Resend attachment download URLs are still valid.",
+				});
+			}
+
+			return {
+				filename: attachment.filename ?? `${attachment.id}.pdf`,
+				buffer: Buffer.from(await response.arrayBuffer()),
+				size: attachment.size,
+				contentType: attachment.content_type,
+			} satisfies FileAttachment;
+		}),
 	);
 	const aglLinkedPdfAttachment =
 		pdfAttachments.length === 0
@@ -456,51 +462,6 @@ async function processPdfAttachments(
 	});
 }
 
-async function handleMultipartRequest(request: Request, log?: RequestLogger) {
-	const formData = await request.formData();
-	const emailMetadata = {
-		from: String(formData.get("from") ?? ""),
-		subject: String(formData.get("subject") ?? ""),
-		numAttachments:
-			Number.parseInt(String(formData.get("attachments") ?? "0"), 10) || 0,
-	} satisfies EmailMetadata;
-	log?.set({
-		email: emailMetadata,
-		webhook: {
-			provider: "email-webhook",
-			format: "multipart",
-		},
-	});
-
-	if (!emailMetadata.from || !emailMetadata.subject) {
-		throw createError({
-			message: "Missing required fields",
-			status: 400,
-			why: "The multipart webhook payload did not include both from and subject fields.",
-			fix: "Ensure the sender includes from and subject fields when posting multipart email webhooks.",
-		});
-	}
-
-	if (emailMetadata.numAttachments === 0) {
-		log?.info("Ignoring multipart email with no attachments", {
-			email: emailMetadata,
-		});
-		return {
-			emailMetadata,
-			response: jsonResponse({
-				success: true,
-				message: "No attachments to process",
-			}),
-		};
-	}
-
-	const attachments = await extractMultipartPdfAttachments(formData);
-	return {
-		emailMetadata,
-		response: await processPdfAttachments(attachments, emailMetadata, log),
-	};
-}
-
 async function handleResendRequest(request: Request, log?: RequestLogger) {
 	const event = await extractResendWebhookPayload(request);
 	if (!event) {
@@ -533,7 +494,7 @@ async function handleResendRequest(request: Request, log?: RequestLogger) {
 	};
 }
 
-export const Route = createFileRoute("/api/email-webhook")({
+export const Route = createFileRoute("/api/hooks/email")({
 	server: {
 		handlers: {
 			POST: async ({ request }) => {
@@ -543,21 +504,19 @@ export const Route = createFileRoute("/api/email-webhook")({
 					subject: "",
 					numAttachments: 0,
 				};
-				const contentType = request.headers.get("content-type")?.toLowerCase();
 				setApiRequestContext(log, request, {
 					operation: "email_webhook",
 				});
 				log?.set({
 					webhook: {
-						provider: "email-webhook",
-						contentType: contentType ?? "",
+						provider: "resend",
+						contentType:
+							request.headers.get("content-type")?.toLowerCase() ?? "",
 					},
 				});
 
 				try {
-					const result = contentType?.startsWith("multipart/form-data")
-						? await handleMultipartRequest(request, log)
-						: await handleResendRequest(request, log);
+					const result = await handleResendRequest(request, log);
 
 					emailMetadata = result.emailMetadata;
 					log?.set({
@@ -583,11 +542,13 @@ export const Route = createFileRoute("/api/email-webhook")({
 					log?.error(wrappedError, {
 						email: emailMetadata,
 						webhook: {
-							provider: "email-webhook",
+							provider: "resend",
 						},
 					});
 
-					await sendErrorNotification(wrappedError, emailMetadata, log);
+					if (shouldSendErrorNotification(wrappedError)) {
+						await sendErrorNotification(wrappedError, emailMetadata, log);
+					}
 
 					if (wrappedError instanceof EvlogError) {
 						throw wrappedError;

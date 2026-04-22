@@ -6,6 +6,12 @@ import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 import * as schema from "../db/schema";
+import {
+	migrateAppTablesToStringIds,
+	provisionLatestAppTables,
+} from "./migrate-string-ids";
+
+type DatabaseClient = ReturnType<typeof createClient>;
 
 const MIGRATIONS_TABLE = "__drizzle_migrations";
 const REQUIRED_EXISTING_TABLES = [
@@ -61,7 +67,7 @@ function readMigrationHash(migrationsFolder: string, tag: string) {
 	return crypto.createHash("sha256").update(contents).digest("hex");
 }
 
-async function ensureMigrationsTable(client: ReturnType<typeof createClient>) {
+async function ensureMigrationsTable(client: DatabaseClient) {
 	await client.execute(`
 		CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
 			id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -71,7 +77,7 @@ async function ensureMigrationsTable(client: ReturnType<typeof createClient>) {
 	`);
 }
 
-async function getTableNames(client: ReturnType<typeof createClient>) {
+async function getTableNames(client: DatabaseClient) {
 	const result = await client.execute(
 		"SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
 	);
@@ -80,7 +86,7 @@ async function getTableNames(client: ReturnType<typeof createClient>) {
 		.filter((name) => name !== MIGRATIONS_TABLE && name !== "sqlite_sequence");
 }
 
-async function getMigrationCount(client: ReturnType<typeof createClient>) {
+async function getMigrationCount(client: DatabaseClient) {
 	const result = await client.execute(
 		`SELECT COUNT(*) as count FROM ${MIGRATIONS_TABLE}`,
 	);
@@ -92,27 +98,38 @@ async function getMigrationCount(client: ReturnType<typeof createClient>) {
 	return Number(firstRow.count);
 }
 
-async function getExistingColumns(
-	client: ReturnType<typeof createClient>,
-	tableName: string,
+async function markMigrationEntriesApplied(
+	client: DatabaseClient,
+	migrationsFolder: string,
+	entries: MigrationJournal["entries"],
 ) {
+	for (const entry of entries) {
+		const migrationHash = readMigrationHash(migrationsFolder, entry.tag);
+		await client.execute({
+			sql: `INSERT INTO ${MIGRATIONS_TABLE} (hash, created_at) VALUES (?, ?)`,
+			args: [migrationHash, entry.when],
+		});
+	}
+}
+
+async function getExistingColumns(client: DatabaseClient, tableName: string) {
 	const result = await client.execute(`PRAGMA table_info(${tableName})`);
 	return new Set(result.rows.map((row) => String(row.name)));
 }
 
 async function bootstrapExistingDatabase(
-	client: ReturnType<typeof createClient>,
+	client: DatabaseClient,
 	migrationsFolder: string,
 ) {
 	const journal = readJournal(migrationsFolder);
 	const baselineEntry = journal.entries[0];
 	if (!baselineEntry) {
-		return false;
+		return;
 	}
 
 	const tableNames = await getTableNames(client);
 	if (tableNames.length === 0) {
-		return false;
+		return;
 	}
 
 	const missingTables = REQUIRED_EXISTING_TABLES.filter(
@@ -141,16 +158,102 @@ async function bootstrapExistingDatabase(
 		"CREATE UNIQUE INDEX IF NOT EXISTS bills_source_fingerprint_idx ON bills (source_fingerprint)",
 	);
 
-	const baselineHash = readMigrationHash(migrationsFolder, baselineEntry.tag);
-	await client.execute({
-		sql: `INSERT INTO ${MIGRATIONS_TABLE} (hash, created_at) VALUES (?, ?)`,
-		args: [baselineHash, baselineEntry.when],
-	});
+	const existingRecurringBillColumns = await getExistingColumns(
+		client,
+		"recurringBills",
+	);
+	const existingHousemateColumns = await getExistingColumns(
+		client,
+		"housemates",
+	);
+	const latestSchemaTables = ["payment_transactions", "whatsapp_notifications"];
+	const latestSchemaPresent =
+		latestSchemaTables.every((tableName) => tableNames.includes(tableName)) &&
+		existingBillColumns.has("reminders_enabled") &&
+		existingRecurringBillColumns.has("remindersEnabled") &&
+		existingHousemateColumns.has("whatsapp_number");
+	const journalEntriesToMark = latestSchemaPresent
+		? journal.entries
+		: [baselineEntry];
+
+	await markMigrationEntriesApplied(
+		client,
+		migrationsFolder,
+		journalEntriesToMark,
+	);
 
 	console.log(
-		`Bootstrapped existing database and marked migration ${baselineEntry.tag} as applied.`,
+		latestSchemaPresent
+			? "Bootstrapped existing database and marked all historical migrations as applied."
+			: `Bootstrapped existing database and marked migration ${baselineEntry.tag} as applied.`,
 	);
-	return true;
+}
+
+async function initializeEmptyDatabase(
+	client: DatabaseClient,
+	migrationsFolder: string,
+) {
+	await client.execute(`
+		CREATE TABLE user (
+			id TEXT PRIMARY KEY NOT NULL,
+			name TEXT NOT NULL,
+			email TEXT NOT NULL,
+			email_verified INTEGER NOT NULL,
+			image TEXT,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)
+	`);
+	await client.execute("CREATE UNIQUE INDEX user_email_unique ON user (email)");
+	await client.execute(`
+		CREATE TABLE account (
+			id TEXT PRIMARY KEY NOT NULL,
+			account_id TEXT NOT NULL,
+			provider_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			access_token TEXT,
+			refresh_token TEXT,
+			id_token TEXT,
+			access_token_expires_at INTEGER,
+			refresh_token_expires_at INTEGER,
+			scope TEXT,
+			password TEXT,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			FOREIGN KEY (user_id) REFERENCES user(id)
+		)
+	`);
+	await client.execute(`
+		CREATE TABLE session (
+			id TEXT PRIMARY KEY NOT NULL,
+			expires_at INTEGER NOT NULL,
+			token TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			ip_address TEXT,
+			user_agent TEXT,
+			user_id TEXT NOT NULL,
+			FOREIGN KEY (user_id) REFERENCES user(id)
+		)
+	`);
+	await client.execute(
+		"CREATE UNIQUE INDEX session_token_unique ON session (token)",
+	);
+	await client.execute(`
+		CREATE TABLE verification (
+			id TEXT PRIMARY KEY NOT NULL,
+			identifier TEXT NOT NULL,
+			value TEXT NOT NULL,
+			expires_at INTEGER NOT NULL,
+			created_at INTEGER,
+			updated_at INTEGER
+		)
+	`);
+	await provisionLatestAppTables(client);
+
+	const journal = readJournal(migrationsFolder);
+	await markMigrationEntriesApplied(client, migrationsFolder, journal.entries);
+	console.log("Initialized empty database with the latest schema.");
 }
 
 async function main() {
@@ -169,11 +272,22 @@ async function main() {
 	await ensureMigrationsTable(client);
 
 	const migrationCount = await getMigrationCount(client);
+	const tableNames = await getTableNames(client);
 	if (migrationCount === 0) {
-		await bootstrapExistingDatabase(client, migrationsFolder);
+		if (tableNames.length === 0) {
+			await initializeEmptyDatabase(client, migrationsFolder);
+		} else {
+			await bootstrapExistingDatabase(client, migrationsFolder);
+			await migrate(db, { migrationsFolder });
+		}
+	} else {
+		await migrate(db, { migrationsFolder });
 	}
 
-	await migrate(db, { migrationsFolder });
+	const migratedStringIds = await migrateAppTablesToStringIds(client);
+	if (migratedStringIds) {
+		console.log("Application tables migrated from integer IDs to string IDs.");
+	}
 	console.log("Database migrations applied successfully.");
 }
 

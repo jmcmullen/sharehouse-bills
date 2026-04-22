@@ -23,7 +23,7 @@ import { formatCurrency, validateHousemateForm } from "./utils";
 export function HousematesPage() {
 	const { housematesData, outstandingBalances, overdueBalances } =
 		useLoaderData({
-			from: "/housemates",
+			from: "/_app/housemates",
 		});
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();
@@ -121,7 +121,7 @@ export function HousematesPage() {
 		});
 	};
 
-	const handleReactivate = (housemateId: number) => {
+	const handleReactivate = (housemateId: string) => {
 		startTransition(async () => {
 			try {
 				await reactivateHousemateAction(housemateId);

@@ -12,7 +12,17 @@ import {
 	updateBillStatusFromDebts,
 } from "../api/services/debt-payment-state";
 import { generateWeeklyRentBill } from "../api/services/recurring-bill";
+import {
+	enqueueBillCreatedNotification,
+	enqueueDebtPaidNotification,
+} from "../api/services/whatsapp-notification-events";
 import { authMiddleware } from "../lib/auth-middleware";
+import {
+	billReminderConfigInputSchema,
+	getDefaultBillReminderConfig,
+	toBillReminderDbValues,
+} from "../lib/bill-reminder-config";
+import { entityIdSchema } from "../lib/id";
 import { getRequestLogger } from "../lib/request-logger";
 
 // Get all bills with their associated debts and housemate info
@@ -34,7 +44,7 @@ export const getAllBills = createServerFn({ method: "GET" })
 // Get a specific bill with its debts
 export const getBillById = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ id: z.number() }))
+	.inputValidator(z.object({ id: entityIdSchema }))
 	.handler(async ({ data }) => {
 		return await db
 			.select({
@@ -76,6 +86,11 @@ export const createBill = createServerFn({ method: "POST" })
 				totalAmount: data.totalAmount,
 				dueDate: data.dueDate,
 				pdfUrl: data.pdfUrl,
+				...toBillReminderDbValues(
+					getDefaultBillReminderConfig({
+						billerName: data.billerName,
+					}),
+				),
 			})
 			.returning();
 
@@ -94,11 +109,23 @@ export const createBill = createServerFn({ method: "POST" })
 			});
 		}
 
-		// Split the bill equally among active housemates
-		const amountPerPerson = data.totalAmount / activeHousemates.length;
+		const nonOwnerHousemates = activeHousemates.filter(
+			(housemate) => !housemate.isOwner,
+		);
+		if (nonOwnerHousemates.length === 0) {
+			throw createError({
+				message: "No active non-owner housemates found",
+				status: 500,
+				why: "A bill cannot be assigned because every active housemate is marked as an owner.",
+				fix: "Mark at least one active housemate as a non-owner before creating a bill.",
+			});
+		}
+
+		// Split the bill equally among the housemates who actually owe it.
+		const amountPerPerson = data.totalAmount / nonOwnerHousemates.length;
 
 		// Create debt records for each housemate
-		const debtRecords = activeHousemates.map((housemate) => ({
+		const debtRecords = nonOwnerHousemates.map((housemate) => ({
 			billId: newBill.id,
 			housemateId: housemate.id,
 			amountOwed: amountPerPerson,
@@ -126,6 +153,7 @@ export const createBill = createServerFn({ method: "POST" })
 				amountPerPerson,
 			},
 		});
+		await enqueueBillCreatedNotification(newBill.id, "manual");
 
 		return newBill;
 	});
@@ -159,6 +187,11 @@ export const createBillFromParsedData = createServerFn({ method: "POST" })
 				totalAmount: data.totalAmount,
 				dueDate: data.dueDate,
 				pdfUrl: data.pdfUrl,
+				...toBillReminderDbValues(
+					getDefaultBillReminderConfig({
+						billerName: data.billerName,
+					}),
+				),
 			})
 			.returning();
 
@@ -176,9 +209,21 @@ export const createBillFromParsedData = createServerFn({ method: "POST" })
 			});
 		}
 
-		const amountPerPerson = data.totalAmount / activeHousemates.length;
+		const nonOwnerHousemates = activeHousemates.filter(
+			(housemate) => !housemate.isOwner,
+		);
+		if (nonOwnerHousemates.length === 0) {
+			throw createError({
+				message: "No active non-owner housemates found",
+				status: 500,
+				why: "A parsed bill cannot be assigned because every active housemate is marked as an owner.",
+				fix: "Mark at least one active housemate as a non-owner before importing bills.",
+			});
+		}
 
-		const debtRecords = activeHousemates.map((housemate) => ({
+		const amountPerPerson = data.totalAmount / nonOwnerHousemates.length;
+
+		const debtRecords = nonOwnerHousemates.map((housemate) => ({
 			billId: newBill.id,
 			housemateId: housemate.id,
 			amountOwed: amountPerPerson,
@@ -206,6 +251,7 @@ export const createBillFromParsedData = createServerFn({ method: "POST" })
 				amountPerPerson,
 			},
 		});
+		await enqueueBillCreatedNotification(newBill.id, "parsed");
 
 		// Return bill with debt information for notification purposes
 		const billWithDebts = await db
@@ -222,10 +268,40 @@ export const createBillFromParsedData = createServerFn({ method: "POST" })
 		return billWithDebts;
 	});
 
+export const updateBillReminderSettings = createServerFn({ method: "POST" })
+	.middleware([authMiddleware])
+	.inputValidator(
+		z.object({
+			billId: entityIdSchema,
+			config: billReminderConfigInputSchema,
+		}),
+	)
+	.handler(async ({ data }) => {
+		const [updatedBill] = await db
+			.update(bills)
+			.set({
+				...toBillReminderDbValues(data.config),
+				updatedAt: new Date(),
+			})
+			.where(eq(bills.id, data.billId))
+			.returning();
+
+		if (!updatedBill) {
+			throw createError({
+				message: "Bill not found",
+				status: 404,
+				why: `No bill exists with id ${data.billId}.`,
+				fix: "Refresh the page and retry with a valid bill.",
+			});
+		}
+
+		return updatedBill;
+	});
+
 // Delete a bill and all associated debts
 export const deleteBill = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ billId: z.number() }))
+	.inputValidator(z.object({ billId: entityIdSchema }))
 	.handler(async ({ data }) => {
 		const log = getRequestLogger();
 		log?.set({
@@ -253,7 +329,7 @@ export const markDebtPaid = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
 	.inputValidator(
 		z.object({
-			debtId: z.number(),
+			debtId: entityIdSchema,
 			amountPaid: z.number().min(0),
 		}),
 	)
@@ -312,15 +388,17 @@ export const markDebtPaid = createServerFn({ method: "POST" })
 					paidAt: updatedDebt.paidAt?.toISOString() ?? null,
 				},
 			});
+			if (updatedDebt.isPaid) {
+				await enqueueDebtPaidNotification(updatedDebt.id, "manual");
+			}
 		}
 
 		return updatedDebt;
 	});
-
 // Get bills for a specific housemate
 export const getBillsForHousemate = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ housemateId: z.number() }))
+	.inputValidator(z.object({ housemateId: entityIdSchema }))
 	.handler(async ({ data }) => {
 		const housemateBills = await db
 			.select({
@@ -340,7 +418,7 @@ export const getBillsForHousemate = createServerFn({ method: "GET" })
 // Get total owed by a housemate
 export const getTotalOwedByHousemate = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
-	.inputValidator(z.object({ housemateId: z.number() }))
+	.inputValidator(z.object({ housemateId: entityIdSchema }))
 	.handler(async ({ data }) => {
 		const debtsInfo = await db
 			.select({

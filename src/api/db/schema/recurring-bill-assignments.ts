@@ -1,16 +1,17 @@
-import { integer, real, sqliteTable } from "drizzle-orm/sqlite-core";
+import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+import { generateEntityId } from "../../../lib/id";
 import { housemates } from "./housemates";
 import { recurringBills } from "./recurring-bills";
 
 export const recurringBillAssignments = sqliteTable(
 	"recurringBillAssignments",
 	{
-		id: integer("id").primaryKey({ autoIncrement: true }),
-		recurringBillId: integer("recurringBillId")
+		id: text("id").primaryKey().$defaultFn(generateEntityId),
+		recurringBillId: text("recurringBillId")
 			.notNull()
 			.references(() => recurringBills.id, { onDelete: "cascade" }),
-		housemateId: integer("housemateId")
+		housemateId: text("housemateId")
 			.notNull()
 			.references(() => housemates.id, { onDelete: "cascade" }),
 		customAmount: real("customAmount"), // Override amount for this housemate (nullable)

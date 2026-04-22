@@ -133,7 +133,7 @@ function verifyWebhookSignature(
 	return signature === computedSignature;
 }
 
-export const Route = createFileRoute("/api/up-webhook")({
+export const Route = createFileRoute("/api/hooks/up")({
 	server: {
 		handlers: {
 			POST: async ({ request }) => {

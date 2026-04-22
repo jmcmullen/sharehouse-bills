@@ -3,6 +3,10 @@ import { db } from "../db";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
+import {
+	enqueueBillPaidNotification,
+	enqueueDebtPaidNotification,
+} from "./whatsapp-notification-events";
 
 export function roundCurrency(amount: number) {
 	return Math.round((amount + Number.EPSILON) * 100) / 100;
@@ -15,14 +19,32 @@ export function getRemainingDebtAmount(debt: {
 	return Math.max(0, roundCurrency(debt.amountOwed - debt.amountPaid));
 }
 
-export async function updateBillStatusFromDebts(billId: number) {
+export async function updateBillStatusFromDebts(billId: string) {
+	const [existingBill] = await db
+		.select({
+			id: bills.id,
+			status: bills.status,
+		})
+		.from(bills)
+		.where(eq(bills.id, billId))
+		.limit(1);
+
+	if (!existingBill) {
+		return null;
+	}
+
 	const billDebts = await db
 		.select()
 		.from(debts)
 		.where(eq(debts.billId, billId));
 
 	if (billDebts.length === 0) {
-		return;
+		return {
+			billId,
+			previousStatus: existingBill.status,
+			status: existingBill.status,
+			transitionedToPaid: false,
+		};
 	}
 
 	const totalRemaining = billDebts.reduce((sum, debt) => {
@@ -46,11 +68,24 @@ export async function updateBillStatusFromDebts(billId: number) {
 			updatedAt: new Date(),
 		})
 		.where(eq(bills.id, billId));
+
+	const transitionedToPaid =
+		existingBill.status !== "paid" && status === "paid";
+	if (transitionedToPaid) {
+		await enqueueBillPaidNotification(billId, "status_transition");
+	}
+
+	return {
+		billId,
+		previousStatus: existingBill.status,
+		status,
+		transitionedToPaid,
+	};
 }
 
 export async function applyHousemateCreditToDebt(
-	housemateId: number,
-	debtId: number,
+	housemateId: string,
+	debtId: string,
 ) {
 	const [housemate] = await db
 		.select({
@@ -113,6 +148,9 @@ export async function applyHousemateCreditToDebt(
 		.where(eq(housemates.id, housemateId));
 
 	await updateBillStatusFromDebts(debt.billId);
+	if (fullyPaid) {
+		await enqueueDebtPaidNotification(debt.id, "credit");
+	}
 
 	return roundCurrency(appliedAmount);
 }

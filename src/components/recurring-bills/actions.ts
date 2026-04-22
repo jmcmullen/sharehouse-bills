@@ -6,6 +6,7 @@ import {
 	updateRecurringBill,
 } from "@/functions/recurring-bills";
 import type { RecurringBillFormData } from "./types";
+import { getRecurringReminderConfigPayload } from "./utils";
 
 function toServerPayload(formData: RecurringBillFormData) {
 	return {
@@ -25,6 +26,7 @@ function toServerPayload(formData: RecurringBillFormData) {
 		endDate: formData.endDate || null,
 		isActive: formData.isActive,
 		splitStrategy: formData.splitStrategy,
+		reminderConfig: getRecurringReminderConfigPayload(formData),
 		assignments: formData.assignments.map((assignment) => ({
 			housemateId: assignment.housemateId,
 			isActive: assignment.isActive,
@@ -59,12 +61,12 @@ export async function updateRecurringBillAction(
 	});
 }
 
-export async function deleteRecurringBillAction(id: number) {
+export async function deleteRecurringBillAction(id: string) {
 	await deleteRecurringBill({ data: { id } });
 }
 
 export async function setRecurringBillActiveAction(
-	id: number,
+	id: string,
 	isActive: boolean,
 ) {
 	await setRecurringBillActive({
@@ -72,6 +74,6 @@ export async function setRecurringBillActiveAction(
 	});
 }
 
-export async function generateRecurringBillNowAction(id: number) {
+export async function generateRecurringBillNowAction(id: string) {
 	return await generateRecurringBillNow({ data: { id } });
 }

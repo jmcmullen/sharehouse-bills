@@ -29,7 +29,10 @@ export default defineConfig({
 				"/api/up-webhook": {
 					service: "sharehouse-bills-banking",
 				},
-				"/api/email-webhook": {
+				"/api/hooks/email": {
+					service: "sharehouse-bills-ingestion",
+				},
+				"/api/hooks/whatsapp": {
 					service: "sharehouse-bills-ingestion",
 				},
 				"/api/cron/**": {

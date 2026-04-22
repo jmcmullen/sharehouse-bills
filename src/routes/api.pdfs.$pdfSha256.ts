@@ -3,7 +3,6 @@ import { eq } from "drizzle-orm";
 import type { RequestLogger } from "evlog";
 import { db } from "../api/db";
 import { bills } from "../api/db/schema/bills";
-import { auth } from "../api/services/auth";
 import { BillPdfStorageService } from "../api/services/bill-pdf-storage";
 import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";
 import { getRequestLogger } from "../lib/request-logger";
@@ -21,7 +20,7 @@ function toSafePdfFilename(
 	return `${baseName.replaceAll(/[^A-Za-z0-9._-]/g, "-")}.pdf`;
 }
 
-export const Route = createFileRoute("/api/bill-pdfs/$pdfSha256")({
+export const Route = createFileRoute("/api/pdfs/$pdfSha256")({
 	server: {
 		handlers: {
 			GET: async ({ params, request }) => {
@@ -32,24 +31,6 @@ export const Route = createFileRoute("/api/bill-pdfs/$pdfSha256")({
 						sha256: params.pdfSha256,
 					},
 				});
-				const session = await auth.api.getSession({
-					headers: request.headers,
-				});
-
-				if (!session?.user) {
-					setApiResponseContext(
-						log,
-						{
-							contentType: "text/plain",
-						},
-						{
-							auth: {
-								authorized: false,
-							},
-						},
-					);
-					return new Response("Unauthorized", { status: 401 });
-				}
 
 				const [bill] = await db
 					.select({
@@ -101,6 +82,10 @@ export const Route = createFileRoute("/api/bill-pdfs/$pdfSha256")({
 						streamed: true,
 					},
 					{
+						auth: {
+							authorized: true,
+							mode: "public_sha",
+						},
 						pdf: {
 							filename: toSafePdfFilename(bill.sourceFilename, bill.billerName),
 							size: pdfResult.blob.size,
@@ -114,7 +99,7 @@ export const Route = createFileRoute("/api/bill-pdfs/$pdfSha256")({
 						"Content-Length": String(pdfResult.blob.size),
 						"Content-Type": pdfResult.blob.contentType || "application/pdf",
 						ETag: pdfResult.blob.etag,
-						"Cache-Control": "private, max-age=300",
+						"Cache-Control": "public, max-age=300",
 					},
 				});
 			},

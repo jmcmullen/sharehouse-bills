@@ -9,43 +9,35 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as RecurringBillsRouteImport } from './routes/recurring-bills'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as HousematesRouteImport } from './routes/housemates'
-import { Route as BillsRouteImport } from './routes/bills'
-import { Route as AiRouteImport } from './routes/ai'
+import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ApiUpWebhookRouteImport } from './routes/api.up-webhook'
-import { Route as ApiEmailWebhookRouteImport } from './routes/api.email-webhook'
+import { Route as ReceiptTokenRouteImport } from './routes/receipt.$token'
+import { Route as PayTokenRouteImport } from './routes/pay.$token'
+import { Route as BillPdfSha256RouteImport } from './routes/bill.$pdfSha256'
+import { Route as ApiCronRouteImport } from './routes/api.cron'
 import { Route as ApiAiRouteImport } from './routes/api.ai'
 import { Route as ApiSplatRouteImport } from './routes/api.$'
-import { Route as ApiCronGenerateBillsRouteImport } from './routes/api.cron.generate-bills'
-import { Route as ApiBillPdfsPdfSha256RouteImport } from './routes/api.bill-pdfs.$pdfSha256'
+import { Route as AppRecurringBillsRouteImport } from './routes/_app.recurring-bills'
+import { Route as AppHousematesRouteImport } from './routes/_app.housemates'
+import { Route as AppBillsRouteImport } from './routes/_app.bills'
+import { Route as AppAiRouteImport } from './routes/_app.ai'
+import { Route as ApiPdfsPdfSha256RouteImport } from './routes/api.pdfs.$pdfSha256'
+import { Route as ApiHooksWhatsappRouteImport } from './routes/api.hooks.whatsapp'
+import { Route as ApiHooksUpRouteImport } from './routes/api.hooks.up'
+import { Route as ApiHooksEmailRouteImport } from './routes/api.hooks.email'
+import { Route as ApiCardsPdfSha256RouteImport } from './routes/api.cards.$pdfSha256'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
+import { Route as ApiCardsReceiptTokenRouteImport } from './routes/api.cards.receipt.$token'
+import { Route as ApiCardsPayTokenRouteImport } from './routes/api.cards.pay.$token'
 
-const RecurringBillsRoute = RecurringBillsRouteImport.update({
-  id: '/recurring-bills',
-  path: '/recurring-bills',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const HousematesRoute = HousematesRouteImport.update({
-  id: '/housemates',
-  path: '/housemates',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BillsRoute = BillsRouteImport.update({
-  id: '/bills',
-  path: '/bills',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AiRoute = AiRouteImport.update({
-  id: '/ai',
-  path: '/ai',
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -53,14 +45,24 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiUpWebhookRoute = ApiUpWebhookRouteImport.update({
-  id: '/api/up-webhook',
-  path: '/api/up-webhook',
+const ReceiptTokenRoute = ReceiptTokenRouteImport.update({
+  id: '/receipt/$token',
+  path: '/receipt/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiEmailWebhookRoute = ApiEmailWebhookRouteImport.update({
-  id: '/api/email-webhook',
-  path: '/api/email-webhook',
+const PayTokenRoute = PayTokenRouteImport.update({
+  id: '/pay/$token',
+  path: '/pay/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BillPdfSha256Route = BillPdfSha256RouteImport.update({
+  id: '/bill/$pdfSha256',
+  path: '/bill/$pdfSha256',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCronRoute = ApiCronRouteImport.update({
+  id: '/api/cron',
+  path: '/api/cron',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAiRoute = ApiAiRouteImport.update({
@@ -73,14 +75,49 @@ const ApiSplatRoute = ApiSplatRouteImport.update({
   path: '/api/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCronGenerateBillsRoute = ApiCronGenerateBillsRouteImport.update({
-  id: '/api/cron/generate-bills',
-  path: '/api/cron/generate-bills',
+const AppRecurringBillsRoute = AppRecurringBillsRouteImport.update({
+  id: '/recurring-bills',
+  path: '/recurring-bills',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppHousematesRoute = AppHousematesRouteImport.update({
+  id: '/housemates',
+  path: '/housemates',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBillsRoute = AppBillsRouteImport.update({
+  id: '/bills',
+  path: '/bills',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAiRoute = AppAiRouteImport.update({
+  id: '/ai',
+  path: '/ai',
+  getParentRoute: () => AppRoute,
+} as any)
+const ApiPdfsPdfSha256Route = ApiPdfsPdfSha256RouteImport.update({
+  id: '/api/pdfs/$pdfSha256',
+  path: '/api/pdfs/$pdfSha256',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiBillPdfsPdfSha256Route = ApiBillPdfsPdfSha256RouteImport.update({
-  id: '/api/bill-pdfs/$pdfSha256',
-  path: '/api/bill-pdfs/$pdfSha256',
+const ApiHooksWhatsappRoute = ApiHooksWhatsappRouteImport.update({
+  id: '/api/hooks/whatsapp',
+  path: '/api/hooks/whatsapp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHooksUpRoute = ApiHooksUpRouteImport.update({
+  id: '/api/hooks/up',
+  path: '/api/hooks/up',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHooksEmailRoute = ApiHooksEmailRouteImport.update({
+  id: '/api/hooks/email',
+  path: '/api/hooks/email',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCardsPdfSha256Route = ApiCardsPdfSha256RouteImport.update({
+  id: '/api/cards/$pdfSha256',
+  path: '/api/cards/$pdfSha256',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -88,126 +125,177 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCardsReceiptTokenRoute = ApiCardsReceiptTokenRouteImport.update({
+  id: '/api/cards/receipt/$token',
+  path: '/api/cards/receipt/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCardsPayTokenRoute = ApiCardsPayTokenRouteImport.update({
+  id: '/api/cards/pay/$token',
+  path: '/api/cards/pay/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/ai': typeof AiRoute
-  '/bills': typeof BillsRoute
-  '/housemates': typeof HousematesRoute
   '/login': typeof LoginRoute
-  '/recurring-bills': typeof RecurringBillsRoute
+  '/ai': typeof AppAiRoute
+  '/bills': typeof AppBillsRoute
+  '/housemates': typeof AppHousematesRoute
+  '/recurring-bills': typeof AppRecurringBillsRoute
   '/api/$': typeof ApiSplatRoute
   '/api/ai': typeof ApiAiRoute
-  '/api/email-webhook': typeof ApiEmailWebhookRoute
-  '/api/up-webhook': typeof ApiUpWebhookRoute
+  '/api/cron': typeof ApiCronRoute
+  '/bill/$pdfSha256': typeof BillPdfSha256Route
+  '/pay/$token': typeof PayTokenRoute
+  '/receipt/$token': typeof ReceiptTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/bill-pdfs/$pdfSha256': typeof ApiBillPdfsPdfSha256Route
-  '/api/cron/generate-bills': typeof ApiCronGenerateBillsRoute
+  '/api/cards/$pdfSha256': typeof ApiCardsPdfSha256Route
+  '/api/hooks/email': typeof ApiHooksEmailRoute
+  '/api/hooks/up': typeof ApiHooksUpRoute
+  '/api/hooks/whatsapp': typeof ApiHooksWhatsappRoute
+  '/api/pdfs/$pdfSha256': typeof ApiPdfsPdfSha256Route
+  '/api/cards/pay/$token': typeof ApiCardsPayTokenRoute
+  '/api/cards/receipt/$token': typeof ApiCardsReceiptTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/ai': typeof AiRoute
-  '/bills': typeof BillsRoute
-  '/housemates': typeof HousematesRoute
   '/login': typeof LoginRoute
-  '/recurring-bills': typeof RecurringBillsRoute
+  '/ai': typeof AppAiRoute
+  '/bills': typeof AppBillsRoute
+  '/housemates': typeof AppHousematesRoute
+  '/recurring-bills': typeof AppRecurringBillsRoute
   '/api/$': typeof ApiSplatRoute
   '/api/ai': typeof ApiAiRoute
-  '/api/email-webhook': typeof ApiEmailWebhookRoute
-  '/api/up-webhook': typeof ApiUpWebhookRoute
+  '/api/cron': typeof ApiCronRoute
+  '/bill/$pdfSha256': typeof BillPdfSha256Route
+  '/pay/$token': typeof PayTokenRoute
+  '/receipt/$token': typeof ReceiptTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/bill-pdfs/$pdfSha256': typeof ApiBillPdfsPdfSha256Route
-  '/api/cron/generate-bills': typeof ApiCronGenerateBillsRoute
+  '/api/cards/$pdfSha256': typeof ApiCardsPdfSha256Route
+  '/api/hooks/email': typeof ApiHooksEmailRoute
+  '/api/hooks/up': typeof ApiHooksUpRoute
+  '/api/hooks/whatsapp': typeof ApiHooksWhatsappRoute
+  '/api/pdfs/$pdfSha256': typeof ApiPdfsPdfSha256Route
+  '/api/cards/pay/$token': typeof ApiCardsPayTokenRoute
+  '/api/cards/receipt/$token': typeof ApiCardsReceiptTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/ai': typeof AiRoute
-  '/bills': typeof BillsRoute
-  '/housemates': typeof HousematesRoute
+  '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
-  '/recurring-bills': typeof RecurringBillsRoute
+  '/_app/ai': typeof AppAiRoute
+  '/_app/bills': typeof AppBillsRoute
+  '/_app/housemates': typeof AppHousematesRoute
+  '/_app/recurring-bills': typeof AppRecurringBillsRoute
   '/api/$': typeof ApiSplatRoute
   '/api/ai': typeof ApiAiRoute
-  '/api/email-webhook': typeof ApiEmailWebhookRoute
-  '/api/up-webhook': typeof ApiUpWebhookRoute
+  '/api/cron': typeof ApiCronRoute
+  '/bill/$pdfSha256': typeof BillPdfSha256Route
+  '/pay/$token': typeof PayTokenRoute
+  '/receipt/$token': typeof ReceiptTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/bill-pdfs/$pdfSha256': typeof ApiBillPdfsPdfSha256Route
-  '/api/cron/generate-bills': typeof ApiCronGenerateBillsRoute
+  '/api/cards/$pdfSha256': typeof ApiCardsPdfSha256Route
+  '/api/hooks/email': typeof ApiHooksEmailRoute
+  '/api/hooks/up': typeof ApiHooksUpRoute
+  '/api/hooks/whatsapp': typeof ApiHooksWhatsappRoute
+  '/api/pdfs/$pdfSha256': typeof ApiPdfsPdfSha256Route
+  '/api/cards/pay/$token': typeof ApiCardsPayTokenRoute
+  '/api/cards/receipt/$token': typeof ApiCardsReceiptTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/login'
     | '/ai'
     | '/bills'
     | '/housemates'
-    | '/login'
     | '/recurring-bills'
     | '/api/$'
     | '/api/ai'
-    | '/api/email-webhook'
-    | '/api/up-webhook'
+    | '/api/cron'
+    | '/bill/$pdfSha256'
+    | '/pay/$token'
+    | '/receipt/$token'
     | '/api/auth/$'
-    | '/api/bill-pdfs/$pdfSha256'
-    | '/api/cron/generate-bills'
+    | '/api/cards/$pdfSha256'
+    | '/api/hooks/email'
+    | '/api/hooks/up'
+    | '/api/hooks/whatsapp'
+    | '/api/pdfs/$pdfSha256'
+    | '/api/cards/pay/$token'
+    | '/api/cards/receipt/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/login'
     | '/ai'
     | '/bills'
     | '/housemates'
-    | '/login'
     | '/recurring-bills'
     | '/api/$'
     | '/api/ai'
-    | '/api/email-webhook'
-    | '/api/up-webhook'
+    | '/api/cron'
+    | '/bill/$pdfSha256'
+    | '/pay/$token'
+    | '/receipt/$token'
     | '/api/auth/$'
-    | '/api/bill-pdfs/$pdfSha256'
-    | '/api/cron/generate-bills'
+    | '/api/cards/$pdfSha256'
+    | '/api/hooks/email'
+    | '/api/hooks/up'
+    | '/api/hooks/whatsapp'
+    | '/api/pdfs/$pdfSha256'
+    | '/api/cards/pay/$token'
+    | '/api/cards/receipt/$token'
   id:
     | '__root__'
     | '/'
-    | '/ai'
-    | '/bills'
-    | '/housemates'
+    | '/_app'
     | '/login'
-    | '/recurring-bills'
+    | '/_app/ai'
+    | '/_app/bills'
+    | '/_app/housemates'
+    | '/_app/recurring-bills'
     | '/api/$'
     | '/api/ai'
-    | '/api/email-webhook'
-    | '/api/up-webhook'
+    | '/api/cron'
+    | '/bill/$pdfSha256'
+    | '/pay/$token'
+    | '/receipt/$token'
     | '/api/auth/$'
-    | '/api/bill-pdfs/$pdfSha256'
-    | '/api/cron/generate-bills'
+    | '/api/cards/$pdfSha256'
+    | '/api/hooks/email'
+    | '/api/hooks/up'
+    | '/api/hooks/whatsapp'
+    | '/api/pdfs/$pdfSha256'
+    | '/api/cards/pay/$token'
+    | '/api/cards/receipt/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AiRoute: typeof AiRoute
-  BillsRoute: typeof BillsRoute
-  HousematesRoute: typeof HousematesRoute
+  AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
-  RecurringBillsRoute: typeof RecurringBillsRoute
   ApiSplatRoute: typeof ApiSplatRoute
   ApiAiRoute: typeof ApiAiRoute
-  ApiEmailWebhookRoute: typeof ApiEmailWebhookRoute
-  ApiUpWebhookRoute: typeof ApiUpWebhookRoute
+  ApiCronRoute: typeof ApiCronRoute
+  BillPdfSha256Route: typeof BillPdfSha256Route
+  PayTokenRoute: typeof PayTokenRoute
+  ReceiptTokenRoute: typeof ReceiptTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  ApiBillPdfsPdfSha256Route: typeof ApiBillPdfsPdfSha256Route
-  ApiCronGenerateBillsRoute: typeof ApiCronGenerateBillsRoute
+  ApiCardsPdfSha256Route: typeof ApiCardsPdfSha256Route
+  ApiHooksEmailRoute: typeof ApiHooksEmailRoute
+  ApiHooksUpRoute: typeof ApiHooksUpRoute
+  ApiHooksWhatsappRoute: typeof ApiHooksWhatsappRoute
+  ApiPdfsPdfSha256Route: typeof ApiPdfsPdfSha256Route
+  ApiCardsPayTokenRoute: typeof ApiCardsPayTokenRoute
+  ApiCardsReceiptTokenRoute: typeof ApiCardsReceiptTokenRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/recurring-bills': {
-      id: '/recurring-bills'
-      path: '/recurring-bills'
-      fullPath: '/recurring-bills'
-      preLoaderRoute: typeof RecurringBillsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -215,25 +303,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/housemates': {
-      id: '/housemates'
-      path: '/housemates'
-      fullPath: '/housemates'
-      preLoaderRoute: typeof HousematesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/bills': {
-      id: '/bills'
-      path: '/bills'
-      fullPath: '/bills'
-      preLoaderRoute: typeof BillsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ai': {
-      id: '/ai'
-      path: '/ai'
-      fullPath: '/ai'
-      preLoaderRoute: typeof AiRouteImport
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -243,18 +317,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/up-webhook': {
-      id: '/api/up-webhook'
-      path: '/api/up-webhook'
-      fullPath: '/api/up-webhook'
-      preLoaderRoute: typeof ApiUpWebhookRouteImport
+    '/receipt/$token': {
+      id: '/receipt/$token'
+      path: '/receipt/$token'
+      fullPath: '/receipt/$token'
+      preLoaderRoute: typeof ReceiptTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/email-webhook': {
-      id: '/api/email-webhook'
-      path: '/api/email-webhook'
-      fullPath: '/api/email-webhook'
-      preLoaderRoute: typeof ApiEmailWebhookRouteImport
+    '/pay/$token': {
+      id: '/pay/$token'
+      path: '/pay/$token'
+      fullPath: '/pay/$token'
+      preLoaderRoute: typeof PayTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bill/$pdfSha256': {
+      id: '/bill/$pdfSha256'
+      path: '/bill/$pdfSha256'
+      fullPath: '/bill/$pdfSha256'
+      preLoaderRoute: typeof BillPdfSha256RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cron': {
+      id: '/api/cron'
+      path: '/api/cron'
+      fullPath: '/api/cron'
+      preLoaderRoute: typeof ApiCronRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/ai': {
@@ -271,18 +359,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/cron/generate-bills': {
-      id: '/api/cron/generate-bills'
-      path: '/api/cron/generate-bills'
-      fullPath: '/api/cron/generate-bills'
-      preLoaderRoute: typeof ApiCronGenerateBillsRouteImport
+    '/_app/recurring-bills': {
+      id: '/_app/recurring-bills'
+      path: '/recurring-bills'
+      fullPath: '/recurring-bills'
+      preLoaderRoute: typeof AppRecurringBillsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/housemates': {
+      id: '/_app/housemates'
+      path: '/housemates'
+      fullPath: '/housemates'
+      preLoaderRoute: typeof AppHousematesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/bills': {
+      id: '/_app/bills'
+      path: '/bills'
+      fullPath: '/bills'
+      preLoaderRoute: typeof AppBillsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/ai': {
+      id: '/_app/ai'
+      path: '/ai'
+      fullPath: '/ai'
+      preLoaderRoute: typeof AppAiRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/api/pdfs/$pdfSha256': {
+      id: '/api/pdfs/$pdfSha256'
+      path: '/api/pdfs/$pdfSha256'
+      fullPath: '/api/pdfs/$pdfSha256'
+      preLoaderRoute: typeof ApiPdfsPdfSha256RouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/bill-pdfs/$pdfSha256': {
-      id: '/api/bill-pdfs/$pdfSha256'
-      path: '/api/bill-pdfs/$pdfSha256'
-      fullPath: '/api/bill-pdfs/$pdfSha256'
-      preLoaderRoute: typeof ApiBillPdfsPdfSha256RouteImport
+    '/api/hooks/whatsapp': {
+      id: '/api/hooks/whatsapp'
+      path: '/api/hooks/whatsapp'
+      fullPath: '/api/hooks/whatsapp'
+      preLoaderRoute: typeof ApiHooksWhatsappRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/hooks/up': {
+      id: '/api/hooks/up'
+      path: '/api/hooks/up'
+      fullPath: '/api/hooks/up'
+      preLoaderRoute: typeof ApiHooksUpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/hooks/email': {
+      id: '/api/hooks/email'
+      path: '/api/hooks/email'
+      fullPath: '/api/hooks/email'
+      preLoaderRoute: typeof ApiHooksEmailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cards/$pdfSha256': {
+      id: '/api/cards/$pdfSha256'
+      path: '/api/cards/$pdfSha256'
+      fullPath: '/api/cards/$pdfSha256'
+      preLoaderRoute: typeof ApiCardsPdfSha256RouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -292,23 +429,57 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cards/receipt/$token': {
+      id: '/api/cards/receipt/$token'
+      path: '/api/cards/receipt/$token'
+      fullPath: '/api/cards/receipt/$token'
+      preLoaderRoute: typeof ApiCardsReceiptTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cards/pay/$token': {
+      id: '/api/cards/pay/$token'
+      path: '/api/cards/pay/$token'
+      fullPath: '/api/cards/pay/$token'
+      preLoaderRoute: typeof ApiCardsPayTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
+interface AppRouteChildren {
+  AppAiRoute: typeof AppAiRoute
+  AppBillsRoute: typeof AppBillsRoute
+  AppHousematesRoute: typeof AppHousematesRoute
+  AppRecurringBillsRoute: typeof AppRecurringBillsRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppAiRoute: AppAiRoute,
+  AppBillsRoute: AppBillsRoute,
+  AppHousematesRoute: AppHousematesRoute,
+  AppRecurringBillsRoute: AppRecurringBillsRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AiRoute: AiRoute,
-  BillsRoute: BillsRoute,
-  HousematesRoute: HousematesRoute,
+  AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
-  RecurringBillsRoute: RecurringBillsRoute,
   ApiSplatRoute: ApiSplatRoute,
   ApiAiRoute: ApiAiRoute,
-  ApiEmailWebhookRoute: ApiEmailWebhookRoute,
-  ApiUpWebhookRoute: ApiUpWebhookRoute,
+  ApiCronRoute: ApiCronRoute,
+  BillPdfSha256Route: BillPdfSha256Route,
+  PayTokenRoute: PayTokenRoute,
+  ReceiptTokenRoute: ReceiptTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  ApiBillPdfsPdfSha256Route: ApiBillPdfsPdfSha256Route,
-  ApiCronGenerateBillsRoute: ApiCronGenerateBillsRoute,
+  ApiCardsPdfSha256Route: ApiCardsPdfSha256Route,
+  ApiHooksEmailRoute: ApiHooksEmailRoute,
+  ApiHooksUpRoute: ApiHooksUpRoute,
+  ApiHooksWhatsappRoute: ApiHooksWhatsappRoute,
+  ApiPdfsPdfSha256Route: ApiPdfsPdfSha256Route,
+  ApiCardsPayTokenRoute: ApiCardsPayTokenRoute,
+  ApiCardsReceiptTokenRoute: ApiCardsReceiptTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

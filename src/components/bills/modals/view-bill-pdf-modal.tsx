@@ -1,3 +1,4 @@
+import { BillPdfStorageService } from "@/api/services/bill-pdf-storage";
 import {
 	Dialog,
 	DialogContent,
@@ -22,7 +23,7 @@ export function ViewBillPdfModal({
 		return null;
 	}
 
-	const pdfViewerUrl = `/api/bill-pdfs/${bill.bill.pdfSha256}`;
+	const pdfViewerUrl = BillPdfStorageService.getPdfUrl(bill.bill.pdfSha256);
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
