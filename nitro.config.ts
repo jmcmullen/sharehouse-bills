@@ -12,7 +12,6 @@ export default defineConfig({
 			},
 			include: ["/**"],
 			exclude: [
-				"/_serverFn/**",
 				"/src/**",
 				"/_build/**",
 				"/_server/**",

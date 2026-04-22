@@ -318,6 +318,18 @@ export async function markWhatsappNotificationFailed(
 		.where(eq(whatsappNotifications.id, notificationId));
 }
 
+export async function markWhatsappNotificationPending(notificationId: string) {
+	await db
+		.update(whatsappNotifications)
+		.set({
+			status: "pending",
+			errorMessage: null,
+			completedAt: null,
+			updatedAt: new Date(),
+		})
+		.where(eq(whatsappNotifications.id, notificationId));
+}
+
 export async function markWhatsappNotificationIgnored(
 	notificationId: string,
 	errorMessage: string,
