@@ -1,10 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { EvlogError, type RequestLogger, createError } from "evlog";
 import { type EmailReceivedEvent, Resend } from "resend";
-import {
-	BillProcessorService,
-	type FileAttachment,
-	type ProcessingResult,
+import type {
+	FileAttachment,
+	ProcessingResult,
 } from "../api/services/bill-processor";
 import { EmailNotifierService } from "../api/services/email-notifier";
 import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";
@@ -420,6 +419,9 @@ async function processPdfAttachments(
 		},
 	});
 
+	const { BillProcessorService } = await import(
+		"../api/services/bill-processor"
+	);
 	const billProcessor = new BillProcessorService();
 	const results = await billProcessor.processEmailAttachments(
 		attachments,

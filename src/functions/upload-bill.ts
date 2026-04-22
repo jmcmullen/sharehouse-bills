@@ -1,6 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { BillProcessorService } from "../api/services/bill-processor";
 import { authMiddleware } from "../lib/auth-middleware";
 
 export const uploadBillPdf = createServerFn({ method: "POST" })
@@ -14,6 +13,9 @@ export const uploadBillPdf = createServerFn({ method: "POST" })
 		}),
 	)
 	.handler(async ({ data }) => {
+		const { BillProcessorService } = await import(
+			"../api/services/bill-processor"
+		);
 		const billProcessor = new BillProcessorService();
 
 		return await billProcessor.processEmailAttachments(

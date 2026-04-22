@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { PDFParse } from "pdf-parse";
 import { AIParserService } from "./ai-parser";
 
 const AGL_BILL_TYPE_REGEX = /Here's your monthly (electricity|gas) bill/i;
@@ -49,6 +48,22 @@ export interface ExtractedBillData {
 interface ExtractedPdfText {
 	text: string;
 	pdfSha256: string;
+}
+
+type PDFParseConstructor = typeof import("pdf-parse")["PDFParse"];
+
+let pdfParseConstructorPromise: Promise<PDFParseConstructor> | undefined;
+
+async function getPDFParseConstructor(): Promise<PDFParseConstructor> {
+	if (!pdfParseConstructorPromise) {
+		pdfParseConstructorPromise = (async () => {
+			await import("pdf-parse/worker");
+			const module = await import("pdf-parse");
+			return module.PDFParse;
+		})();
+	}
+
+	return await pdfParseConstructorPromise;
 }
 
 export class DuplicateBillError extends Error {
@@ -140,6 +155,7 @@ export class PdfBillExtractorService {
 	}
 
 	private async extractPdfText(pdfBuffer: Buffer): Promise<ExtractedPdfText> {
+		const PDFParse = await getPDFParseConstructor();
 		const parser = new PDFParse({ data: pdfBuffer });
 
 		try {
