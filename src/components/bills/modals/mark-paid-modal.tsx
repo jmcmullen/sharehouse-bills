@@ -58,10 +58,7 @@ export function MarkPaidModal({
 		if (open && billToMarkPaid) {
 			const defaultValues: FormData = {};
 			for (const { debt } of billToMarkPaid.debts) {
-				// If already paid, they paid the full amount; if unpaid, they haven't paid anything yet
-				defaultValues[`debt-${debt.id}`] = debt.isPaid
-					? Number(debt.amountOwed.toFixed(2))
-					: 0;
+				defaultValues[`debt-${debt.id}`] = Number(debt.amountPaid.toFixed(2));
 			}
 			form.reset(defaultValues);
 		}
@@ -125,6 +122,10 @@ export function MarkPaidModal({
 						{billToMarkPaid.debts.map(({ debt, housemate }) => {
 							const maxAmount = debt.amountOwed;
 							const isPaid = debt.isPaid;
+							const remainingAmount = Math.max(
+								0,
+								debt.amountOwed - debt.amountPaid,
+							);
 							const fieldName = `debt-${debt.id}`;
 
 							return (
@@ -142,7 +143,8 @@ export function MarkPaidModal({
 												htmlFor={fieldName}
 												className="flex items-center gap-2"
 											>
-												{housemate.name} (max: {formatCurrency(maxAmount)})
+												{housemate.name} (remaining:{" "}
+												{formatCurrency(remainingAmount)})
 												{isPaid && (
 													<Badge variant="secondary" className="text-xs">
 														<IconCheck className="mr-1 h-3 w-3" />

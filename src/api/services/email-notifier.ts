@@ -1,29 +1,51 @@
-import sgMail from "@sendgrid/mail";
+import { createError } from "evlog";
+import { Resend } from "resend";
+import { getRequestLogger } from "../../lib/request-logger";
 import type { ProcessingResult } from "./bill-processor";
 
+function getResendClient() {
+	const resendApiKey = process.env.RESEND_API_KEY;
+	if (!resendApiKey) {
+		throw createError({
+			message: "RESEND_API_KEY environment variable is required",
+			status: 500,
+			why: "The email notifier cannot send notifications without a Resend API key.",
+			fix: "Set RESEND_API_KEY in the deployment environment.",
+		});
+	}
+
+	return new Resend(resendApiKey);
+}
+
 export class EmailNotifierService {
-	private emailTo: string;
-	private emailFrom: string;
+	private readonly emailTo: string;
+	private readonly emailFrom: string;
+	private readonly resend: Resend;
 
 	constructor() {
-		const sendGridApiKey = process.env.SENDGRID_API_KEY;
-		if (!sendGridApiKey) {
-			throw new Error("SENDGRID_API_KEY environment variable is required");
-		}
-
 		const emailTo = process.env.WEBHOOK_EMAIL_TO;
 		if (!emailTo) {
-			throw new Error("WEBHOOK_EMAIL_TO environment variable is required");
+			throw createError({
+				message: "WEBHOOK_EMAIL_TO environment variable is required",
+				status: 500,
+				why: "The notifier requires a destination email address for webhook summaries.",
+				fix: "Set WEBHOOK_EMAIL_TO in the deployment environment.",
+			});
 		}
 		this.emailTo = emailTo;
 
 		const emailFrom = process.env.WEBHOOK_EMAIL_FROM;
 		if (!emailFrom) {
-			throw new Error("WEBHOOK_EMAIL_FROM environment variable is required");
+			throw createError({
+				message: "WEBHOOK_EMAIL_FROM environment variable is required",
+				status: 500,
+				why: "The notifier requires a sender email address for outbound webhook summaries.",
+				fix: "Set WEBHOOK_EMAIL_FROM in the deployment environment.",
+			});
 		}
 		this.emailFrom = emailFrom;
 
-		sgMail.setApiKey(sendGridApiKey);
+		this.resend = getResendClient();
 	}
 
 	async sendWebhookResult(
@@ -34,67 +56,58 @@ export class EmailNotifierService {
 			numAttachments: number;
 		},
 	) {
-		const successCount = results.filter((r) => r.success).length;
-		const errorCount = results.filter((r) => !r.success).length;
+		const log = getRequestLogger();
+		const successCount = results.filter((result) => result.success).length;
+		const errorCount = results.length - successCount;
+		const subject = `Email Webhook ${errorCount === 0 ? "Success" : "Failed"} - ${successCount} processed, ${errorCount} failed`;
 
-		const isSuccess = errorCount === 0;
-		const subject = `Email Webhook ${isSuccess ? "Success" : "Failed"} - ${successCount} processed, ${errorCount} failed`;
-
-		// Build detailed results
 		let resultDetails = "";
 		for (const result of results) {
-			resultDetails += `\n📄 ${result.filename}:\n`;
-			if (result.success) {
-				resultDetails += "   ✅ Successfully processed\n";
-				resultDetails += `   📋 Bill ID: ${result.billId}\n`;
-				if (result.parsedData) {
-					resultDetails += `   💰 Amount: ${result.parsedData.totalAmount}\n`;
-					resultDetails += `   🏢 Biller: ${result.parsedData.billerName}\n`;
-					resultDetails += `   📅 Due Date: ${result.parsedData.dueDate}\n`;
-				}
-			} else {
-				resultDetails += "   ❌ Failed to process\n";
-				resultDetails += `   🚨 Error: ${result.error}\n`;
+			resultDetails += `\n- ${result.filename}\n`;
+			if (result.status === "duplicate") {
+				resultDetails += "  Status: Duplicate bill skipped\n";
+				resultDetails += `  Existing bill ID: ${result.duplicateOfBillId}\n`;
+				resultDetails += `  Details: ${result.error}\n`;
+				continue;
 			}
+
+			if (result.success) {
+				resultDetails += "  Status: Successfully processed\n";
+				resultDetails += `  Bill ID: ${result.billId}\n`;
+				if (result.parsedData) {
+					resultDetails += `  Amount: ${result.parsedData.totalAmount}\n`;
+					resultDetails += `  Biller: ${result.parsedData.billerName}\n`;
+					resultDetails += `  Due date: ${result.parsedData.dueDate}\n`;
+				}
+				continue;
+			}
+
+			resultDetails += "  Status: Failed to process\n";
+			resultDetails += `  Error: ${result.error}\n`;
 		}
 
 		const htmlContent = `
-			<h2>Email Webhook Processing ${isSuccess ? "Complete" : "Failed"}</h2>
-			
-			<h3>📊 Summary</h3>
+			<h2>Email Webhook Processing ${errorCount === 0 ? "Complete" : "Failed"}</h2>
+			<h3>Summary</h3>
 			<ul>
 				<li><strong>Total attachments processed:</strong> ${results.length}</li>
-				<li><strong>✅ Successful:</strong> ${successCount}</li>
-				<li><strong>❌ Failed:</strong> ${errorCount}</li>
+				<li><strong>Successful:</strong> ${successCount}</li>
+				<li><strong>Failed:</strong> ${errorCount}</li>
 			</ul>
 
-			<h3>📧 Original Email</h3>
+			<h3>Original Email</h3>
 			<ul>
 				<li><strong>From:</strong> ${emailMetadata.from}</li>
 				<li><strong>Subject:</strong> ${emailMetadata.subject}</li>
 				<li><strong>Attachments:</strong> ${emailMetadata.numAttachments}</li>
 			</ul>
 
-			<h3>📋 Detailed Results</h3>
+			<h3>Detailed Results</h3>
 			<pre style="background: #f5f5f5; padding: 10px; border-radius: 5px;">${resultDetails}</pre>
-
-			${
-				!isSuccess
-					? `
-			<h3>🔧 Next Steps</h3>
-			<p>Some attachments failed to process. Please check the error details above and consider:</p>
-			<ul>
-				<li>Verifying the PDF format and quality</li>
-				<li>Checking if the bill format is supported</li>
-				<li>Manually processing failed bills through the admin panel</li>
-			</ul>
-			`
-					: ""
-			}
 		`;
 
 		const textContent = `
-Email Webhook Processing ${isSuccess ? "Complete" : "Failed"}
+Email Webhook Processing ${errorCount === 0 ? "Complete" : "Failed"}
 
 Summary:
 - Total attachments processed: ${results.length}
@@ -107,35 +120,36 @@ Original Email:
 - Attachments: ${emailMetadata.numAttachments}
 
 Detailed Results:${resultDetails}
-
-${
-	!isSuccess
-		? `
-Next Steps:
-Some attachments failed to process. Please check the error details above and consider:
-- Verifying the PDF format and quality
-- Checking if the bill format is supported
-- Manually processing failed bills through the admin panel
-`
-		: ""
-}
 		`;
 
-		const msg = {
-			to: this.emailTo,
+		const { data, error } = await this.resend.emails.send({
+			to: [this.emailTo],
 			from: this.emailFrom,
 			subject,
 			text: textContent,
 			html: htmlContent,
-		};
+		});
 
-		try {
-			await sgMail.send(msg);
-			console.log(`Email notification sent successfully to ${this.emailTo}`);
-		} catch (error) {
-			console.error("Failed to send email notification:", error);
-			// Don't throw here as we don't want email failures to break the webhook
+		if (error) {
+			log?.error(new Error(error.message), {
+				notification: {
+					type: "webhook_result",
+					to: this.emailTo,
+				},
+			});
+			return;
 		}
+
+		log?.set({
+			notification: {
+				type: "webhook_result",
+				to: this.emailTo,
+				from: this.emailFrom,
+				messageId: data?.id,
+				successCount,
+				errorCount,
+			},
+		});
 	}
 
 	async sendErrorNotification(
@@ -146,12 +160,11 @@ Some attachments failed to process. Please check the error details above and con
 			numAttachments?: number;
 		},
 	) {
+		const log = getRequestLogger();
 		const subject = "Email Webhook Error - Processing Failed";
-
 		const htmlContent = `
-			<h2>🚨 Email Webhook Error</h2>
-			
-			<h3>❌ Error Details</h3>
+			<h2>Email Webhook Error</h2>
+			<h3>Error Details</h3>
 			<div style="background: #ffebee; padding: 10px; border-radius: 5px; border-left: 4px solid #f44336;">
 				<strong>Error:</strong> ${error.message}<br>
 				<strong>Stack:</strong><br>
@@ -161,7 +174,7 @@ Some attachments failed to process. Please check the error details above and con
 			${
 				emailMetadata
 					? `
-			<h3>📧 Email Context</h3>
+			<h3>Email Context</h3>
 			<ul>
 				<li><strong>From:</strong> ${emailMetadata.from || "Unknown"}</li>
 				<li><strong>Subject:</strong> ${emailMetadata.subject || "Unknown"}</li>
@@ -170,15 +183,6 @@ Some attachments failed to process. Please check the error details above and con
 			`
 					: ""
 			}
-
-			<h3>🔧 Next Steps</h3>
-			<p>The email webhook encountered a critical error. Please investigate and consider:</p>
-			<ul>
-				<li>Checking the webhook logs for more details</li>
-				<li>Verifying all environment variables are properly set</li>
-				<li>Testing the webhook with a sample email</li>
-				<li>Checking database connectivity and API quotas</li>
-			</ul>
 		`;
 
 		const textContent = `
@@ -200,29 +204,33 @@ Email Context:
 `
 		: ""
 }
-
-Next Steps:
-The email webhook encountered a critical error. Please investigate and consider:
-- Checking the webhook logs for more details
-- Verifying all environment variables are properly set
-- Testing the webhook with a sample email
-- Checking database connectivity and API quotas
 		`;
 
-		const msg = {
-			to: this.emailTo,
+		const { data, error: sendError } = await this.resend.emails.send({
+			to: [this.emailTo],
 			from: this.emailFrom,
 			subject,
 			text: textContent,
 			html: htmlContent,
-		};
+		});
 
-		try {
-			await sgMail.send(msg);
-			console.log(`Error notification sent successfully to ${this.emailTo}`);
-		} catch (emailError) {
-			console.error("Failed to send error notification:", emailError);
-			// Don't throw here as we don't want email failures to break the webhook further
+		if (sendError) {
+			log?.error(new Error(sendError.message), {
+				notification: {
+					type: "error_notification",
+					to: this.emailTo,
+				},
+			});
+			return;
 		}
+
+		log?.set({
+			notification: {
+				type: "error_notification",
+				to: this.emailTo,
+				from: this.emailFrom,
+				messageId: data?.id,
+			},
+		});
 	}
 }

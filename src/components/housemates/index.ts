@@ -1,6 +1,7 @@
 export { HousematesPage } from "./housemates-page";
 export { HousemateStatusBadge } from "./housemate-status-badge";
 export { HousemateFormFields } from "./housemate-form-fields";
+export { HousemateOutstandingChart } from "./housemate-outstanding-chart";
 export { HousemateTableRow } from "./housemate-table-row";
 export { HousematesTable } from "./housemates-table";
 
@@ -29,6 +30,7 @@ export {
 export type {
 	Housemate,
 	HousemateStats,
+	HousemateBalanceMetric,
 	HousemateDebt,
 	HousemateFormData,
 } from "./types";

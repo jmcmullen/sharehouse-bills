@@ -1,58 +1,67 @@
-import { createServerFileRoute } from "@tanstack/react-start/server";
+import { createFileRoute } from "@tanstack/react-router";
+import { type RequestLogger, createError } from "evlog";
 import { generateDueBills } from "../api/services/recurring-bill";
+import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";
+import { getRequestLogger } from "../lib/request-logger";
 
-export const ServerRoute = createServerFileRoute(
-	"/api/cron/generate-bills",
-).methods({
-	GET: async ({ request }) => {
-		try {
-			// Verify cron secret for security
-			const cronSecret = process.env.CRON_SECRET;
-			if (!cronSecret) {
-				return new Response("Cron secret not configured", { status: 500 });
-			}
+export const Route = createFileRoute("/api/cron/generate-bills")({
+	server: {
+		handlers: {
+			GET: async ({ request }) => {
+				const log = getRequestLogger() as RequestLogger | undefined;
+				setApiRequestContext(log, request, {
+					operation: "cron_generate_bills",
+				});
+				const url = new URL(request.url);
+				const authHeader = request.headers.get("authorization");
+				const secretParam = url.searchParams.get("secret");
+				const providedSecret =
+					authHeader?.replace("Bearer ", "") || secretParam;
 
-			// Check for auth header or query param
-			const authHeader = request.headers.get("authorization");
-			const url = new URL(request.url);
-			const secretParam = url.searchParams.get("secret");
+				log?.set({
+					cron: {
+						job: "generate-bills",
+						hasAuthorizationHeader: Boolean(authHeader),
+						hasSecretQueryParam: Boolean(secretParam),
+					},
+				});
 
-			const providedSecret = authHeader?.replace("Bearer ", "") || secretParam;
+				const cronSecret = process.env.CRON_SECRET;
+				if (!cronSecret) {
+					throw createError({
+						message: "Cron secret not configured",
+						status: 500,
+						why: "The recurring bill generation endpoint requires CRON_SECRET.",
+						fix: "Set the CRON_SECRET environment variable for this deployment.",
+					});
+				}
 
-			if (!providedSecret || providedSecret !== cronSecret) {
-				return new Response("Unauthorized", { status: 401 });
-			}
+				if (!providedSecret || providedSecret !== cronSecret) {
+					throw createError({
+						message: "Unauthorized",
+						status: 401,
+						why: "The provided cron secret was missing or invalid.",
+						fix: "Send the CRON_SECRET via a Bearer token or the secret query parameter.",
+					});
+				}
 
-			const result = await generateDueBills(new Date());
+				const result = await generateDueBills(new Date());
+				log?.set({
+					cron: {
+						job: "generate-bills",
+						generatedCount: result.generated,
+					},
+				});
+				setApiResponseContext(log, {
+					contentType: "application/json",
+				});
 
-			return new Response(
-				JSON.stringify({
+				return Response.json({
 					success: true,
 					result,
 					timestamp: new Date().toISOString(),
-				}),
-				{
-					status: 200,
-					headers: {
-						"Content-Type": "application/json",
-					},
-				},
-			);
-		} catch (error) {
-			console.error("Error generating recurring bills:", error);
-			return new Response(
-				JSON.stringify({
-					success: false,
-					error: error instanceof Error ? error.message : "Unknown error",
-					timestamp: new Date().toISOString(),
-				}),
-				{
-					status: 500,
-					headers: {
-						"Content-Type": "application/json",
-					},
-				},
-			);
-		}
+				});
+			},
+		},
 	},
 });

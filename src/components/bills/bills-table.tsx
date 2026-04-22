@@ -14,6 +14,7 @@ import {
 	IconCalendar,
 	IconChevronLeft,
 	IconChevronRight,
+	IconEye,
 	IconFileText,
 	IconPlus,
 	IconReceipt,
@@ -40,6 +41,7 @@ interface BillsTableProps {
 	onNext: () => void;
 	onMarkPaid: (bill: GroupedBill) => void;
 	onDeleteBill: (billId: number) => void;
+	onViewPdf: (bill: GroupedBill) => void;
 	onAddBill: () => void;
 	processingPayments: boolean;
 	deletingBill: boolean;
@@ -58,6 +60,7 @@ export function BillsTable({
 	onNext,
 	onMarkPaid,
 	onDeleteBill,
+	onViewPdf,
 	onAddBill,
 	processingPayments,
 	deletingBill,
@@ -169,6 +172,16 @@ export function BillsTable({
 											</TableCell>
 											<TableCell className="text-right">
 												<div className="flex items-center justify-end gap-2">
+													{bill.pdfUrl && bill.pdfSha256 ? (
+														<Button
+															variant="outline"
+															size="sm"
+															onClick={() => onViewPdf({ bill, debts })}
+														>
+															<IconEye className="h-4 w-4" />
+															View PDF
+														</Button>
+													) : null}
 													{bill.status !== "paid" && (
 														<Button
 															variant="default"

@@ -8,23 +8,26 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { createServerRootRoute } from '@tanstack/react-start/server'
-
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RecurringBillsRouteImport } from './routes/recurring-bills'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as HousematesRouteImport } from './routes/housemates'
 import { Route as BillsRouteImport } from './routes/bills'
 import { Route as AiRouteImport } from './routes/ai'
 import { Route as IndexRouteImport } from './routes/index'
-import { ServerRoute as ApiUpWebhookServerRouteImport } from './routes/api.up-webhook'
-import { ServerRoute as ApiEmailWebhookServerRouteImport } from './routes/api.email-webhook'
-import { ServerRoute as ApiAiServerRouteImport } from './routes/api.ai'
-import { ServerRoute as ApiSplatServerRouteImport } from './routes/api.$'
-import { ServerRoute as ApiCronGenerateBillsServerRouteImport } from './routes/api.cron.generate-bills'
-import { ServerRoute as ApiAuthSplatServerRouteImport } from './routes/api.auth.$'
+import { Route as ApiUpWebhookRouteImport } from './routes/api.up-webhook'
+import { Route as ApiEmailWebhookRouteImport } from './routes/api.email-webhook'
+import { Route as ApiAiRouteImport } from './routes/api.ai'
+import { Route as ApiSplatRouteImport } from './routes/api.$'
+import { Route as ApiCronGenerateBillsRouteImport } from './routes/api.cron.generate-bills'
+import { Route as ApiBillPdfsPdfSha256RouteImport } from './routes/api.bill-pdfs.$pdfSha256'
+import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 
-const rootServerRouteImport = createServerRootRoute()
-
+const RecurringBillsRoute = RecurringBillsRouteImport.update({
+  id: '/recurring-bills',
+  path: '/recurring-bills',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -50,36 +53,40 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiUpWebhookServerRoute = ApiUpWebhookServerRouteImport.update({
+const ApiUpWebhookRoute = ApiUpWebhookRouteImport.update({
   id: '/api/up-webhook',
   path: '/api/up-webhook',
-  getParentRoute: () => rootServerRouteImport,
+  getParentRoute: () => rootRouteImport,
 } as any)
-const ApiEmailWebhookServerRoute = ApiEmailWebhookServerRouteImport.update({
+const ApiEmailWebhookRoute = ApiEmailWebhookRouteImport.update({
   id: '/api/email-webhook',
   path: '/api/email-webhook',
-  getParentRoute: () => rootServerRouteImport,
+  getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAiServerRoute = ApiAiServerRouteImport.update({
+const ApiAiRoute = ApiAiRouteImport.update({
   id: '/api/ai',
   path: '/api/ai',
-  getParentRoute: () => rootServerRouteImport,
+  getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSplatServerRoute = ApiSplatServerRouteImport.update({
+const ApiSplatRoute = ApiSplatRouteImport.update({
   id: '/api/$',
   path: '/api/$',
-  getParentRoute: () => rootServerRouteImport,
+  getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCronGenerateBillsServerRoute =
-  ApiCronGenerateBillsServerRouteImport.update({
-    id: '/api/cron/generate-bills',
-    path: '/api/cron/generate-bills',
-    getParentRoute: () => rootServerRouteImport,
-  } as any)
-const ApiAuthSplatServerRoute = ApiAuthSplatServerRouteImport.update({
+const ApiCronGenerateBillsRoute = ApiCronGenerateBillsRouteImport.update({
+  id: '/api/cron/generate-bills',
+  path: '/api/cron/generate-bills',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBillPdfsPdfSha256Route = ApiBillPdfsPdfSha256RouteImport.update({
+  id: '/api/bill-pdfs/$pdfSha256',
+  path: '/api/bill-pdfs/$pdfSha256',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
-  getParentRoute: () => rootServerRouteImport,
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -88,6 +95,14 @@ export interface FileRoutesByFullPath {
   '/bills': typeof BillsRoute
   '/housemates': typeof HousematesRoute
   '/login': typeof LoginRoute
+  '/recurring-bills': typeof RecurringBillsRoute
+  '/api/$': typeof ApiSplatRoute
+  '/api/ai': typeof ApiAiRoute
+  '/api/email-webhook': typeof ApiEmailWebhookRoute
+  '/api/up-webhook': typeof ApiUpWebhookRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/bill-pdfs/$pdfSha256': typeof ApiBillPdfsPdfSha256Route
+  '/api/cron/generate-bills': typeof ApiCronGenerateBillsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -95,6 +110,14 @@ export interface FileRoutesByTo {
   '/bills': typeof BillsRoute
   '/housemates': typeof HousematesRoute
   '/login': typeof LoginRoute
+  '/recurring-bills': typeof RecurringBillsRoute
+  '/api/$': typeof ApiSplatRoute
+  '/api/ai': typeof ApiAiRoute
+  '/api/email-webhook': typeof ApiEmailWebhookRoute
+  '/api/up-webhook': typeof ApiUpWebhookRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/bill-pdfs/$pdfSha256': typeof ApiBillPdfsPdfSha256Route
+  '/api/cron/generate-bills': typeof ApiCronGenerateBillsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -103,13 +126,61 @@ export interface FileRoutesById {
   '/bills': typeof BillsRoute
   '/housemates': typeof HousematesRoute
   '/login': typeof LoginRoute
+  '/recurring-bills': typeof RecurringBillsRoute
+  '/api/$': typeof ApiSplatRoute
+  '/api/ai': typeof ApiAiRoute
+  '/api/email-webhook': typeof ApiEmailWebhookRoute
+  '/api/up-webhook': typeof ApiUpWebhookRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/bill-pdfs/$pdfSha256': typeof ApiBillPdfsPdfSha256Route
+  '/api/cron/generate-bills': typeof ApiCronGenerateBillsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/ai' | '/bills' | '/housemates' | '/login'
+  fullPaths:
+    | '/'
+    | '/ai'
+    | '/bills'
+    | '/housemates'
+    | '/login'
+    | '/recurring-bills'
+    | '/api/$'
+    | '/api/ai'
+    | '/api/email-webhook'
+    | '/api/up-webhook'
+    | '/api/auth/$'
+    | '/api/bill-pdfs/$pdfSha256'
+    | '/api/cron/generate-bills'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/ai' | '/bills' | '/housemates' | '/login'
-  id: '__root__' | '/' | '/ai' | '/bills' | '/housemates' | '/login'
+  to:
+    | '/'
+    | '/ai'
+    | '/bills'
+    | '/housemates'
+    | '/login'
+    | '/recurring-bills'
+    | '/api/$'
+    | '/api/ai'
+    | '/api/email-webhook'
+    | '/api/up-webhook'
+    | '/api/auth/$'
+    | '/api/bill-pdfs/$pdfSha256'
+    | '/api/cron/generate-bills'
+  id:
+    | '__root__'
+    | '/'
+    | '/ai'
+    | '/bills'
+    | '/housemates'
+    | '/login'
+    | '/recurring-bills'
+    | '/api/$'
+    | '/api/ai'
+    | '/api/email-webhook'
+    | '/api/up-webhook'
+    | '/api/auth/$'
+    | '/api/bill-pdfs/$pdfSha256'
+    | '/api/cron/generate-bills'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -118,70 +189,25 @@ export interface RootRouteChildren {
   BillsRoute: typeof BillsRoute
   HousematesRoute: typeof HousematesRoute
   LoginRoute: typeof LoginRoute
-}
-export interface FileServerRoutesByFullPath {
-  '/api/$': typeof ApiSplatServerRoute
-  '/api/ai': typeof ApiAiServerRoute
-  '/api/email-webhook': typeof ApiEmailWebhookServerRoute
-  '/api/up-webhook': typeof ApiUpWebhookServerRoute
-  '/api/auth/$': typeof ApiAuthSplatServerRoute
-  '/api/cron/generate-bills': typeof ApiCronGenerateBillsServerRoute
-}
-export interface FileServerRoutesByTo {
-  '/api/$': typeof ApiSplatServerRoute
-  '/api/ai': typeof ApiAiServerRoute
-  '/api/email-webhook': typeof ApiEmailWebhookServerRoute
-  '/api/up-webhook': typeof ApiUpWebhookServerRoute
-  '/api/auth/$': typeof ApiAuthSplatServerRoute
-  '/api/cron/generate-bills': typeof ApiCronGenerateBillsServerRoute
-}
-export interface FileServerRoutesById {
-  __root__: typeof rootServerRouteImport
-  '/api/$': typeof ApiSplatServerRoute
-  '/api/ai': typeof ApiAiServerRoute
-  '/api/email-webhook': typeof ApiEmailWebhookServerRoute
-  '/api/up-webhook': typeof ApiUpWebhookServerRoute
-  '/api/auth/$': typeof ApiAuthSplatServerRoute
-  '/api/cron/generate-bills': typeof ApiCronGenerateBillsServerRoute
-}
-export interface FileServerRouteTypes {
-  fileServerRoutesByFullPath: FileServerRoutesByFullPath
-  fullPaths:
-    | '/api/$'
-    | '/api/ai'
-    | '/api/email-webhook'
-    | '/api/up-webhook'
-    | '/api/auth/$'
-    | '/api/cron/generate-bills'
-  fileServerRoutesByTo: FileServerRoutesByTo
-  to:
-    | '/api/$'
-    | '/api/ai'
-    | '/api/email-webhook'
-    | '/api/up-webhook'
-    | '/api/auth/$'
-    | '/api/cron/generate-bills'
-  id:
-    | '__root__'
-    | '/api/$'
-    | '/api/ai'
-    | '/api/email-webhook'
-    | '/api/up-webhook'
-    | '/api/auth/$'
-    | '/api/cron/generate-bills'
-  fileServerRoutesById: FileServerRoutesById
-}
-export interface RootServerRouteChildren {
-  ApiSplatServerRoute: typeof ApiSplatServerRoute
-  ApiAiServerRoute: typeof ApiAiServerRoute
-  ApiEmailWebhookServerRoute: typeof ApiEmailWebhookServerRoute
-  ApiUpWebhookServerRoute: typeof ApiUpWebhookServerRoute
-  ApiAuthSplatServerRoute: typeof ApiAuthSplatServerRoute
-  ApiCronGenerateBillsServerRoute: typeof ApiCronGenerateBillsServerRoute
+  RecurringBillsRoute: typeof RecurringBillsRoute
+  ApiSplatRoute: typeof ApiSplatRoute
+  ApiAiRoute: typeof ApiAiRoute
+  ApiEmailWebhookRoute: typeof ApiEmailWebhookRoute
+  ApiUpWebhookRoute: typeof ApiUpWebhookRoute
+  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiBillPdfsPdfSha256Route: typeof ApiBillPdfsPdfSha256Route
+  ApiCronGenerateBillsRoute: typeof ApiCronGenerateBillsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/recurring-bills': {
+      id: '/recurring-bills'
+      path: '/recurring-bills'
+      fullPath: '/recurring-bills'
+      preLoaderRoute: typeof RecurringBillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -217,51 +243,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-  }
-}
-declare module '@tanstack/react-start/server' {
-  interface ServerFileRoutesByPath {
     '/api/up-webhook': {
       id: '/api/up-webhook'
       path: '/api/up-webhook'
       fullPath: '/api/up-webhook'
-      preLoaderRoute: typeof ApiUpWebhookServerRouteImport
-      parentRoute: typeof rootServerRouteImport
+      preLoaderRoute: typeof ApiUpWebhookRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/email-webhook': {
       id: '/api/email-webhook'
       path: '/api/email-webhook'
       fullPath: '/api/email-webhook'
-      preLoaderRoute: typeof ApiEmailWebhookServerRouteImport
-      parentRoute: typeof rootServerRouteImport
+      preLoaderRoute: typeof ApiEmailWebhookRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/ai': {
       id: '/api/ai'
       path: '/api/ai'
       fullPath: '/api/ai'
-      preLoaderRoute: typeof ApiAiServerRouteImport
-      parentRoute: typeof rootServerRouteImport
+      preLoaderRoute: typeof ApiAiRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/$': {
       id: '/api/$'
       path: '/api/$'
       fullPath: '/api/$'
-      preLoaderRoute: typeof ApiSplatServerRouteImport
-      parentRoute: typeof rootServerRouteImport
+      preLoaderRoute: typeof ApiSplatRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/cron/generate-bills': {
       id: '/api/cron/generate-bills'
       path: '/api/cron/generate-bills'
       fullPath: '/api/cron/generate-bills'
-      preLoaderRoute: typeof ApiCronGenerateBillsServerRouteImport
-      parentRoute: typeof rootServerRouteImport
+      preLoaderRoute: typeof ApiCronGenerateBillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/bill-pdfs/$pdfSha256': {
+      id: '/api/bill-pdfs/$pdfSha256'
+      path: '/api/bill-pdfs/$pdfSha256'
+      fullPath: '/api/bill-pdfs/$pdfSha256'
+      preLoaderRoute: typeof ApiBillPdfsPdfSha256RouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
       fullPath: '/api/auth/$'
-      preLoaderRoute: typeof ApiAuthSplatServerRouteImport
-      parentRoute: typeof rootServerRouteImport
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -272,18 +301,24 @@ const rootRouteChildren: RootRouteChildren = {
   BillsRoute: BillsRoute,
   HousematesRoute: HousematesRoute,
   LoginRoute: LoginRoute,
+  RecurringBillsRoute: RecurringBillsRoute,
+  ApiSplatRoute: ApiSplatRoute,
+  ApiAiRoute: ApiAiRoute,
+  ApiEmailWebhookRoute: ApiEmailWebhookRoute,
+  ApiUpWebhookRoute: ApiUpWebhookRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiBillPdfsPdfSha256Route: ApiBillPdfsPdfSha256Route,
+  ApiCronGenerateBillsRoute: ApiCronGenerateBillsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-const rootServerRouteChildren: RootServerRouteChildren = {
-  ApiSplatServerRoute: ApiSplatServerRoute,
-  ApiAiServerRoute: ApiAiServerRoute,
-  ApiEmailWebhookServerRoute: ApiEmailWebhookServerRoute,
-  ApiUpWebhookServerRoute: ApiUpWebhookServerRoute,
-  ApiAuthSplatServerRoute: ApiAuthSplatServerRoute,
-  ApiCronGenerateBillsServerRoute: ApiCronGenerateBillsServerRoute,
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
 }
-export const serverRouteTree = rootServerRouteImport
-  ._addFileChildren(rootServerRouteChildren)
-  ._addFileTypes<FileServerRouteTypes>()

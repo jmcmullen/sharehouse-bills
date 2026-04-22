@@ -5,7 +5,15 @@ import { db } from "../api/db";
 import { bills } from "../api/db/schema/bills";
 import { debts } from "../api/db/schema/debts";
 import { housemates } from "../api/db/schema/housemates";
+import { getRemainingDebtAmount } from "../api/services/debt-payment-state";
 import { authMiddleware } from "../lib/auth-middleware";
+
+interface HousemateBalanceRow {
+	id: number;
+	name: string;
+	isActive: boolean;
+	amount: number;
+}
 
 // Get all housemates
 export const getAllHousemates = createServerFn({ method: "GET" })
@@ -15,6 +23,108 @@ export const getAllHousemates = createServerFn({ method: "GET" })
 			.select()
 			.from(housemates)
 			.orderBy(desc(housemates.createdAt));
+	});
+
+// Get outstanding debt totals for each housemate
+export const getHousemateOutstandingBalances = createServerFn({ method: "GET" })
+	.middleware([authMiddleware])
+	.handler(async () => {
+		const rows = await db
+			.select({
+				id: housemates.id,
+				name: housemates.name,
+				isActive: housemates.isActive,
+				creditBalance: housemates.creditBalance,
+				debt: debts,
+			})
+			.from(housemates)
+			.leftJoin(debts, eq(debts.housemateId, housemates.id))
+			.orderBy(housemates.name);
+
+		const balances = Array.from(
+			rows
+				.reduce(
+					(map, row) => {
+						const existing = map.get(row.id) ?? {
+							id: row.id,
+							name: row.name,
+							isActive: row.isActive,
+							amount: 0,
+							creditBalance: row.creditBalance,
+						};
+
+						if (row.debt) {
+							existing.amount += getRemainingDebtAmount(row.debt);
+						}
+
+						map.set(row.id, existing);
+						return map;
+					},
+					new Map<
+						number,
+						{
+							id: number;
+							name: string;
+							isActive: boolean;
+							amount: number;
+							creditBalance: number;
+						}
+					>(),
+				)
+				.values(),
+		).map((row) => ({
+			id: row.id,
+			name: row.name,
+			isActive: row.isActive,
+			amount: Math.max(0, row.amount - row.creditBalance),
+		}));
+
+		return balances.sort((left, right) => {
+			return right.amount - left.amount || left.name.localeCompare(right.name);
+		});
+	});
+
+// Get overdue debt totals for each housemate
+export const getHousemateOverdueBalances = createServerFn({ method: "GET" })
+	.middleware([authMiddleware])
+	.handler(async () => {
+		const now = new Date();
+		const rows = await db
+			.select({
+				id: housemates.id,
+				name: housemates.name,
+				isActive: housemates.isActive,
+				debt: debts,
+				billDueDate: bills.dueDate,
+			})
+			.from(housemates)
+			.leftJoin(debts, eq(debts.housemateId, housemates.id))
+			.leftJoin(bills, eq(debts.billId, bills.id))
+			.orderBy(housemates.name);
+
+		const balances = Array.from(
+			rows
+				.reduce((map, row) => {
+					const existing = map.get(row.id) ?? {
+						id: row.id,
+						name: row.name,
+						isActive: row.isActive,
+						amount: 0,
+					};
+
+					if (row.debt && row.billDueDate && row.billDueDate < now) {
+						existing.amount += getRemainingDebtAmount(row.debt);
+					}
+
+					map.set(row.id, existing);
+					return map;
+				}, new Map<number, HousemateBalanceRow>())
+				.values(),
+		);
+
+		return balances.sort((left, right) => {
+			return right.amount - left.amount || left.name.localeCompare(right.name);
+		});
 	});
 
 // Get active housemates only
@@ -31,7 +141,7 @@ export const getActiveHousemates = createServerFn({ method: "GET" })
 // Get a specific housemate by ID
 export const getHousemateById = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
-	.validator(z.object({ id: z.number() }))
+	.inputValidator(z.object({ id: z.number() }))
 	.handler(async ({ data }) => {
 		const [housemate] = await db
 			.select()
@@ -48,7 +158,7 @@ export const getHousemateById = createServerFn({ method: "GET" })
 // Create a new housemate
 export const createHousemate = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.validator(
+	.inputValidator(
 		z.object({
 			name: z.string().min(1),
 			email: z.string().email().optional(),
@@ -73,7 +183,7 @@ export const createHousemate = createServerFn({ method: "POST" })
 // Update a housemate
 export const updateHousemate = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.validator(
+	.inputValidator(
 		z.object({
 			id: z.number(),
 			name: z.string().min(1).optional(),
@@ -104,7 +214,7 @@ export const updateHousemate = createServerFn({ method: "POST" })
 // Get housemate's debt history
 export const getHousemateDebts = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
-	.validator(z.object({ housemateId: z.number() }))
+	.inputValidator(z.object({ housemateId: z.number() }))
 	.handler(async ({ data }) => {
 		return await db
 			.select({
@@ -120,7 +230,7 @@ export const getHousemateDebts = createServerFn({ method: "GET" })
 // Get housemate's outstanding debts
 export const getHousemateOutstandingDebts = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
-	.validator(z.object({ housemateId: z.number() }))
+	.inputValidator(z.object({ housemateId: z.number() }))
 	.handler(async ({ data }) => {
 		return await db
 			.select({
@@ -138,7 +248,7 @@ export const getHousemateOutstandingDebts = createServerFn({ method: "GET" })
 // Get housemate payment statistics
 export const getHousemateStats = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
-	.validator(z.object({ housemateId: z.number() }))
+	.inputValidator(z.object({ housemateId: z.number() }))
 	.handler(async ({ data }) => {
 		const allDebts = await db
 			.select()
@@ -147,12 +257,19 @@ export const getHousemateStats = createServerFn({ method: "GET" })
 
 		const paidDebts = allDebts.filter((debt) => debt.isPaid);
 		const unpaidDebts = allDebts.filter((debt) => !debt.isPaid);
+		const [housemate] = await db
+			.select({ creditBalance: housemates.creditBalance })
+			.from(housemates)
+			.where(eq(housemates.id, data.housemateId))
+			.limit(1);
 
 		const totalOwed = allDebts.reduce((sum, debt) => sum + debt.amountOwed, 0);
-		const totalPaid = paidDebts.reduce((sum, debt) => sum + debt.amountOwed, 0);
-		const totalOutstanding = unpaidDebts.reduce(
-			(sum, debt) => sum + debt.amountOwed,
+		const totalPaid = allDebts.reduce((sum, debt) => sum + debt.amountPaid, 0);
+		const totalOutstanding = Math.max(
 			0,
+			unpaidDebts.reduce((sum, debt) => {
+				return sum + getRemainingDebtAmount(debt);
+			}, 0) - (housemate?.creditBalance ?? 0),
 		);
 
 		return {
@@ -169,7 +286,7 @@ export const getHousemateStats = createServerFn({ method: "GET" })
 // Deactivate a housemate (soft delete)
 export const deactivateHousemate = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.validator(z.object({ id: z.number() }))
+	.inputValidator(z.object({ id: z.number() }))
 	.handler(async ({ data }) => {
 		const [updatedHousemate] = await db
 			.update(housemates)
@@ -190,7 +307,7 @@ export const deactivateHousemate = createServerFn({ method: "POST" })
 // Reactivate a housemate
 export const reactivateHousemate = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.validator(z.object({ id: z.number() }))
+	.inputValidator(z.object({ id: z.number() }))
 	.handler(async ({ data }) => {
 		const [updatedHousemate] = await db
 			.update(housemates)

@@ -11,15 +11,20 @@ import {
 } from "./actions";
 import { useHousemateDetails } from "./hooks/use-housemate-details";
 import { useHousemateModals } from "./hooks/use-housemate-modals";
+import { HousemateOutstandingChart } from "./housemate-outstanding-chart";
 import { HousematesTable } from "./housemates-table";
 import { AddHousemateModal } from "./modals/add-housemate-modal";
 import { DeactivateHousemateModal } from "./modals/deactivate-housemate-modal";
 import { EditHousemateModal } from "./modals/edit-housemate-modal";
 import { HousemateDetailsModal } from "./modals/housemate-details-modal";
-import { validateHousemateForm } from "./utils";
+import type { HousemateBalanceMetric } from "./types";
+import { formatCurrency, validateHousemateForm } from "./utils";
 
 export function HousematesPage() {
-	const { housematesData } = useLoaderData({ from: "/housemates" });
+	const { housematesData, outstandingBalances, overdueBalances } =
+		useLoaderData({
+			from: "/housemates",
+		});
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();
 
@@ -47,6 +52,10 @@ export function HousematesPage() {
 		selectedHousemate?.id || null,
 		viewDetailsModalOpen,
 	);
+	const outstandingTotal = getMetricTotal(outstandingBalances);
+	const outstandingCount = getMetricCount(outstandingBalances);
+	const overdueTotal = getMetricTotal(overdueBalances);
+	const overdueCount = getMetricCount(overdueBalances);
 
 	const handleAddSubmit = () => {
 		const validationError = validateHousemateForm(addFormData);
@@ -141,6 +150,31 @@ export function HousematesPage() {
 				</Button>
 			</div>
 
+			<div className="grid gap-6 xl:grid-cols-2">
+				<HousemateOutstandingChart
+					balances={outstandingBalances}
+					title="Outstanding by Housemate"
+					metricLabel="Outstanding"
+					description={`${formatCurrency(outstandingTotal)} unpaid across ${formatHousemateCount(outstandingCount)}`}
+					emptyDescription="No outstanding balances right now"
+					summary={`${formatHousemateCount(outstandingCount)} currently have unpaid balances`}
+					emptySummary="Everyone is fully paid up"
+					footerNote="Showing current outstanding debt by housemate"
+					color="var(--chart-2)"
+				/>
+				<HousemateOutstandingChart
+					balances={overdueBalances}
+					title="Overdue Now"
+					metricLabel="Overdue"
+					description={`${formatCurrency(overdueTotal)} overdue across ${formatHousemateCount(overdueCount)}`}
+					emptyDescription="No overdue balances right now"
+					summary={`${formatHousemateCount(overdueCount)} have bills past their due date`}
+					emptySummary="No one is overdue right now"
+					footerNote="Showing unpaid debt with a due date before today"
+					color="var(--chart-1)"
+				/>
+			</div>
+
 			<HousematesTable
 				housemates={housematesData}
 				isLoading={false}
@@ -190,4 +224,16 @@ export function HousematesPage() {
 			/>
 		</div>
 	);
+}
+
+function getMetricTotal(balances: HousemateBalanceMetric[]) {
+	return balances.reduce((sum, balance) => sum + balance.amount, 0);
+}
+
+function getMetricCount(balances: HousemateBalanceMetric[]) {
+	return balances.filter((balance) => balance.amount > 0).length;
+}
+
+function formatHousemateCount(count: number) {
+	return `${count} housemate${count === 1 ? "" : "s"}`;
 }

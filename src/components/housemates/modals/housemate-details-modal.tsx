@@ -132,7 +132,11 @@ export function HousemateDetailsModal({
 											{bill.billerName}
 										</TableCell>
 										<TableCell className="font-mono">
-											{formatCurrency(debt.amountOwed)}
+											{formatCurrency(
+												debt.amountOwed - debt.amountPaid > 0
+													? debt.amountOwed - debt.amountPaid
+													: debt.amountPaid,
+											)}
 										</TableCell>
 										<TableCell>
 											{debt.isPaid ? (

@@ -11,6 +11,7 @@ export const debts = sqliteTable("debts", {
 		.notNull()
 		.references(() => housemates.id, { onDelete: "cascade" }),
 	amountOwed: real("amount_owed").notNull(),
+	amountPaid: real("amount_paid").default(0).notNull(),
 	isPaid: integer("is_paid", { mode: "boolean" }).default(false).notNull(),
 	paidAt: integer("paid_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" })

@@ -1,5 +1,13 @@
 import type { BillData, BillSummary, DebtSummary, GroupedBill } from "./types";
 
+function getDebtAmountPaid(debt: NonNullable<BillData["debt"]>) {
+	return debt.amountPaid || 0;
+}
+
+function getDebtAmountRemaining(debt: NonNullable<BillData["debt"]>) {
+	return Math.max(0, debt.amountOwed - getDebtAmountPaid(debt));
+}
+
 export function calculateSummary(billsData: BillData[]): BillSummary {
 	if (!billsData || billsData.length === 0) {
 		return {
@@ -31,14 +39,12 @@ export function calculateSummary(billsData: BillData[]): BillSummary {
 	);
 
 	const unpaidDebts = allDebts.filter((debt) => !debt?.isPaid);
-	const paidDebts = allDebts.filter((debt) => debt?.isPaid);
-
 	const totalUnpaid = unpaidDebts.reduce(
-		(sum, debt) => sum + (debt?.amountOwed || 0),
+		(sum, debt) => sum + (debt ? getDebtAmountRemaining(debt) : 0),
 		0,
 	);
-	const paidAmount = paidDebts.reduce(
-		(sum, debt) => sum + (debt?.amountOwed || 0),
+	const paidAmount = allDebts.reduce(
+		(sum, debt) => sum + (debt ? getDebtAmountPaid(debt) : 0),
 		0,
 	);
 
@@ -86,12 +92,12 @@ export function getAmountPerPerson(debts: GroupedBill["debts"]): number {
 export function getDebtSummary(debts: GroupedBill["debts"]): DebtSummary {
 	const paid = debts.filter((d) => d.debt?.isPaid).length;
 	const total = debts.length;
-	const paidAmount = debts
-		.filter((d) => d.debt?.isPaid)
-		.reduce((sum, d) => sum + (d.debt?.amountOwed || 0), 0);
-	const owedAmount = debts
-		.filter((d) => !d.debt?.isPaid)
-		.reduce((sum, d) => sum + (d.debt?.amountOwed || 0), 0);
+	const paidAmount = debts.reduce((sum, item) => {
+		return item.debt ? sum + getDebtAmountPaid(item.debt) : sum;
+	}, 0);
+	const owedAmount = debts.reduce((sum, item) => {
+		return item.debt ? sum + getDebtAmountRemaining(item.debt) : sum;
+	}, 0);
 
 	return { paid, total, paidAmount, owedAmount, debts };
 }

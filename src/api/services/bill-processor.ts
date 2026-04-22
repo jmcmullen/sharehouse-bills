@@ -1,9 +1,16 @@
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
+import { createError } from "evlog";
+import { getRequestLogger } from "../../lib/request-logger";
 import { db } from "../db";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
-import { AIParserService, type ParsedBill } from "./ai-parser";
+import { BillPdfStorageService } from "./bill-pdf-storage";
+import { applyHousemateCreditToDebt } from "./debt-payment-state";
+import {
+	type ExtractedBillData,
+	PdfBillExtractorService,
+} from "./pdf-bill-extractor";
 
 export interface FileAttachment {
 	filename: string;
@@ -14,17 +21,21 @@ export interface FileAttachment {
 
 export interface ProcessingResult {
 	success: boolean;
+	status: "processed" | "duplicate" | "failed";
 	billId?: number;
+	duplicateOfBillId?: number;
 	filename: string;
 	error?: string;
-	parsedData?: ParsedBill;
+	parsedData?: ExtractedBillData;
 }
 
 export class BillProcessorService {
-	private aiParser: AIParserService;
+	private billExtractor: PdfBillExtractorService;
+	private billPdfStorage: BillPdfStorageService;
 
 	constructor() {
-		this.aiParser = new AIParserService();
+		this.billExtractor = new PdfBillExtractorService();
+		this.billPdfStorage = new BillPdfStorageService();
 	}
 
 	async processEmailAttachments(
@@ -32,27 +43,55 @@ export class BillProcessorService {
 		emailFrom: string,
 		emailSubject: string,
 	): Promise<ProcessingResult[]> {
+		const log = getRequestLogger();
+		log?.set({
+			email: {
+				from: emailFrom,
+				subject: emailSubject,
+			},
+			attachmentBatch: {
+				totalAttachments: attachments.length,
+			},
+		});
+
 		const results: ProcessingResult[] = [];
 
 		for (const pdf of attachments) {
 			try {
-				const result = await this.processPdfAttachment(
+				const attachmentResults = await this.processPdfAttachment(
 					pdf,
 					emailFrom,
 					emailSubject,
 				);
-				results.push(result);
+				results.push(...attachmentResults);
 			} catch (error) {
-				console.error(`Failed to process ${pdf.filename}:`, error);
+				log?.error(error instanceof Error ? error : String(error), {
+					attachmentFailures: [
+						{
+							filename: pdf.filename,
+							size: pdf.size,
+						},
+					],
+				});
 				const errorMessage =
 					error instanceof Error ? error.message : String(error);
 				results.push({
 					success: false,
+					status: "failed",
 					filename: pdf.filename,
 					error: errorMessage,
 				});
 			}
 		}
+
+		log?.set({
+			attachmentBatch: {
+				totalAttachments: attachments.length,
+				processedResults: results.length,
+				successCount: results.filter((result) => result.success).length,
+				errorCount: results.filter((result) => !result.success).length,
+			},
+		});
 
 		return results;
 	}
@@ -61,89 +100,249 @@ export class BillProcessorService {
 		attachment: FileAttachment,
 		emailFrom: string,
 		emailSubject: string,
-	): Promise<ProcessingResult> {
+	): Promise<ProcessingResult[]> {
+		const log = getRequestLogger();
 		try {
-			console.log(`Processing PDF attachment: ${attachment.filename}`);
+			log?.set({
+				attachments: [
+					{
+						filename: attachment.filename,
+						contentType: attachment.contentType,
+						size: attachment.size,
+					},
+				],
+			});
 
-			// Parse the PDF using AI
-			const parsedData = await this.aiParser.parsePdfFromBuffer(
+			const parsedBills = await this.billExtractor.extractBillsFromPdf(
 				attachment.buffer,
 				attachment.filename,
 				attachment.contentType,
 			);
+			let pdfUrl: string | null = null;
+			const pdfSha256 = parsedBills[0]?.pdfSha256;
 
-			// Create the bill in the database
-			const [newBill] = await db
-				.insert(bills)
-				.values({
-					billerName: parsedData.billerName,
-					totalAmount: parsedData.totalAmount,
-					dueDate: new Date(parsedData.dueDate),
-					pdfUrl: null, // Could store the PDF content or URL if needed
-				})
-				.returning();
-
-			console.log(`Created bill with ID: ${newBill.id}`);
-
-			// Get all active housemates
-			const activeHousemates = await db
-				.select()
-				.from(housemates)
-				.where(eq(housemates.isActive, true));
-
-			if (activeHousemates.length === 0) {
-				throw new Error("No active housemates found to assign bill to");
+			if (pdfSha256) {
+				pdfUrl = await this.billPdfStorage.savePdf(
+					pdfSha256,
+					attachment.buffer,
+				);
 			}
 
-			// Split the bill equally among ALL active housemates
-			const amountPerPerson = parsedData.totalAmount / activeHousemates.length;
+			const results: ProcessingResult[] = [];
+			for (const parsedData of parsedBills) {
+				try {
+					const duplicateBill = await this.findDuplicateBill(
+						parsedData,
+						parsedBills.length === 1,
+					);
 
-			// Create debt records only for non-owner housemates
-			const debtRecords = activeHousemates
-				.filter((housemate) => !housemate.isOwner) // Exclude owners from owing money
-				.map((housemate) => ({
-					billId: newBill.id,
-					housemateId: housemate.id,
-					amountOwed: amountPerPerson,
-				}));
+					if (duplicateBill) {
+						if (pdfUrl && !duplicateBill.pdfUrl) {
+							await db
+								.update(bills)
+								.set({
+									pdfUrl,
+									updatedAt: new Date(),
+								})
+								.where(eq(bills.id, duplicateBill.id));
+						}
 
-			await db.insert(debts).values(debtRecords);
+						results.push({
+							success: true,
+							status: "duplicate",
+							filename: this.buildResultFilename(
+								attachment.filename,
+								parsedData,
+							),
+							billId: duplicateBill.id,
+							duplicateOfBillId: duplicateBill.id,
+							error: `Duplicate bill already imported as bill ${duplicateBill.id}`,
+						});
+						continue;
+					}
 
-			console.log(
-				`Created ${debtRecords.length} debt records for bill ${newBill.id}`,
-			);
+					const [newBill] = await db
+						.insert(bills)
+						.values({
+							billerName: parsedData.billerName,
+							provider: parsedData.provider,
+							billType: parsedData.billType,
+							totalAmount: parsedData.totalAmount,
+							dueDate: parsedData.dueDate,
+							statementDate: parsedData.statementDate,
+							chargeDueDate: parsedData.chargeDueDate,
+							billPeriodStart: parsedData.billPeriodStart,
+							billPeriodEnd: parsedData.billPeriodEnd,
+							accountNumber: parsedData.accountNumber,
+							referenceNumber: parsedData.referenceNumber,
+							sourceFilename: parsedData.sourceFilename,
+							parseMethod: parsedData.parseMethod,
+							parseConfidence: parsedData.parseConfidence,
+							sourceFingerprint: parsedData.sourceFingerprint,
+							pdfSha256: parsedData.pdfSha256,
+							pdfUrl,
+						})
+						.returning();
+					log?.set({
+						processedBills: [
+							{
+								billId: newBill.id,
+								billerName: parsedData.billerName,
+								totalAmount: parsedData.totalAmount,
+								referenceNumber: parsedData.referenceNumber,
+							},
+						],
+					});
 
-			return {
-				success: true,
-				billId: newBill.id,
-				filename: attachment.filename,
-				parsedData,
-			};
+					const activeHousemates = await db
+						.select()
+						.from(housemates)
+						.where(eq(housemates.isActive, true));
+
+					if (activeHousemates.length === 0) {
+						throw createError({
+							message: "No active housemates found to assign bill to",
+							status: 500,
+							why: "The bill processor could not find any active housemates for debt assignment.",
+							fix: "Add or reactivate at least one housemate before importing bills.",
+						});
+					}
+
+					const amountPerPerson =
+						parsedData.totalAmount / activeHousemates.length;
+					const debtRecords = activeHousemates
+						.filter((housemate) => !housemate.isOwner)
+						.map((housemate) => ({
+							billId: newBill.id,
+							housemateId: housemate.id,
+							amountOwed: amountPerPerson,
+							amountPaid: 0,
+						}));
+
+					const insertedDebts = await db
+						.insert(debts)
+						.values(debtRecords)
+						.returning({
+							id: debts.id,
+							housemateId: debts.housemateId,
+						});
+					for (const debtRecord of insertedDebts) {
+						await applyHousemateCreditToDebt(
+							debtRecord.housemateId,
+							debtRecord.id,
+						);
+					}
+					log?.set({
+						debtCreation: {
+							billId: newBill.id,
+							debtRecordCount: debtRecords.length,
+							amountPerPerson,
+						},
+					});
+
+					results.push({
+						success: true,
+						billId: newBill.id,
+						filename: this.buildResultFilename(attachment.filename, parsedData),
+						status: "processed",
+						parsedData,
+					});
+				} catch (error) {
+					log?.error(error instanceof Error ? error : String(error), {
+						parsedBillFailures: [
+							{
+								billerName: parsedData.billerName,
+								referenceNumber: parsedData.referenceNumber,
+								filename: attachment.filename,
+							},
+						],
+					});
+					const errorMessage =
+						error instanceof Error ? error.message : String(error);
+
+					results.push({
+						success: false,
+						status: "failed",
+						filename: this.buildResultFilename(attachment.filename, parsedData),
+						error: errorMessage,
+					});
+				}
+			}
+
+			return results;
 		} catch (error) {
-			console.error(`Error processing PDF ${attachment.filename}:`, error);
+			log?.error(error instanceof Error ? error : String(error), {
+				email: {
+					from: emailFrom,
+					subject: emailSubject,
+				},
+				attachmentFailures: [
+					{
+						filename: attachment.filename,
+					},
+				],
+			});
 			const errorMessage =
 				error instanceof Error ? error.message : String(error);
 
-			// Log the failed processing attempt
-			// Note: For now we just log to console, but this could be enhanced
-			// to store failed processing attempts in a dedicated table
-			console.log("Failed email processing:", {
-				emailFrom,
-				emailSubject,
-				filename: attachment.filename,
-				error: errorMessage,
-				timestamp: new Date().toISOString(),
-			});
-
-			return {
-				success: false,
-				filename: attachment.filename,
-				error: errorMessage,
-			};
+			return [
+				{
+					success: false,
+					status: "failed",
+					filename: attachment.filename,
+					error: errorMessage,
+				},
+			];
 		}
 	}
 
 	async testAIConnection(): Promise<boolean> {
-		return this.aiParser.testConnection();
+		return this.billExtractor.testAIConnection();
+	}
+
+	private buildResultFilename(
+		attachmentFilename: string,
+		parsedData: ExtractedBillData,
+	) {
+		if (parsedData.referenceNumber) {
+			return `${attachmentFilename} (${parsedData.referenceNumber})`;
+		}
+
+		return attachmentFilename;
+	}
+
+	private async findDuplicateBill(
+		parsedData: ExtractedBillData,
+		allowPdfShaFallback: boolean,
+	) {
+		if (!parsedData.sourceFingerprint && !parsedData.pdfSha256) {
+			return null;
+		}
+
+		const whereClause = parsedData.sourceFingerprint
+			? allowPdfShaFallback && parsedData.pdfSha256
+				? or(
+						eq(bills.sourceFingerprint, parsedData.sourceFingerprint),
+						eq(bills.pdfSha256, parsedData.pdfSha256),
+					)
+				: eq(bills.sourceFingerprint, parsedData.sourceFingerprint)
+			: parsedData.pdfSha256
+				? eq(bills.pdfSha256, parsedData.pdfSha256)
+				: undefined;
+
+		if (!whereClause) {
+			return null;
+		}
+
+		const [existingBill] = await db
+			.select({
+				id: bills.id,
+				pdfUrl: bills.pdfUrl,
+			})
+			.from(bills)
+			.where(whereClause)
+			.limit(1);
+
+		return existingBill ?? null;
 	}
 }

@@ -15,6 +15,7 @@ import { usePagination } from "./hooks/use-pagination";
 import { AddBillModal } from "./modals/add-bill-modal";
 import { DeleteBillModal } from "./modals/delete-bill-modal";
 import { MarkPaidModal } from "./modals/mark-paid-modal";
+import { ViewBillPdfModal } from "./modals/view-bill-pdf-modal";
 import { SummaryCards } from "./summary-cards";
 import { calculateSummary, groupBillsByBillId } from "./utils";
 
@@ -35,13 +36,22 @@ export function BillsPage() {
 		addBillModalOpen,
 		openAddBillModal,
 		closeAddBillModal,
+		viewPdfModalOpen,
+		billToViewPdf,
+		openViewPdfModal,
+		closeViewPdfModal,
 	} = useBillModals();
 
 	const { selectedFile, handleFileSelect, resetFile } = useFileUpload();
 
 	const summaryData = calculateSummary(billsData);
 	const groupedBills = groupBillsByBillId(billsData);
-	const bills = Object.values(groupedBills);
+	const bills = Object.values(groupedBills).sort((left, right) => {
+		return (
+			new Date(right.bill.dueDate).getTime() -
+			new Date(left.bill.dueDate).getTime()
+		);
+	});
 
 	const {
 		currentPage,
@@ -149,6 +159,7 @@ export function BillsPage() {
 				onNext={goToNext}
 				onMarkPaid={openMarkPaidModal}
 				onDeleteBill={openDeleteModal}
+				onViewPdf={openViewPdfModal}
 				onAddBill={openAddBillModal}
 				processingPayments={isPending}
 				deletingBill={isPending}
@@ -179,6 +190,12 @@ export function BillsPage() {
 				uploadResult={null}
 				setUploadResult={() => {}}
 				isUploading={isPending}
+			/>
+
+			<ViewBillPdfModal
+				open={viewPdfModalOpen}
+				onOpenChange={closeViewPdfModal}
+				bill={billToViewPdf}
 			/>
 		</div>
 	);

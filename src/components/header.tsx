@@ -7,6 +7,7 @@ export default function Header() {
 		{ to: "/", label: "Home" },
 		{ to: "/bills", label: "Bills" },
 		{ to: "/housemates", label: "Housemates" },
+		{ to: "/recurring-bills", label: "Recurring Bills" },
 		{ to: "/webhook-stats", label: "Webhook Stats" },
 	];
 

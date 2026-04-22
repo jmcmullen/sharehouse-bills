@@ -53,7 +53,7 @@ export function EditHousemateModal({
 			const state = form.store.state;
 			onFormDataChange(state.values);
 		});
-		return () => subscription();
+		return () => subscription.unsubscribe();
 	}, [form.store, onFormDataChange]);
 
 	const handleOpenChange = (newOpen: boolean) => {

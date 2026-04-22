@@ -1,13 +1,18 @@
 import { createVertex } from "@ai-sdk/google-vertex";
 import { generateText } from "ai";
+import { createError } from "evlog";
 import { z } from "zod";
+import { getRequestLogger } from "../../lib/request-logger";
 
 // Schema for parsed bill data
 export const parsedBillSchema = z.object({
 	billerName: z.string().min(1),
 	totalAmount: z.number().positive(),
 	dueDate: z.string().datetime(),
-	billType: z.string().nullable().optional(),
+	billType: z
+		.enum(["electricity", "gas", "internet", "phone", "water", "other"])
+		.nullable()
+		.optional(),
 	accountNumber: z.string().nullable().optional(),
 	referenceNumber: z.string().nullable().optional(),
 });
@@ -42,8 +47,17 @@ export class AIParserService {
 		filename: string,
 		mimeType = "application/pdf",
 	): Promise<ParsedBill> {
+		const log = getRequestLogger();
 		try {
-			console.log(`Parsing PDF: ${filename}`);
+			log?.set({
+				pdfParsing: {
+					filename,
+					mimeType,
+					size: pdfBuffer.byteLength,
+					provider: "vertex-ai",
+					model: "gemini-1.5-pro",
+				},
+			});
 
 			const prompt = `
 You are an expert at extracting bill information from PDF documents. 
@@ -60,9 +74,10 @@ Analyze the provided PDF and extract the following information in JSON format:
 
 Important guidelines:
 - Extract only the total amount due, not partial payments or previous balances
+- If the bill separately lists "new charges" or "current charges", extract that amount instead of any account balance
 - Use the exact company name as it appears on the bill
 - Convert dates to ISO 8601 format (e.g., "2024-01-15T00:00:00.000Z")
-- If due date is not found or unclear, use null and it will default to today's date
+- If due date is not found or unclear, use null
 - Return only valid JSON, no additional text or explanations
 - If information is unclear or missing, use null for optional fields
 - For totalAmount, extract only the numeric value without currency symbols
@@ -88,8 +103,12 @@ Important guidelines:
 				],
 				maxTokens: 1000,
 			});
-
-			console.log("AI Response:", text);
+			log?.set({
+				pdfParsing: {
+					filename,
+					responseLength: text.length,
+				},
+			});
 
 			// Parse the JSON response
 			let parsedData: unknown;
@@ -97,64 +116,109 @@ Important guidelines:
 				// Clean the response to extract JSON
 				const jsonMatch = text.match(/\{[\s\S]*\}/);
 				if (!jsonMatch) {
-					throw new Error("No JSON found in AI response");
+					throw createError({
+						message: "No JSON found in AI response",
+						status: 502,
+						why: "The language model returned text that did not contain a JSON object.",
+						fix: "Tighten the prompt or inspect the raw model output for schema drift.",
+					});
 				}
 
 				parsedData = JSON.parse(jsonMatch[0]);
 			} catch (parseError) {
-				console.error("Failed to parse AI response as JSON:", text);
+				log?.error(
+					parseError instanceof Error ? parseError : String(parseError),
+					{
+						pdfParsing: {
+							filename,
+							responseLength: text.length,
+						},
+					},
+				);
 				const errorMessage =
 					parseError instanceof Error ? parseError.message : String(parseError);
-				throw new Error(`Invalid JSON response from AI: ${errorMessage}`);
+				throw createError({
+					message: "Invalid JSON response from AI",
+					status: 502,
+					why: errorMessage,
+					fix: "Inspect the model response format and ensure it still matches the expected JSON schema.",
+				});
 			}
 
 			// Convert dueDate to Date object and cast to expected format
 			const dataToValidate = parsedData as Record<string, unknown>;
 
-			// Handle due date - default to today if null or invalid
+			// Reject missing or invalid due dates instead of guessing.
 			if (!dataToValidate.dueDate || dataToValidate.dueDate === null) {
-				// Default to today's date if due date not found
-				dataToValidate.dueDate = new Date().toISOString();
-				console.log("Due date not found in PDF, defaulting to today's date");
-			} else if (typeof dataToValidate.dueDate === "string") {
+				throw createError({
+					message: "Due date not found in PDF",
+					status: 422,
+					why: "The extracted bill data did not include a usable due date.",
+					fix: "Review the PDF source or adjust the extraction prompt to require the due date field.",
+				});
+			}
+
+			if (typeof dataToValidate.dueDate === "string") {
 				try {
 					dataToValidate.dueDate = new Date(
 						dataToValidate.dueDate,
 					).toISOString();
-				} catch (dateError) {
-					// If date parsing fails, default to today
-					dataToValidate.dueDate = new Date().toISOString();
-					console.log(
-						"Failed to parse due date from PDF, defaulting to today's date",
-					);
+				} catch {
+					throw createError({
+						message: "Failed to parse due date from PDF",
+						status: 422,
+						why: "The extracted due date string could not be converted to ISO format.",
+						fix: "Inspect the source date value and normalize its format before validation.",
+					});
 				}
-			} else {
-				// If due date is not a string, default to today
-				dataToValidate.dueDate = new Date().toISOString();
-				console.log("Due date format invalid, defaulting to today's date");
+				// Convert null values to empty strings for optional fields
+				if (dataToValidate.billType === null)
+					dataToValidate.billType = undefined;
+				if (dataToValidate.accountNumber === null)
+					dataToValidate.accountNumber = undefined;
+				if (dataToValidate.referenceNumber === null)
+					dataToValidate.referenceNumber = undefined;
+
+				// Validate the parsed data
+				const validatedData = parsedBillSchema.parse(dataToValidate);
+				log?.set({
+					parsedBill: {
+						billerName: validatedData.billerName,
+						totalAmount: validatedData.totalAmount,
+						dueDate: validatedData.dueDate,
+						billType: validatedData.billType,
+						accountNumber: validatedData.accountNumber,
+						referenceNumber: validatedData.referenceNumber,
+					},
+				});
+				return validatedData;
 			}
 
-			// Convert null values to empty strings for optional fields
-			if (dataToValidate.billType === null) dataToValidate.billType = undefined;
-			if (dataToValidate.accountNumber === null)
-				dataToValidate.accountNumber = undefined;
-			if (dataToValidate.referenceNumber === null)
-				dataToValidate.referenceNumber = undefined;
-
-			// Validate the parsed data
-			const validatedData = parsedBillSchema.parse(dataToValidate);
-
-			console.log("Successfully parsed bill:", validatedData);
-			return validatedData;
+			throw createError({
+				message: "Due date format invalid",
+				status: 422,
+				why: "The extracted due date was not a string value.",
+				fix: "Ensure the parser returns the due date as a valid ISO-compatible string before validation.",
+			});
 		} catch (error) {
-			console.error("Error parsing PDF:", error);
+			log?.error(error instanceof Error ? error : String(error), {
+				pdfParsing: {
+					filename,
+				},
+			});
 			const errorMessage =
 				error instanceof Error ? error.message : String(error);
-			throw new Error(`Failed to parse PDF: ${errorMessage}`);
+			throw createError({
+				message: "Failed to parse PDF",
+				status: 500,
+				why: errorMessage,
+				fix: "Check the PDF contents, parser prompt, and Vertex AI response for extraction issues.",
+			});
 		}
 	}
 
 	async testConnection(): Promise<boolean> {
+		const log = getRequestLogger();
 		try {
 			const { text } = await generateText({
 				model: vertex("gemini-2.0-flash-lite-preview-02-05"),
@@ -167,9 +231,18 @@ Important guidelines:
 				maxTokens: 10,
 			});
 
+			log?.set({
+				vertexAi: {
+					connectionTest: text.trim(),
+				},
+			});
 			return text.trim().toLowerCase().includes("ok");
 		} catch (error) {
-			console.error("AI connection test failed:", error);
+			log?.error(error instanceof Error ? error : String(error), {
+				vertexAi: {
+					connectionTest: "failed",
+				},
+			});
 			return false;
 		}
 	}

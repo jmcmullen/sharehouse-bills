@@ -2,6 +2,9 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
+import { serverAuth } from "@/lib/auth-server";
+import type { Session } from "better-auth";
+import { evlogErrorHandler } from "evlog/nitro/v3";
 
 import {
 	HeadContent,
@@ -9,17 +12,20 @@ import {
 	Scripts,
 	createRootRouteWithContext,
 } from "@tanstack/react-router";
+import { createMiddleware } from "@tanstack/react-start";
 import { Suspense } from "react";
 import { useTheme } from "../hooks/use-theme";
 import appCss from "../index.css?url";
 
-import { serverAuth } from "@/lib/auth-server";
-import type { Session } from "better-auth";
 export interface RouterAppContext {
 	session?: Session;
 }
 
 export const Route = createRootRouteWithContext<RouterAppContext>()({
+	server: {
+		middleware: [createMiddleware().server(evlogErrorHandler)],
+	},
+
 	beforeLoad: async ({ context }) => {
 		const session = await serverAuth();
 		return { ...context, ...session };

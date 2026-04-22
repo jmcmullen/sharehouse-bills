@@ -1,5 +1,9 @@
 import { HousematesPage } from "@/components/housemates/housemates-page";
-import { getAllHousemates } from "@/functions/housemates";
+import {
+	getAllHousemates,
+	getHousemateOutstandingBalances,
+	getHousemateOverdueBalances,
+} from "@/functions/housemates";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/housemates")({
@@ -11,8 +15,13 @@ export const Route = createFileRoute("/housemates")({
 		}
 	},
 	loader: async () => {
-		const housematesData = await getAllHousemates();
-		return { housematesData };
+		const [housematesData, outstandingBalances, overdueBalances] =
+			await Promise.all([
+				getAllHousemates(),
+				getHousemateOutstandingBalances(),
+				getHousemateOverdueBalances(),
+			]);
+		return { housematesData, outstandingBalances, overdueBalances };
 	},
 	component: HousematesPage,
 });

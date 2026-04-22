@@ -36,6 +36,8 @@ packages/api/tsconfig.tsbuildinfo
 .DS_Store
 *.pem
 *.local
+cloudflared/*.yml
+!cloudflared/*.example.yml
 
 # Logs
 npm-debug.log*

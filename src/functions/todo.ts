@@ -13,7 +13,7 @@ export const getAllTodos = createServerFn({ method: "GET" }).handler(
 
 // Create a new todo
 export const createTodo = createServerFn({ method: "POST" })
-	.validator(z.object({ text: z.string().min(1) }))
+	.inputValidator(z.object({ text: z.string().min(1) }))
 	.handler(async ({ data }) => {
 		const result = await db
 			.insert(todo)
@@ -27,7 +27,7 @@ export const createTodo = createServerFn({ method: "POST" })
 
 // Toggle todo completion
 export const toggleTodo = createServerFn({ method: "POST" })
-	.validator(z.object({ id: z.number(), completed: z.boolean() }))
+	.inputValidator(z.object({ id: z.number(), completed: z.boolean() }))
 	.handler(async ({ data }) => {
 		await db
 			.update(todo)
@@ -38,7 +38,7 @@ export const toggleTodo = createServerFn({ method: "POST" })
 
 // Delete a todo
 export const deleteTodo = createServerFn({ method: "POST" })
-	.validator(z.object({ id: z.number() }))
+	.inputValidator(z.object({ id: z.number() }))
 	.handler(async ({ data }) => {
 		await db.delete(todo).where(eq(todo.id, data.id));
 		return { success: true };

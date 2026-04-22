@@ -9,6 +9,8 @@ export function useBillModals() {
 		null,
 	);
 	const [addBillModalOpen, setAddBillModalOpen] = useState(false);
+	const [viewPdfModalOpen, setViewPdfModalOpen] = useState(false);
+	const [billToViewPdf, setBillToViewPdf] = useState<GroupedBill | null>(null);
 
 	const openDeleteModal = (billId: number) => {
 		setBillToDelete(billId);
@@ -38,6 +40,16 @@ export function useBillModals() {
 		setAddBillModalOpen(false);
 	};
 
+	const openViewPdfModal = (bill: GroupedBill) => {
+		setBillToViewPdf(bill);
+		setViewPdfModalOpen(true);
+	};
+
+	const closeViewPdfModal = () => {
+		setViewPdfModalOpen(false);
+		setBillToViewPdf(null);
+	};
+
 	return {
 		// Delete modal
 		deleteModalOpen,
@@ -55,5 +67,11 @@ export function useBillModals() {
 		addBillModalOpen,
 		openAddBillModal,
 		closeAddBillModal,
+
+		// PDF modal
+		viewPdfModalOpen,
+		billToViewPdf,
+		openViewPdfModal,
+		closeViewPdfModal,
 	};
 }

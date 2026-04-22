@@ -5,10 +5,14 @@ export interface BillData {
 		billerName: string;
 		dueDate: string | Date;
 		status: string;
+		pdfSha256?: string | null;
+		pdfUrl?: string | null;
+		sourceFilename?: string | null;
 	};
 	debt?: {
 		id: number;
 		amountOwed: number;
+		amountPaid: number;
 		isPaid: boolean;
 	} | null;
 	housemate?: {
