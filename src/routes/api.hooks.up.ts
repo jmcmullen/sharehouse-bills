@@ -109,8 +109,8 @@ interface UpBankWebhookPayload {
 					related: string;
 				};
 			};
-			transaction: {
-				data: {
+			transaction?: {
+				data?: {
 					type: string;
 					id: string;
 				};
@@ -204,7 +204,8 @@ export const Route = createFileRoute("/api/hooks/up")({
 					}
 
 					const eventType = payload.data.attributes.eventType;
-					const transactionId = payload.data.relationships.transaction.data.id;
+					const transactionId =
+						payload.data.relationships.transaction?.data?.id ?? null;
 					log?.set({
 						webhook: {
 							provider: "up-bank",
@@ -239,6 +240,15 @@ export const Route = createFileRoute("/api/hooks/up")({
 							success: true,
 							ignored: true,
 							reason: "unsupported_event_type",
+						});
+					}
+
+					if (!transactionId) {
+						throw createError({
+							message: "Missing transaction relationship",
+							status: 400,
+							why: `Up Bank webhook event ${eventType} did not include a transaction relationship.`,
+							fix: "Inspect the webhook payload shape and only process transaction-backed Up Bank events here.",
 						});
 					}
 
