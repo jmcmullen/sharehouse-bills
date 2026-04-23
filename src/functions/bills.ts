@@ -6,9 +6,11 @@ import { db } from "../api/db/index.server";
 import { bills } from "../api/db/schema/bills";
 import { debts } from "../api/db/schema/debts";
 import { housemates } from "../api/db/schema/housemates";
+import { paymentTransactions } from "../api/db/schema/payment-transactions";
 import {
 	applyHousemateCreditToDebt,
 	getRemainingDebtAmount,
+	roundCurrency,
 	updateBillStatusFromDebts,
 } from "../api/services/debt-payment-state";
 import { createPayPath } from "../api/services/housemate-pay-page.server";
@@ -24,8 +26,35 @@ import {
 	toBillReminderDbValues,
 } from "../lib/bill-reminder-config";
 import { getEqualSplitAmounts } from "../lib/equal-split";
-import { entityIdSchema } from "../lib/id";
+import { entityIdSchema, generateEntityId } from "../lib/id";
 import { getRequestLogger } from "../lib/request-logger";
+
+async function recordManualPaymentTransaction(input: {
+	debtId: string;
+	housemateId: string;
+	billerName: string;
+	amount: number;
+	createdAt: Date;
+}) {
+	if (Math.abs(input.amount) <= 0.009) {
+		return;
+	}
+
+	const actionLabel = input.amount > 0 ? "payment" : "adjustment";
+	await db.insert(paymentTransactions).values({
+		transactionId: `manual-admin-${generateEntityId()}`,
+		description: `Manual ${actionLabel} for ${input.billerName}`,
+		amount: input.amount,
+		housemateId: input.housemateId,
+		status: "matched",
+		source: "manual_admin",
+		matchType: "manual_match",
+		matchedDebtIds: [input.debtId],
+		creditAmount: 0,
+		createdAt: input.createdAt,
+		updatedAt: input.createdAt,
+	});
+}
 
 // Get all bills with their associated debts and housemate info
 export const getAllBills = createServerFn({ method: "GET" })
@@ -372,6 +401,7 @@ export const markDebtPaid = createServerFn({ method: "POST" })
 		const [existingDebt] = await db
 			.select()
 			.from(debts)
+			.innerJoin(bills, eq(bills.id, debts.billId))
 			.where(eq(debts.id, data.debtId))
 			.limit(1);
 
@@ -385,18 +415,20 @@ export const markDebtPaid = createServerFn({ method: "POST" })
 		}
 
 		const normalizedAmountPaid = Math.min(
-			existingDebt.amountOwed,
+			existingDebt.debts.amountOwed,
 			Math.max(0, data.amountPaid),
 		);
 		const isPaid =
 			getRemainingDebtAmount({
-				amountOwed: existingDebt.amountOwed,
+				amountOwed: existingDebt.debts.amountOwed,
 				amountPaid: normalizedAmountPaid,
 			}) <= 0.009;
 		const [updatedDebt] = await db
 			.update(debts)
 			.set({
-				amountPaid: isPaid ? existingDebt.amountOwed : normalizedAmountPaid,
+				amountPaid: isPaid
+					? existingDebt.debts.amountOwed
+					: normalizedAmountPaid,
 				isPaid,
 				paidAt: isPaid ? now : null,
 				updatedAt: now,
@@ -405,6 +437,15 @@ export const markDebtPaid = createServerFn({ method: "POST" })
 			.returning();
 
 		if (updatedDebt) {
+			await recordManualPaymentTransaction({
+				debtId: updatedDebt.id,
+				housemateId: updatedDebt.housemateId,
+				billerName: existingDebt.bills.billerName,
+				amount: roundCurrency(
+					updatedDebt.amountPaid - existingDebt.debts.amountPaid,
+				),
+				createdAt: now,
+			});
 			await updateBillStatusFromDebts(updatedDebt.billId);
 			log?.set({
 				debt: {

@@ -2,6 +2,7 @@ import {
 	IconHome,
 	IconLogout,
 	IconReceipt,
+	IconReceiptDollar,
 	IconRepeat,
 	IconUsers,
 } from "@tabler/icons-react";
@@ -45,6 +46,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 				title: "Housemates",
 				url: "/housemates",
 				icon: IconUsers,
+			},
+			{
+				title: "Payments",
+				url: "/payments",
+				icon: IconReceiptDollar,
 			},
 			{
 				title: "Recurring Bills",

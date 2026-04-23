@@ -23,6 +23,11 @@ export const paymentTransactions = sqliteTable(
 		})
 			.notNull()
 			.default("unreconciled"),
+		source: text("source", {
+			enum: ["up_bank", "manual_reconciliation", "manual_admin"],
+		})
+			.notNull()
+			.default("up_bank"),
 		matchType: text("match_type", {
 			enum: [
 				"exact_match",
@@ -40,6 +45,7 @@ export const paymentTransactions = sqliteTable(
 			string[]
 		>(),
 		rawData: text("raw_data", { mode: "json" }),
+		creditAmount: real("credit_amount").notNull().default(0),
 		settledAt: integer("settled_at", { mode: "timestamp" }),
 		upCreatedAt: integer("up_created_at", { mode: "timestamp" }),
 		createdAt: integer("created_at", { mode: "timestamp" })

@@ -493,8 +493,10 @@ async function recordPaymentTransaction(
 	options: {
 		housemateId?: string | null;
 		status: "matched" | "unreconciled" | "ignored";
+		source: "up_bank" | "manual_reconciliation" | "manual_admin";
 		matchType: ReconciliationMatchType;
 		matchedDebtIds?: string[];
+		creditAmount?: number;
 	},
 ) {
 	await db.insert(paymentTransactions).values({
@@ -503,9 +505,11 @@ async function recordPaymentTransaction(
 		amount: transaction.attributes.amount.valueInBaseUnits / 100,
 		housemateId: options.housemateId ?? null,
 		status: options.status,
+		source: options.source,
 		matchType: options.matchType,
 		matchedDebtIds: options.matchedDebtIds,
 		rawData: transaction,
+		creditAmount: options.creditAmount ?? 0,
 		settledAt: parseTimestamp(transaction.attributes.settledAt),
 		upCreatedAt: parseTimestamp(transaction.attributes.createdAt),
 	});
@@ -576,6 +580,7 @@ async function storeUnreconciledTransaction(
 	await recordPaymentTransaction(transaction, {
 		housemateId,
 		status: "unreconciled",
+		source: "up_bank",
 		matchType: reason,
 	});
 }
@@ -609,6 +614,7 @@ export async function processTransaction(
 	if (parsedPaymentIntent.kind === "ignored") {
 		await recordPaymentTransaction(transaction, {
 			status: "ignored",
+			source: "up_bank",
 			matchType: "ignored",
 		});
 
@@ -739,9 +745,11 @@ export async function processTransaction(
 			amount: amountInDollars,
 			housemateId: parsedPaymentIntent.housemateId,
 			status: "matched",
+			source: "up_bank",
 			matchType,
 			matchedDebtIds,
 			rawData: transaction,
+			creditAmount: creditCreated,
 			settledAt: parseTimestamp(transaction.attributes.settledAt),
 			upCreatedAt: parseTimestamp(transaction.attributes.createdAt),
 			createdAt: now,
@@ -864,8 +872,10 @@ export async function manuallyReconcileTransaction(
 			.set({
 				housemateId: matchedHousemateId,
 				status: "matched",
+				source: "manual_reconciliation",
 				matchType: "manual_match",
 				matchedDebtIds: debtIds,
+				creditAmount: 0,
 				updatedAt: now,
 			})
 			.where(eq(paymentTransactions.transactionId, transactionId));
@@ -876,9 +886,11 @@ export async function manuallyReconcileTransaction(
 			amount: unreconciledTransaction.amount,
 			housemateId: matchedHousemateId,
 			status: "matched",
+			source: "manual_reconciliation",
 			matchType: "manual_match",
 			matchedDebtIds: debtIds,
 			rawData: unreconciledTransaction.rawData,
+			creditAmount: 0,
 			createdAt: now,
 			updatedAt: now,
 		});

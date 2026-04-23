@@ -19,6 +19,7 @@ import { Route as ApiCronRouteImport } from './routes/api.cron'
 import { Route as ApiAiRouteImport } from './routes/api.ai'
 import { Route as ApiSplatRouteImport } from './routes/api.$'
 import { Route as AppRecurringBillsRouteImport } from './routes/_app.recurring-bills'
+import { Route as AppPaymentsRouteImport } from './routes/_app.payments'
 import { Route as AppHousematesRouteImport } from './routes/_app.housemates'
 import { Route as AppBillsRouteImport } from './routes/_app.bills'
 import { Route as AppAiRouteImport } from './routes/_app.ai'
@@ -78,6 +79,11 @@ const ApiSplatRoute = ApiSplatRouteImport.update({
 const AppRecurringBillsRoute = AppRecurringBillsRouteImport.update({
   id: '/recurring-bills',
   path: '/recurring-bills',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPaymentsRoute = AppPaymentsRouteImport.update({
+  id: '/payments',
+  path: '/payments',
   getParentRoute: () => AppRoute,
 } as any)
 const AppHousematesRoute = AppHousematesRouteImport.update({
@@ -142,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/ai': typeof AppAiRoute
   '/bills': typeof AppBillsRoute
   '/housemates': typeof AppHousematesRoute
+  '/payments': typeof AppPaymentsRoute
   '/recurring-bills': typeof AppRecurringBillsRoute
   '/api/$': typeof ApiSplatRoute
   '/api/ai': typeof ApiAiRoute
@@ -164,6 +171,7 @@ export interface FileRoutesByTo {
   '/ai': typeof AppAiRoute
   '/bills': typeof AppBillsRoute
   '/housemates': typeof AppHousematesRoute
+  '/payments': typeof AppPaymentsRoute
   '/recurring-bills': typeof AppRecurringBillsRoute
   '/api/$': typeof ApiSplatRoute
   '/api/ai': typeof ApiAiRoute
@@ -188,6 +196,7 @@ export interface FileRoutesById {
   '/_app/ai': typeof AppAiRoute
   '/_app/bills': typeof AppBillsRoute
   '/_app/housemates': typeof AppHousematesRoute
+  '/_app/payments': typeof AppPaymentsRoute
   '/_app/recurring-bills': typeof AppRecurringBillsRoute
   '/api/$': typeof ApiSplatRoute
   '/api/ai': typeof ApiAiRoute
@@ -212,6 +221,7 @@ export interface FileRouteTypes {
     | '/ai'
     | '/bills'
     | '/housemates'
+    | '/payments'
     | '/recurring-bills'
     | '/api/$'
     | '/api/ai'
@@ -234,6 +244,7 @@ export interface FileRouteTypes {
     | '/ai'
     | '/bills'
     | '/housemates'
+    | '/payments'
     | '/recurring-bills'
     | '/api/$'
     | '/api/ai'
@@ -257,6 +268,7 @@ export interface FileRouteTypes {
     | '/_app/ai'
     | '/_app/bills'
     | '/_app/housemates'
+    | '/_app/payments'
     | '/_app/recurring-bills'
     | '/api/$'
     | '/api/ai'
@@ -366,6 +378,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRecurringBillsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/payments': {
+      id: '/_app/payments'
+      path: '/payments'
+      fullPath: '/payments'
+      preLoaderRoute: typeof AppPaymentsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/housemates': {
       id: '/_app/housemates'
       path: '/housemates'
@@ -450,6 +469,7 @@ interface AppRouteChildren {
   AppAiRoute: typeof AppAiRoute
   AppBillsRoute: typeof AppBillsRoute
   AppHousematesRoute: typeof AppHousematesRoute
+  AppPaymentsRoute: typeof AppPaymentsRoute
   AppRecurringBillsRoute: typeof AppRecurringBillsRoute
 }
 
@@ -457,6 +477,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAiRoute: AppAiRoute,
   AppBillsRoute: AppBillsRoute,
   AppHousematesRoute: AppHousematesRoute,
+  AppPaymentsRoute: AppPaymentsRoute,
   AppRecurringBillsRoute: AppRecurringBillsRoute,
 }
 

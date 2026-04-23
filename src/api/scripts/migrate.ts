@@ -166,12 +166,18 @@ async function bootstrapExistingDatabase(
 		client,
 		"housemates",
 	);
+	const existingPaymentTransactionColumns = await getExistingColumns(
+		client,
+		"payment_transactions",
+	);
 	const latestSchemaTables = ["payment_transactions", "whatsapp_notifications"];
 	const latestSchemaPresent =
 		latestSchemaTables.every((tableName) => tableNames.includes(tableName)) &&
 		existingBillColumns.has("reminders_enabled") &&
 		existingRecurringBillColumns.has("remindersEnabled") &&
-		existingHousemateColumns.has("whatsapp_number");
+		existingHousemateColumns.has("whatsapp_number") &&
+		existingPaymentTransactionColumns.has("source") &&
+		existingPaymentTransactionColumns.has("credit_amount");
 	const journalEntriesToMark = latestSchemaPresent
 		? journal.entries
 		: [baselineEntry];

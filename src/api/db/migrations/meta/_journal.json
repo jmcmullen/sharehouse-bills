@@ -50,6 +50,13 @@
 			"when": 1776859800000,
 			"tag": "0006_solid_titania",
 			"breakpoints": true
+		},
+		{
+			"idx": 7,
+			"version": "6",
+			"when": 1776933257868,
+			"tag": "0007_calm_hobgoblin",
+			"breakpoints": true
 		}
 	]
 }
