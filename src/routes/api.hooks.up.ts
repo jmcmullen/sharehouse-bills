@@ -133,6 +133,15 @@ function verifyWebhookSignature(
 	return signature === computedSignature;
 }
 
+function buildBodyPreview(body: string, maxLength = 500) {
+	const normalizedBody = body.replace(/\s+/g, " ").trim();
+	if (normalizedBody.length <= maxLength) {
+		return normalizedBody;
+	}
+
+	return `${normalizedBody.slice(0, maxLength - 1)}…`;
+}
+
 export const Route = createFileRoute("/api/hooks/up")({
 	server: {
 		handlers: {
@@ -161,9 +170,13 @@ export const Route = createFileRoute("/api/hooks/up")({
 					const body = await request.text();
 					const signature = request.headers.get("X-Up-Authenticity-Signature");
 					log?.set({
+						request: {
+							bodyPreview: buildBodyPreview(body),
+						},
 						webhook: {
 							provider: "up-bank",
 							hasSignatureHeader: Boolean(signature),
+							signatureLength: signature?.length ?? 0,
 						},
 					});
 
@@ -211,6 +224,11 @@ export const Route = createFileRoute("/api/hooks/up")({
 							provider: "up-bank",
 							eventId: payload.data.id,
 							eventType,
+							eventCreatedAt: payload.data.attributes.createdAt,
+							webhookId: payload.data.relationships.webhook.data.id,
+							hasTransactionRelationship: Boolean(
+								payload.data.relationships.transaction?.data,
+							),
 							transactionId,
 						},
 					});
@@ -269,6 +287,17 @@ export const Route = createFileRoute("/api/hooks/up")({
 							Authorization: `Bearer ${upBankApiToken}`,
 						},
 					});
+					const transactionResponseText = await transactionResponse.text();
+					log?.set({
+						upBank: {
+							transactionFetch: {
+								url: transactionUrl,
+								status: transactionResponse.status,
+								ok: transactionResponse.ok,
+								bodyPreview: buildBodyPreview(transactionResponseText),
+							},
+						},
+					});
 
 					if (!transactionResponse.ok) {
 						throw createError({
@@ -279,7 +308,9 @@ export const Route = createFileRoute("/api/hooks/up")({
 						});
 					}
 
-					const transactionData = await transactionResponse.json();
+					const transactionData = JSON.parse(transactionResponseText) as {
+						data?: UpBankTransaction;
+					};
 					const transaction = transactionData.data as UpBankTransaction;
 
 					if (!transaction) {
@@ -295,9 +326,17 @@ export const Route = createFileRoute("/api/hooks/up")({
 					log?.set({
 						transaction: {
 							id: transaction.id,
+							type: transaction.type,
+							status: transaction.attributes.status,
 							amountInCents,
+							currencyCode: transaction.attributes.amount.currencyCode,
+							createdAt: transaction.attributes.createdAt,
+							settledAt: transaction.attributes.settledAt,
 							description: transaction.attributes.description,
+							message: transaction.attributes.message,
 							rawText: transaction.attributes.rawText,
+							isCategorizable: transaction.attributes.isCategorizable,
+							accountId: transaction.relationships.account.data.id,
 						},
 					});
 					if (amountInCents <= 0) {
