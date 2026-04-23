@@ -414,7 +414,7 @@ function PublicPayPage() {
 
 	return (
 		<div className="min-h-screen bg-background text-foreground">
-			<div className="mx-auto flex max-w-md flex-col gap-7 px-5 pt-0 pb-6 sm:gap-8 sm:pt-8 sm:pb-12">
+			<div className="mx-auto flex max-w-md flex-col gap-7 px-5 pt-2 pb-6 sm:gap-8 sm:pt-2 sm:pb-12">
 				<header className="flex flex-col gap-3">
 					<p className="truncate font-semibold text-[15px] tracking-tight">
 						{housemate.name}
