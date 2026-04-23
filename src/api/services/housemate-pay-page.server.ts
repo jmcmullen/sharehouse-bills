@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, isNotNull } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
@@ -15,6 +15,7 @@ type UtilityBillType = "electricity" | "gas";
 export type PayTokenInput = {
 	housemateId: string;
 	stackGroup?: string | null;
+	billIds?: string[] | null;
 };
 
 type PayPageItem = {
@@ -41,10 +42,17 @@ type PayScope =
 	| {
 			kind: "all";
 			stackGroup: null;
+			billIds: null;
 	  }
 	| {
 			kind: "stack";
 			stackGroup: string;
+			billIds: null;
+	  }
+	| {
+			kind: "bills";
+			stackGroup: null;
+			billIds: string[];
 	  };
 
 export type PublicHousematePayPageData = {
@@ -97,11 +105,47 @@ function decodeStackGroup(encodedStackGroup: string) {
 	return Buffer.from(encodedStackGroup, "base64url").toString("utf8").trim();
 }
 
+function normalizeBillIds(billIds: string[] | null | undefined) {
+	if (!billIds) {
+		return [];
+	}
+
+	return [
+		...new Set(billIds.map((billId) => billId.trim()).filter(Boolean)),
+	].sort((left, right) => left.localeCompare(right));
+}
+
+function encodeBillIds(billIds: string[]) {
+	return Buffer.from(JSON.stringify(billIds), "utf8").toString("base64url");
+}
+
+function decodeBillIds(encodedBillIds: string) {
+	try {
+		const parsed = JSON.parse(
+			Buffer.from(encodedBillIds, "base64url").toString("utf8"),
+		);
+		return Array.isArray(parsed)
+			? normalizeBillIds(parsed.filter((value) => typeof value === "string"))
+			: [];
+	} catch {
+		return [];
+	}
+}
+
 export function createPayToken(input: PayTokenInput) {
 	const housemateId = input.housemateId.trim();
 	const stackGroup = input.stackGroup?.trim() ?? null;
+	const billIds = normalizeBillIds(input.billIds);
 	if (!housemateId) {
 		return null;
+	}
+
+	if (billIds.length > 0) {
+		const encodedBillIds = encodeBillIds(billIds);
+		return createSignedPublicLinkToken(
+			["bills", housemateId, encodedBillIds],
+			`bills:${housemateId}:${billIds.join(",")}`,
+		);
 	}
 
 	if (!stackGroup) {
@@ -163,6 +207,7 @@ function parseScopedPayToken(
 			scope: {
 				kind: "all",
 				stackGroup: null,
+				billIds: null,
 			},
 		};
 	}
@@ -192,6 +237,35 @@ function parseScopedPayToken(
 			scope: {
 				kind: "stack",
 				stackGroup,
+				billIds: null,
+			},
+		};
+	}
+
+	if (parts[0] === "bills" && parts.length === 4) {
+		const [, housemateIdPart, encodedBillIds, signaturePart] = parts;
+		const housemateId = housemateIdPart?.trim() ?? "";
+		const billIds = encodedBillIds ? decodeBillIds(encodedBillIds) : [];
+		if (!housemateId || billIds.length === 0 || !signaturePart) {
+			return null;
+		}
+
+		const expectedSignature = signPublicLinkPayload(
+			`bills:${housemateId}:${billIds.join(",")}`,
+		);
+		if (
+			!expectedSignature ||
+			!publicLinkSignaturesMatch(signaturePart, expectedSignature)
+		) {
+			return null;
+		}
+
+		return {
+			housemateId,
+			scope: {
+				kind: "bills",
+				stackGroup: null,
+				billIds,
 			},
 		};
 	}
@@ -279,7 +353,9 @@ export async function getPublicHousematePayPageData(token: string) {
 				eq(debts.isPaid, false),
 				...(parsedToken.scope.kind === "stack"
 					? [eq(bills.stackGroup, parsedToken.scope.stackGroup)]
-					: []),
+					: parsedToken.scope.kind === "bills"
+						? [inArray(bills.id, parsedToken.scope.billIds)]
+						: []),
 			),
 		)
 		.orderBy(asc(bills.dueDate), asc(debts.id));
@@ -322,11 +398,13 @@ export async function getPublicHousematePayPageData(token: string) {
 	).length;
 	const canonicalToken = createPayToken({
 		housemateId: housemate.id,
+		billIds:
+			parsedToken.scope.kind === "bills" ? parsedToken.scope.billIds : null,
 		stackGroup:
 			parsedToken.scope.kind === "stack" ? parsedToken.scope.stackGroup : null,
 	});
 	const allBillsToken =
-		parsedToken.scope.kind === "stack"
+		parsedToken.scope.kind === "stack" || parsedToken.scope.kind === "bills"
 			? createPayToken({ housemateId: housemate.id })
 			: null;
 	const pagePath = canonicalToken
@@ -358,7 +436,9 @@ export async function getPublicHousematePayPageData(token: string) {
 				gte(debts.paidAt, recentSince),
 				...(parsedToken.scope.kind === "stack"
 					? [eq(bills.stackGroup, parsedToken.scope.stackGroup)]
-					: []),
+					: parsedToken.scope.kind === "bills"
+						? [inArray(bills.id, parsedToken.scope.billIds)]
+						: []),
 			),
 		);
 	const recentlySettledAmount = recentRows.reduce(

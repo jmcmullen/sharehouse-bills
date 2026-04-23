@@ -50,6 +50,9 @@ async function sendBillReminderSummary(notificationId: string) {
 	const { createAbsolutePayUrl } = await import(
 		"../src/api/services/housemate-pay-page.server"
 	);
+	const { buildBillReminderSummary } = await import(
+		"../src/api/services/whatsapp-message-composer"
+	);
 	const { getWahaChatIdForPhoneNumber, sendWhatsappTextMessage } = await import(
 		"../src/api/services/waha"
 	);
@@ -64,6 +67,7 @@ async function sendBillReminderSummary(notificationId: string) {
 	const payUrl = createAbsolutePayUrl(
 		{
 			housemateId: context.housemate.id,
+			billIds: [...new Set(context.debts.map((debt) => debt.billId))],
 		},
 		BillPdfStorageService.getMessageCacheDate(),
 	);
@@ -73,11 +77,18 @@ async function sendBillReminderSummary(notificationId: string) {
 		);
 	}
 
+	const message = buildBillReminderSummary({
+		kind: context.kind,
+		mode: context.mode,
+		debts: context.debts,
+		payUrl,
+	});
+
 	await performTrackedWhatsappDelivery({
 		notificationId,
 		deliveryKey: "bill_reminder_summary",
 		operation: "bill reminder WhatsApp message",
-		deliver: async () => await sendWhatsappTextMessage(chatId, payUrl),
+		deliver: async () => await sendWhatsappTextMessage(chatId, message),
 	});
 }
 

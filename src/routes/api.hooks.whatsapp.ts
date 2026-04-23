@@ -263,13 +263,6 @@ export const Route = createFileRoute("/api/hooks/whatsapp")({
 				}
 
 				const commandDetails = (() => {
-					if (isPrivateChat) {
-						return {
-							commandType: "due",
-							requestedFirstName: null,
-						} as const;
-					}
-
 					const parsedCommand = parseInboundWhatsappCommand({
 						body: groupMessage.body,
 						dueKeyword: DUE_COMMAND_KEYWORD,
@@ -278,6 +271,23 @@ export const Route = createFileRoute("/api/hooks/whatsapp")({
 						senderChatId: groupMessage.senderChatId,
 						adminChatId: getWhatsappAdminChatId(),
 					});
+
+					if (isPrivateChat) {
+						if (isAdminSender && parsedCommand) {
+							return {
+								commandType: parsedCommand.commandType,
+								requestedFirstName:
+									parsedCommand.commandType === "due"
+										? parsedCommand.requestedFirstName
+										: null,
+							} as const;
+						}
+
+						return {
+							commandType: "due",
+							requestedFirstName: null,
+						} as const;
+					}
 
 					if (isAdminSender && !parsedCommand) {
 						return null;
@@ -305,7 +315,8 @@ export const Route = createFileRoute("/api/hooks/whatsapp")({
 					return {
 						commandType:
 							parsedCommand?.commandType === "init" ||
-							parsedCommand?.commandType === "paylinks"
+							parsedCommand?.commandType === "paylinks" ||
+							parsedCommand?.commandType === "reminder"
 								? "not_allowed"
 								: "pay",
 						requestedFirstName: null,

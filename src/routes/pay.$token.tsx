@@ -120,7 +120,7 @@ function getFirstName(fullName: string) {
 function formatPayPageTitle(input: {
 	housemateName: string;
 	scope: {
-		kind: "all" | "stack";
+		kind: "all" | "stack" | "bills";
 		stackGroup: string | null;
 	};
 	isAllSorted: boolean;
@@ -131,11 +131,18 @@ function formatPayPageTitle(input: {
 		if (input.scope.kind === "stack" && input.scope.stackGroup) {
 			return `${firstName}'s ${formatStackGroupLabel(input.scope.stackGroup).toLowerCase()} are all sorted 🎉`;
 		}
+		if (input.scope.kind === "bills") {
+			return `${firstName}'s reminder bills are all sorted 🎉`;
+		}
 		return `${firstName} is all sorted 🎉`;
 	}
 
 	if (input.scope.kind === "stack" && input.scope.stackGroup) {
 		return `Pay ${input.housemateName}'s ${formatStackGroupLabel(input.scope.stackGroup).toLowerCase()} bills`;
+	}
+
+	if (input.scope.kind === "bills") {
+		return `Pay ${input.housemateName}'s reminder bills`;
 	}
 
 	return `Pay ${input.housemateName}'s bills`;
@@ -522,6 +529,7 @@ function PublicPayPage() {
 	const isAllSorted = summary.billCount === 0;
 	const stackGroupLabel =
 		scope.kind === "stack" ? formatStackGroupLabel(scope.stackGroup) : null;
+	const isBillsScope = scope.kind === "bills";
 	const showProgress = !isAllSorted && paymentProgress.settledAmount > 0;
 	const showLookingOut = !isAllSorted && hasInitiated;
 	const housemateFirstName = getFirstName(housemate.name);
@@ -542,7 +550,9 @@ function PublicPayPage() {
 	const payVerb =
 		scope.kind === "stack" && stackGroupLabel
 			? `Pay ${stackGroupLabel.toLowerCase()}`
-			: "Pay all bills";
+			: isBillsScope
+				? "Pay these bills"
+				: "Pay all bills";
 
 	return (
 		<div className="min-h-screen bg-background text-foreground">
@@ -567,6 +577,8 @@ function PublicPayPage() {
 							<PublicStatusBadge tone="neutral">
 								{stackGroupLabel}
 							</PublicStatusBadge>
+						) : isBillsScope ? (
+							<PublicStatusBadge tone="neutral">Reminder</PublicStatusBadge>
 						) : null}
 					</div>
 				</header>
@@ -633,7 +645,9 @@ function PublicPayPage() {
 					) : null
 				) : (
 					<section>
-						<h2 className={`pb-3 ${SECTION_LABEL_CLASS}`}>{stackGroupLabel}</h2>
+						<h2 className={`pb-3 ${SECTION_LABEL_CLASS}`}>
+							{stackGroupLabel ?? "Bills"}
+						</h2>
 						<ul className="divide-y divide-border/60">
 							{items.map((item) => {
 								const period = formatBillPeriod({
@@ -657,7 +671,7 @@ function PublicPayPage() {
 				)}
 
 				{isAllSorted ? (
-					scope.kind === "stack" && scope.allBillsPath ? (
+					(scope.kind === "stack" || isBillsScope) && scope.allBillsPath ? (
 						<div className="flex flex-col gap-2.5">
 							<Button
 								asChild
@@ -671,7 +685,8 @@ function PublicPayPage() {
 				) : (
 					<div className="-mx-5 sticky bottom-0 z-20 bg-background px-5 pt-2 pb-2 sm:static sm:mx-0 sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0">
 						<div className="flex flex-col gap-2.5">
-							{scope.kind === "stack" && scope.allBillsPath ? (
+							{(scope.kind === "stack" || isBillsScope) &&
+							scope.allBillsPath ? (
 								<Button
 									asChild
 									variant="outline"
@@ -688,7 +703,9 @@ function PublicPayPage() {
 								descriptionValue={
 									scope.kind === "stack" && stackGroupLabel
 										? stackGroupLabel
-										: "Bills"
+										: isBillsScope
+											? "Reminder bills"
+											: "Bills"
 								}
 								onInitiated={markInitiated}
 							/>

@@ -25,12 +25,16 @@ const payCardFontSetupPromise = resolveFontSetup({
 function formatPayTitle(input: {
 	housemateName: string;
 	scope: {
-		kind: "all" | "stack";
+		kind: "all" | "stack" | "bills";
 		stackGroup: string | null;
 	};
 }) {
 	if (input.scope.kind === "stack" && input.scope.stackGroup) {
 		return `${input.housemateName}'s ${formatStackGroupLabel(input.scope.stackGroup).toLowerCase()}`;
+	}
+
+	if (input.scope.kind === "bills") {
+		return `${input.housemateName}'s reminder bills`;
 	}
 
 	return `Bills for ${input.housemateName}`;

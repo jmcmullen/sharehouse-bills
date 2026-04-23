@@ -1,3 +1,5 @@
+import { getReceiptBillLabel } from "../../lib/debt-receipt";
+
 function formatCurrency(amount: number) {
 	return new Intl.NumberFormat("en-AU", {
 		style: "currency",
@@ -143,4 +145,109 @@ export function buildAdminPayLinksSummary(input: {
 
 export function buildBillPaidSummary(input: { billUrl: string }) {
 	return input.billUrl;
+}
+
+function formatReminderDate(date: Date) {
+	return new Intl.DateTimeFormat("en-AU", {
+		weekday: "short",
+		day: "numeric",
+		month: "short",
+	}).format(date);
+}
+
+export function buildBillReminderSummary(input: {
+	kind: "pre_due" | "overdue";
+	mode: "individual" | "stacked";
+	debts: Array<{
+		billerName: string;
+		recurringTemplateName?: string | null;
+		dueDate: Date;
+		amountOwed: number;
+		amountPaid: number | null;
+	}>;
+	payUrl: string;
+}) {
+	const title =
+		input.kind === "pre_due"
+			? "*Upcoming bill reminder*"
+			: "*Overdue bill reminder*";
+
+	const billLines = input.debts.map((debt, index) => {
+		const remainingAmount = Math.max(
+			0,
+			debt.amountOwed - (debt.amountPaid ?? 0),
+		);
+		const duePrefix = input.kind === "pre_due" ? "Due" : "Was due";
+		const billLabel = getReceiptBillLabel({
+			billerName: debt.billerName,
+			recurringTemplateName: debt.recurringTemplateName,
+		});
+
+		return `${index + 1}. ${billLabel}\n${duePrefix} ${formatReminderDate(debt.dueDate)} · ${formatCurrency(remainingAmount)}`;
+	});
+
+	return [title, "", ...billLines, "", "Pay here:", input.payUrl].join("\n");
+}
+
+export function buildBillReminderPreviewSummary(input: {
+	asOf: Date;
+	housemateName: string;
+	reminders: Array<
+		| {
+				mode: "individual";
+				kind: "pre_due" | "overdue";
+				debts: Array<{
+					billerName: string;
+					recurringTemplateName?: string | null;
+					dueDate: Date;
+				}>;
+		  }
+		| {
+				mode: "stacked";
+				kind: "overdue";
+				stackGroup: string;
+				debts: Array<{
+					billerName: string;
+					recurringTemplateName?: string | null;
+					dueDate: Date;
+				}>;
+		  }
+	>;
+}) {
+	const lines = [
+		`*Random reminder preview for ${input.housemateName}*`,
+		`Cron date: ${new Intl.DateTimeFormat("en-AU", {
+			day: "numeric",
+			month: "short",
+			year: "numeric",
+		}).format(input.asOf)}`,
+		"",
+		`${input.housemateName} would receive ${input.reminders.length} ${input.reminders.length === 1 ? "message" : "messages"}:`,
+	];
+
+	lines.push(
+		...input.reminders.map((reminder, index) => {
+			if (reminder.mode === "individual") {
+				const label = reminder.kind === "pre_due" ? "pre-due" : "overdue";
+				const debt = reminder.debts[0];
+				if (!debt) {
+					return `${index + 1}. Individual ${label}`;
+				}
+				return `${index + 1}. Individual ${label}: ${getReceiptBillLabel({
+					billerName: debt.billerName,
+					recurringTemplateName: debt.recurringTemplateName,
+				})} due ${new Intl.DateTimeFormat("en-AU", {
+					weekday: "short",
+					day: "numeric",
+					month: "short",
+				}).format(debt.dueDate)}`;
+			}
+
+			return `${index + 1}. Stacked overdue: ${reminder.stackGroup} across ${reminder.debts.length} ${reminder.debts.length === 1 ? "bill" : "bills"}`;
+		}),
+	);
+
+	lines.push("", "Exact WhatsApp message(s) below:");
+
+	return lines.join("\n");
 }

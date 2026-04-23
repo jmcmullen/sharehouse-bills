@@ -83,6 +83,8 @@ async function sendDueCommandSummary(notificationId: string) {
 	const context = await requireDueCommandContext(notificationId);
 	const {
 		buildBillPaidSummary,
+		buildBillReminderPreviewSummary,
+		buildBillReminderSummary,
 		buildAdminPayLinksSummary,
 		buildDueCommandNotFoundSummary,
 		buildInitBillsSummary,
@@ -108,6 +110,8 @@ async function sendDueCommandSummary(notificationId: string) {
 		getRandomBillPreviewContext,
 		getRandomDebtPaidPreviewContext,
 	} = await import("../src/api/services/whatsapp-notifications");
+	const { getRandomBillReminderPreview: getRandomReminderPreview } =
+		await import("../src/api/services/bill-reminder");
 	const { sendWhatsappTextMessage } = await import("../src/api/services/waha");
 	const previewDate = BillPdfStorageService.getMessageCacheDate();
 	const housematePaymentNames = await getActiveHousematePaymentNames();
@@ -192,6 +196,76 @@ async function sendDueCommandSummary(notificationId: string) {
 					}),
 				),
 		});
+		return;
+	}
+
+	if (context.commandType === "reminder") {
+		const reminderPreview = await getRandomReminderPreview(new Date());
+
+		if (!reminderPreview) {
+			await performTrackedWhatsappDelivery({
+				notificationId,
+				deliveryKey: "reminder_preview_empty",
+				operation: "/reminder admin WhatsApp summary",
+				deliver: async () =>
+					await sendWhatsappTextMessage(
+						context.replyChatId,
+						"*No reminders would be sent if cron ran today.*",
+					),
+			});
+			return;
+		}
+
+		const payUrl = createAbsolutePayUrl(
+			{
+				housemateId: reminderPreview.housemate.id,
+				billIds: [
+					...new Set(
+						reminderPreview.reminders.flatMap((reminder) =>
+							reminder.debts.map((debt) => debt.billId),
+						),
+					),
+				],
+			},
+			previewDate,
+		);
+		if (!payUrl) {
+			throw new FatalError("Unable to build a pay link for reminder preview");
+		}
+
+		const reminderMessages = reminderPreview.reminders.map((reminder) =>
+			buildBillReminderSummary({
+				kind: reminder.kind,
+				mode: reminder.mode,
+				debts: reminder.debts,
+				payUrl,
+			}),
+		);
+
+		await performTrackedWhatsappDelivery({
+			notificationId,
+			deliveryKey: "reminder_preview_summary",
+			operation: "/reminder admin WhatsApp summary",
+			deliver: async () =>
+				await sendWhatsappTextMessage(
+					context.replyChatId,
+					buildBillReminderPreviewSummary({
+						asOf: reminderPreview.scheduledForDate,
+						housemateName: reminderPreview.housemate.name,
+						reminders: reminderPreview.reminders,
+					}),
+				),
+		});
+
+		for (const [index, message] of reminderMessages.entries()) {
+			await performTrackedWhatsappDelivery({
+				notificationId,
+				deliveryKey: `reminder_preview_message_${index + 1}`,
+				operation: `/reminder WhatsApp preview ${index + 1}`,
+				deliver: async () =>
+					await sendWhatsappTextMessage(context.replyChatId, message),
+			});
+		}
 		return;
 	}
 
@@ -368,8 +442,8 @@ type BuildInboundCommandResponseArgs = {
 		billReference: string | number,
 		previewDate?: string | null,
 	) => string | null;
-	getRandomBillPreviewContext: () => Promise<BillPreviewContext>;
 	getRandomBillPaidPreviewContext: () => Promise<BillPaidPreviewContext>;
+	getRandomBillPreviewContext: () => Promise<BillPreviewContext>;
 	getRandomDebtPaidPreviewContext: () => Promise<DebtPaidPreviewContext>;
 	createAbsolutePayUrl: CreateAbsolutePayUrlFn;
 	previewDate: string;
@@ -402,6 +476,10 @@ async function buildInboundCommandResponse(
 			return await buildPaidCommandResponse(args);
 		case "billpaid":
 			return await buildBillPaidCommandResponse(args);
+		case "reminder":
+			throw new FatalError(
+				"reminder should be handled before building a direct response",
+			);
 		case "pay":
 			return buildPayCommandResponseMessage(args);
 		case "not_allowed":
