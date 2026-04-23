@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { desc, eq, inArray } from "drizzle-orm";
+import { createError } from "evlog";
 import { z } from "zod";
 import { db } from "../api/db/index.server";
 import { bills } from "../api/db/schema/bills";
@@ -87,6 +88,15 @@ function parseDateInput(value: string | null) {
 	}
 
 	return new Date(`${value}T00:00:00.000Z`);
+}
+
+function createRecurringBillNotFoundError(recurringBillId: string) {
+	return createError({
+		message: "Recurring bill template not found",
+		status: 404,
+		why: `No recurring bill template exists for id ${recurringBillId}.`,
+		fix: "Refresh the recurring bills list and verify the template still exists before retrying the action.",
+	});
 }
 
 async function replaceAssignments(
@@ -263,7 +273,7 @@ export const updateRecurringBill = createServerFn({ method: "POST" })
 			.returning();
 
 		if (!updatedTemplate) {
-			throw new Error("Recurring bill template not found");
+			throw createRecurringBillNotFoundError(data.id);
 		}
 
 		await replaceAssignments(updatedTemplate.id, data.assignments);
@@ -298,7 +308,7 @@ export const setRecurringBillActive = createServerFn({ method: "POST" })
 			.returning();
 
 		if (!updatedTemplate) {
-			throw new Error("Recurring bill template not found");
+			throw createRecurringBillNotFoundError(data.id);
 		}
 
 		return updatedTemplate;

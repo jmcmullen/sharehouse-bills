@@ -221,9 +221,12 @@ async function downloadBuffer(
 	});
 
 	if (!response.ok) {
-		throw new Error(
-			`Unexpected response downloading PDF: ${response.status} ${response.statusText}`.trim(),
-		);
+		throw createError({
+			message: "Unexpected response downloading PDF",
+			status: 502,
+			why: `${response.status} ${response.statusText}`.trim(),
+			fix: "Verify the upstream bill download URL is still valid and reachable from the email webhook handler.",
+		});
 	}
 
 	return {

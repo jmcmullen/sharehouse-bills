@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { and, desc, eq } from "drizzle-orm";
+import { createError } from "evlog";
 import { z } from "zod";
 import { db } from "../api/db/index.server";
 import { bills } from "../api/db/schema/bills";
@@ -16,6 +17,15 @@ interface HousemateBalanceRow {
 	name: string;
 	isActive: boolean;
 	amount: number;
+}
+
+function createHousemateNotFoundError(housemateId: string) {
+	return createError({
+		message: "Housemate not found",
+		status: 404,
+		why: `No housemate exists for id ${housemateId}.`,
+		fix: "Refresh the admin view and verify the housemate still exists before retrying the action.",
+	});
 }
 
 // Get all housemates
@@ -159,7 +169,7 @@ export const getHousemateById = createServerFn({ method: "GET" })
 			.where(eq(housemates.id, data.id));
 
 		if (!housemate) {
-			throw new Error("Housemate not found");
+			throw createHousemateNotFoundError(data.id);
 		}
 
 		return housemate;
@@ -224,7 +234,7 @@ export const updateHousemate = createServerFn({ method: "POST" })
 			.returning();
 
 		if (!updatedHousemate) {
-			throw new Error("Housemate not found");
+			throw createHousemateNotFoundError(id);
 		}
 
 		return updatedHousemate;
@@ -317,7 +327,7 @@ export const deactivateHousemate = createServerFn({ method: "POST" })
 			.returning();
 
 		if (!updatedHousemate) {
-			throw new Error("Housemate not found");
+			throw createHousemateNotFoundError(data.id);
 		}
 
 		return updatedHousemate;
@@ -338,7 +348,7 @@ export const reactivateHousemate = createServerFn({ method: "POST" })
 			.returning();
 
 		if (!updatedHousemate) {
-			throw new Error("Housemate not found");
+			throw createHousemateNotFoundError(data.id);
 		}
 
 		return updatedHousemate;

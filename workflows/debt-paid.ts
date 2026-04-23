@@ -1,4 +1,6 @@
+import { createError } from "evlog";
 import { performTrackedWhatsappDelivery } from "./whatsapp-delivery";
+import { emitWorkflowOutcome } from "./workflow-log";
 
 export async function runDebtPaidNotification(notificationId: string) {
 	"use workflow";
@@ -84,7 +86,12 @@ async function sendDebtPaidSummary(notificationId: string) {
 		BillPdfStorageService.getMessageCacheDate(),
 	);
 	if (!receiptUrl) {
-		throw new Error("Unable to build receipt URL for WhatsApp notification");
+		throw createError({
+			message: "Unable to build receipt URL for WhatsApp notification",
+			status: 500,
+			why: "The debt-paid workflow could not generate an absolute public receipt URL.",
+			fix: "Set VITE_BASE_URL so the workflow can build absolute public links.",
+		});
 	}
 
 	await performTrackedWhatsappDelivery({
@@ -104,6 +111,13 @@ async function markNotificationCompleted(notificationId: string) {
 		"../src/api/services/whatsapp-notifications"
 	);
 	await markWhatsappNotificationCompleted(notificationId);
+	emitWorkflowOutcome({
+		workflowName: "debt-paid",
+		notificationId,
+		stepName: "mark-completed",
+		outcome: "completed",
+		message: "debt-paid workflow completed",
+	});
 }
 
 async function markNotificationFailed(
@@ -116,6 +130,13 @@ async function markNotificationFailed(
 		"../src/api/services/whatsapp-notifications"
 	);
 	await markWhatsappNotificationFailed(notificationId, errorMessage);
+	emitWorkflowOutcome({
+		workflowName: "debt-paid",
+		notificationId,
+		stepName: "mark-failed",
+		outcome: "failed",
+		message: errorMessage,
+	});
 }
 
 async function markNotificationIgnored(
@@ -128,14 +149,24 @@ async function markNotificationIgnored(
 		"../src/api/services/whatsapp-notifications"
 	);
 	await markWhatsappNotificationIgnored(notificationId, errorMessage);
+	emitWorkflowOutcome({
+		workflowName: "debt-paid",
+		notificationId,
+		stepName: "mark-ignored",
+		outcome: "ignored",
+		message: errorMessage,
+	});
 }
 
 async function requireDebtPaidContext(notificationId: string) {
 	const context = await loadDebtPaidContext(notificationId);
 	if (!context) {
-		throw new Error(
-			`Missing debt-paid notification context for notification ${notificationId}`,
-		);
+		throw createError({
+			message: "Missing debt-paid notification context",
+			status: 404,
+			why: `No debt-paid notification context was found for notification ${notificationId}.`,
+			fix: "Verify the WhatsApp notification record still exists and references a valid debt.",
+		});
 	}
 
 	return context;

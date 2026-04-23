@@ -1,4 +1,5 @@
 import { FatalError, RetryableError, getStepMetadata } from "workflow";
+import { emitWorkflowDeliveryEvent } from "./workflow-log";
 
 function getErrorMessage(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
@@ -98,6 +99,13 @@ export async function performTrackedWhatsappDelivery(input: {
 	);
 
 	if (reservation.outcome === "already_sent") {
+		emitWorkflowDeliveryEvent({
+			notificationId: input.notificationId,
+			deliveryKey: input.deliveryKey,
+			operation: input.operation,
+			message: `${input.operation} already sent; deduplicated`,
+			outcome: "deduplicated",
+		});
 		return {
 			sent: true,
 			deduplicated: true,
@@ -105,9 +113,18 @@ export async function performTrackedWhatsappDelivery(input: {
 	}
 
 	if (reservation.outcome === "indeterminate") {
-		throw new FatalError(
+		const error = new FatalError(
 			`${input.operation} is already in progress for notification ${input.notificationId}; refusing to resend because delivery may have already reached WhatsApp.`,
 		);
+		emitWorkflowDeliveryEvent({
+			notificationId: input.notificationId,
+			deliveryKey: input.deliveryKey,
+			operation: input.operation,
+			message: `${input.operation} delivery is already in progress`,
+			outcome: "indeterminate",
+			error,
+		});
+		throw error;
 	}
 
 	try {
@@ -124,6 +141,13 @@ export async function performTrackedWhatsappDelivery(input: {
 					? response.messageId
 					: null,
 		});
+		emitWorkflowDeliveryEvent({
+			notificationId: input.notificationId,
+			deliveryKey: input.deliveryKey,
+			operation: input.operation,
+			message: `${input.operation} sent`,
+			outcome: "sent",
+		});
 
 		return {
 			sent: true,
@@ -136,6 +160,15 @@ export async function performTrackedWhatsappDelivery(input: {
 			stepId,
 			errorMessage: getErrorMessage(error),
 		});
-		throw toWorkflowDeliveryError(error, input.operation);
+		const workflowError = toWorkflowDeliveryError(error, input.operation);
+		emitWorkflowDeliveryEvent({
+			notificationId: input.notificationId,
+			deliveryKey: input.deliveryKey,
+			operation: input.operation,
+			message: `${input.operation} failed`,
+			outcome: workflowError instanceof RetryableError ? "retryable" : "fatal",
+			error: workflowError,
+		});
+		throw workflowError;
 	}
 }

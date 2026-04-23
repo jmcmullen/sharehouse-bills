@@ -1,4 +1,5 @@
 import { and, asc, eq, lt, sql } from "drizzle-orm";
+import { createError } from "evlog";
 import type { BillReminderMode } from "../../lib/bill-reminder-config";
 import {
 	type InboundCommandType,
@@ -11,10 +12,8 @@ import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { whatsappNotifications } from "../db/schema/whatsapp-notifications";
 import { createAbsolutePayUrl } from "./housemate-pay-page.server";
-import {
-	whatsappChatIdToNumber,
-	whatsappNumberToChatId,
-} from "./whatsapp-phone";
+import { resolveWhatsappChatIdToNumber } from "./waha";
+import { whatsappNumberToChatId } from "./whatsapp-phone";
 
 export type WhatsappNotificationRecord =
 	typeof whatsappNotifications.$inferSelect;
@@ -129,7 +128,12 @@ async function updateNotificationPayload(
 ) {
 	const notification = await getWhatsappNotificationById(notificationId);
 	if (!notification) {
-		throw new Error(`WhatsApp notification ${notificationId} was not found`);
+		throw createError({
+			message: "WhatsApp notification not found",
+			status: 404,
+			why: `WhatsApp notification ${notificationId} was not found while updating notification payload.`,
+			fix: "Verify the notification record still exists before retrying the workflow update.",
+		});
 	}
 
 	const payload = updater(getNotificationPayload(notification.payload));
@@ -189,9 +193,12 @@ async function createNotification(input: {
 				.limit(1);
 
 	if (!notification) {
-		throw new Error(
-			`Failed to load WhatsApp notification for event key ${input.eventKey}`,
-		);
+		throw createError({
+			message: "Failed to load WhatsApp notification after create",
+			status: 500,
+			why: `No WhatsApp notification row could be loaded for event key ${input.eventKey} after insert/conflict handling.`,
+			fix: "Inspect the whatsappNotifications table and unique event key handling before retrying notification creation.",
+		});
 	}
 
 	return {
@@ -362,7 +369,12 @@ export async function reserveWhatsappNotificationDelivery(
 ): Promise<DeliveryReservationResult> {
 	const notification = await getWhatsappNotificationById(notificationId);
 	if (!notification) {
-		throw new Error(`WhatsApp notification ${notificationId} was not found`);
+		throw createError({
+			message: "WhatsApp notification not found",
+			status: 404,
+			why: `WhatsApp notification ${notificationId} was not found while reserving delivery ${deliveryKey}.`,
+			fix: "Verify the notification record still exists before retrying delivery reservation.",
+		});
 	}
 
 	const payload = getNotificationPayload(notification.payload);
@@ -1046,7 +1058,7 @@ export async function getDueCommandNotificationContext(notificationId: string) {
 		return null;
 	}
 
-	const whatsappNumber = whatsappChatIdToNumber(
+	const whatsappNumber = await resolveWhatsappChatIdToNumber(
 		notification.inboundSenderChatId,
 	);
 	const requestedFirstName =

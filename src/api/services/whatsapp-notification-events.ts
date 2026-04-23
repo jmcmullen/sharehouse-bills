@@ -49,6 +49,10 @@ function toErrorMessage(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
+function toError(error: unknown) {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
 async function startNotificationWorkflow(
 	notification: WhatsappNotificationRecord,
 	workflowLabel: string,
@@ -67,20 +71,24 @@ async function startNotificationWorkflow(
 		await recordWhatsappNotificationWorkflowRun(notification.id, run.runId);
 	} catch (error) {
 		const errorMessage = `Failed to enqueue ${workflowLabel}: ${toErrorMessage(error)}`;
+		const actualError = toError(error);
 		const log = getRequestLogger();
 
-		log?.error(errorMessage, {
+		log?.error(actualError, {
 			whatsappNotification: {
 				id: notification.id,
 				eventKey: notification.eventKey,
 				eventType: notification.eventType,
+			},
+			enqueueFailure: {
+				workflowLabel,
 			},
 		});
 
 		try {
 			await markWhatsappNotificationFailed(notification.id, errorMessage);
 		} catch (markError) {
-			log?.error(toErrorMessage(markError), {
+			log?.error(toError(markError), {
 				whatsappNotification: {
 					id: notification.id,
 					eventKey: notification.eventKey,

@@ -285,7 +285,12 @@ export const Route = createFileRoute("/api/hooks/whatsapp")({
 
 					if (isAdminSender) {
 						if (!parsedCommand) {
-							throw new Error("Admin command must be parsed before enqueue");
+							throw createError({
+								message: "Admin command must be parsed before enqueue",
+								status: 500,
+								why: "The admin-only WhatsApp command branch reached enqueue without a parsed inbound command.",
+								fix: "Ensure admin commands are parsed before enqueueing a WhatsApp notification workflow.",
+							});
 						}
 
 						return {

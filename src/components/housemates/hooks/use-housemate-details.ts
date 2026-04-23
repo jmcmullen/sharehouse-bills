@@ -1,4 +1,5 @@
 import { getHousemateDebts, getHousemateStats } from "@/functions/housemates";
+import { reportClientError } from "@/lib/client-log";
 import { useCallback, useEffect, useState } from "react";
 import type { HousemateDebt, HousemateStats } from "../types";
 
@@ -17,7 +18,15 @@ export function useHousemateDetails(
 			const data = await getHousemateStats({ data: { housemateId: id } });
 			setStats(data);
 		} catch (error) {
-			console.error("Failed to load housemate stats:", error);
+			reportClientError({
+				scope: "housemate-details",
+				message: "Failed to load housemate stats",
+				error,
+				context: {
+					housemateId: id,
+					resource: "stats",
+				},
+			});
 		} finally {
 			setStatsLoading(false);
 		}
@@ -29,7 +38,15 @@ export function useHousemateDetails(
 			const data = await getHousemateDebts({ data: { housemateId: id } });
 			setDebts(data);
 		} catch (error) {
-			console.error("Failed to load housemate debts:", error);
+			reportClientError({
+				scope: "housemate-details",
+				message: "Failed to load housemate debts",
+				error,
+				context: {
+					housemateId: id,
+					resource: "debts",
+				},
+			});
 		} finally {
 			setDebtsLoading(false);
 		}

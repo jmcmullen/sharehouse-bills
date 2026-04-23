@@ -1,10 +1,16 @@
 import { get, put } from "@vercel/blob";
+import { createError } from "evlog";
 
 function getBlobReadWriteToken(): string {
 	const token = process.env.BLOB_READ_WRITE_TOKEN;
 
 	if (!token) {
-		throw new Error("BLOB_READ_WRITE_TOKEN is not configured");
+		throw createError({
+			message: "BLOB_READ_WRITE_TOKEN is not configured",
+			status: 500,
+			why: "Bill PDF storage cannot read or write Vercel Blob assets without a blob read/write token.",
+			fix: "Set BLOB_READ_WRITE_TOKEN in the deployment environment.",
+		});
 	}
 
 	return token;

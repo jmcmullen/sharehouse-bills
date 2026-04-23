@@ -1,5 +1,6 @@
 import { FatalError } from "workflow";
 import { performTrackedWhatsappDelivery } from "./whatsapp-delivery";
+import { emitWorkflowOutcome } from "./workflow-log";
 
 export async function runBillReminderNotification(notificationId: string) {
 	"use workflow";
@@ -60,14 +61,12 @@ async function sendBillReminderSummary(notificationId: string) {
 		);
 	}
 
-	const payUrl = (() => {
-		return createAbsolutePayUrl(
-			{
-				housemateId: context.housemate.id,
-			},
-			BillPdfStorageService.getMessageCacheDate(),
-		);
-	})();
+	const payUrl = createAbsolutePayUrl(
+		{
+			housemateId: context.housemate.id,
+		},
+		BillPdfStorageService.getMessageCacheDate(),
+	);
 	if (!payUrl) {
 		throw new FatalError(
 			`Unable to build pay URL for housemate ${context.housemate.id}`,
@@ -91,6 +90,13 @@ async function markNotificationCompleted(notificationId: string) {
 		"../src/api/services/whatsapp-notifications"
 	);
 	await markWhatsappNotificationCompleted(notificationId);
+	emitWorkflowOutcome({
+		workflowName: "bill-reminder",
+		notificationId,
+		stepName: "mark-completed",
+		outcome: "completed",
+		message: "bill-reminder workflow completed",
+	});
 }
 
 async function markNotificationFailed(
@@ -103,6 +109,13 @@ async function markNotificationFailed(
 		"../src/api/services/whatsapp-notifications"
 	);
 	await markWhatsappNotificationFailed(notificationId, errorMessage);
+	emitWorkflowOutcome({
+		workflowName: "bill-reminder",
+		notificationId,
+		stepName: "mark-failed",
+		outcome: "failed",
+		message: errorMessage,
+	});
 }
 
 async function markNotificationIgnored(
@@ -115,6 +128,13 @@ async function markNotificationIgnored(
 		"../src/api/services/whatsapp-notifications"
 	);
 	await markWhatsappNotificationIgnored(notificationId, errorMessage);
+	emitWorkflowOutcome({
+		workflowName: "bill-reminder",
+		notificationId,
+		stepName: "mark-ignored",
+		outcome: "ignored",
+		message: errorMessage,
+	});
 }
 
 async function requireBillReminderContext(notificationId: string) {

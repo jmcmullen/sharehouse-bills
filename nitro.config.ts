@@ -25,7 +25,7 @@ export default defineConfig({
 				"/robots.txt",
 			],
 			routes: {
-				"/api/up-webhook": {
+				"/api/hooks/up": {
 					service: "sharehouse-bills-banking",
 				},
 				"/api/hooks/email": {

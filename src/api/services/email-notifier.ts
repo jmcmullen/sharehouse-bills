@@ -131,7 +131,7 @@ Detailed Results:${resultDetails}
 		});
 
 		if (error) {
-			log?.error(new Error(error.message), {
+			log?.error(error, {
 				notification: {
 					type: "webhook_result",
 					to: this.emailTo,
@@ -215,7 +215,7 @@ Email Context:
 		});
 
 		if (sendError) {
-			log?.error(new Error(sendError.message), {
+			log?.error(sendError, {
 				notification: {
 					type: "error_notification",
 					to: this.emailTo,

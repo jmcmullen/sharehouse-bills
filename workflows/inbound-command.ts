@@ -1,6 +1,7 @@
 import { FatalError } from "workflow";
 import type { InboundCommandType } from "../src/lib/whatsapp-commands";
 import { performTrackedWhatsappDelivery } from "./whatsapp-delivery";
+import { emitWorkflowOutcome } from "./workflow-log";
 
 export async function runDueCommandNotification(notificationId: string) {
 	"use workflow";
@@ -20,7 +21,6 @@ export async function runDueCommandNotification(notificationId: string) {
 			!context.housemate &&
 			!context.requestedFirstName
 		) {
-			await warnUnknownSender(notificationId);
 			await markNotificationIgnored(
 				notificationId,
 				"unknown WhatsApp sender for due command",
@@ -50,16 +50,6 @@ async function loadDueCommandContext(notificationId: string) {
 		"../src/api/services/whatsapp-notifications"
 	);
 	return await getDueCommandNotificationContext(notificationId);
-}
-
-async function warnUnknownSender(notificationId: string) {
-	"use step";
-
-	const context = await loadDueCommandContext(notificationId);
-	const senderNumber = context?.inboundSenderWhatsappNumber ?? "unknown";
-	console.warn(
-		`Ignoring WhatsApp due command from unknown sender ${senderNumber}`,
-	);
 }
 
 async function reactToDueCommand(notificationId: string) {
@@ -251,6 +241,13 @@ async function markNotificationCompleted(notificationId: string) {
 		"../src/api/services/whatsapp-notifications"
 	);
 	await markWhatsappNotificationCompleted(notificationId);
+	emitWorkflowOutcome({
+		workflowName: "inbound-command",
+		notificationId,
+		stepName: "mark-completed",
+		outcome: "completed",
+		message: "inbound-command workflow completed",
+	});
 }
 
 async function markNotificationFailed(
@@ -263,6 +260,13 @@ async function markNotificationFailed(
 		"../src/api/services/whatsapp-notifications"
 	);
 	await markWhatsappNotificationFailed(notificationId, errorMessage);
+	emitWorkflowOutcome({
+		workflowName: "inbound-command",
+		notificationId,
+		stepName: "mark-failed",
+		outcome: "failed",
+		message: errorMessage,
+	});
 }
 
 async function markNotificationIgnored(
@@ -271,10 +275,25 @@ async function markNotificationIgnored(
 ) {
 	"use step";
 
+	const context = await loadDueCommandContext(notificationId);
 	const { markWhatsappNotificationIgnored } = await import(
 		"../src/api/services/whatsapp-notifications"
 	);
 	await markWhatsappNotificationIgnored(notificationId, errorMessage);
+	emitWorkflowOutcome({
+		workflowName: "inbound-command",
+		notificationId,
+		stepName: "mark-ignored",
+		outcome: "ignored",
+		message: errorMessage,
+		context: context?.inboundSenderWhatsappNumber
+			? {
+					whatsappCommand: {
+						senderNumber: context.inboundSenderWhatsappNumber,
+					},
+				}
+			: undefined,
+	});
 }
 
 async function requireDueCommandContext(notificationId: string) {

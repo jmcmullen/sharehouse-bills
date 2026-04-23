@@ -1,11 +1,19 @@
 import { createError } from "evlog";
-import { whatsappNumberToChatId } from "./whatsapp-phone";
+import {
+	whatsappChatIdToNumber,
+	whatsappNumberToChatId,
+} from "./whatsapp-phone";
 
 interface WahaSuccessResponse {
 	status?: string;
 	messageId?: string;
 	[key: string]: unknown;
 }
+
+type WahaLidMappingResponse = {
+	lid?: string;
+	pn?: string | null;
+};
 
 type WhatsappUrlButton = {
 	type: "url";
@@ -58,6 +66,8 @@ export class WahaRequestError extends Error {
 		this.retryAfter = input.retryAfter ?? null;
 	}
 }
+
+const WAHA_REQUEST_TIMEOUT_MS = 60_000;
 
 function getWahaBaseUrl() {
 	const baseUrl = process.env.WAHA_BASE_URL?.trim();
@@ -149,6 +159,12 @@ async function wahaRequest<TResponse>(
 					linkPreviewHighQuality: true,
 				}
 			: requestBody;
+	const abortController = new AbortController();
+	const timeoutId = setTimeout(() => {
+		abortController.abort(
+			new Error(`WAHA request timed out after ${WAHA_REQUEST_TIMEOUT_MS}ms`),
+		);
+	}, WAHA_REQUEST_TIMEOUT_MS);
 
 	try {
 		response = await fetch(`${getWahaBaseUrl()}${path}`, {
@@ -159,12 +175,21 @@ async function wahaRequest<TResponse>(
 				"X-Api-Key": getWahaApiKey(),
 			},
 			body: JSON.stringify(normalizedBody),
+			signal: abortController.signal,
 		});
 	} catch (error) {
+		const isAbortError =
+			error instanceof Error &&
+			(error.name === "AbortError" ||
+				error.message.includes("timed out after"));
 		throw new WahaRequestError({
-			message: "WAHA request failed before a response was received",
+			message: isAbortError
+				? `WAHA request timed out after ${WAHA_REQUEST_TIMEOUT_MS}ms`
+				: "WAHA request failed before a response was received",
 			cause: error,
 		});
+	} finally {
+		clearTimeout(timeoutId);
 	}
 
 	if (!response.ok) {
@@ -197,6 +222,101 @@ async function wahaRequest<TResponse>(
 			responseText,
 			cause: error,
 		});
+	}
+}
+
+async function wahaGet<TResponse>(path: string) {
+	let response: Response;
+	const abortController = new AbortController();
+	const timeoutId = setTimeout(() => {
+		abortController.abort(
+			new Error(`WAHA request timed out after ${WAHA_REQUEST_TIMEOUT_MS}ms`),
+		);
+	}, WAHA_REQUEST_TIMEOUT_MS);
+
+	try {
+		response = await fetch(`${getWahaBaseUrl()}${path}`, {
+			method: "GET",
+			headers: {
+				Accept: "application/json",
+				"X-Api-Key": getWahaApiKey(),
+			},
+			signal: abortController.signal,
+		});
+	} catch (error) {
+		const isAbortError =
+			error instanceof Error &&
+			(error.name === "AbortError" ||
+				error.message.includes("timed out after"));
+		throw new WahaRequestError({
+			message: isAbortError
+				? `WAHA request timed out after ${WAHA_REQUEST_TIMEOUT_MS}ms`
+				: "WAHA request failed before a response was received",
+			cause: error,
+		});
+	} finally {
+		clearTimeout(timeoutId);
+	}
+
+	if (!response.ok) {
+		const responseText = await response.text();
+		throw new WahaRequestError({
+			message: `WAHA request failed (${response.status} ${response.statusText}): ${responseText}`,
+			status: response.status,
+			statusText: response.statusText,
+			responseText,
+			retryAfter: response.headers.get("retry-after"),
+		});
+	}
+
+	if (response.status === 204) {
+		return {} as TResponse;
+	}
+
+	const responseText = await response.text();
+	if (!responseText.trim()) {
+		return {} as TResponse;
+	}
+
+	try {
+		return JSON.parse(responseText) as TResponse;
+	} catch (error) {
+		throw new WahaRequestError({
+			message: `WAHA returned an invalid JSON success response: ${responseText}`,
+			status: response.status,
+			statusText: response.statusText,
+			responseText,
+			cause: error,
+		});
+	}
+}
+
+export async function resolveWhatsappChatIdToNumber(
+	chatId: string | null | undefined,
+) {
+	if (!chatId) {
+		return null;
+	}
+
+	const trimmedChatId = chatId.trim();
+	if (!trimmedChatId) {
+		return null;
+	}
+
+	if (!trimmedChatId.endsWith("@lid")) {
+		return whatsappChatIdToNumber(trimmedChatId);
+	}
+
+	try {
+		const sessionName = encodeURIComponent(getWahaSessionName());
+		const encodedLid = encodeURIComponent(trimmedChatId);
+		const response = await wahaGet<WahaLidMappingResponse>(
+			`/api/${sessionName}/lids/${encodedLid}`,
+		);
+
+		return whatsappChatIdToNumber(response.pn ?? null);
+	} catch {
+		return null;
 	}
 }
 
