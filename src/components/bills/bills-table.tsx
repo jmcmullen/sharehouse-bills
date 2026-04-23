@@ -32,11 +32,6 @@ import {
 	getReminderSummaryLabel,
 } from "./utils";
 
-function getHousematePayLabel(name: string) {
-	const [firstName] = name.trim().split(/\s+/);
-	return `Pay ${firstName || name}`;
-}
-
 interface BillsTableProps {
 	bills: GroupedBill[];
 	billsLoading: boolean;
@@ -193,24 +188,6 @@ export function BillsTable({
 															View Bill
 														</a>
 													</Button>
-													{debts
-														.filter(
-															({ debt, housemate }) =>
-																!debt.isPaid && Boolean(housemate.payPath),
-														)
-														.map(({ debt, housemate }) => (
-															<Button
-																key={debt.id}
-																variant="outline"
-																size="sm"
-																asChild
-															>
-																<a href={housemate.payPath ?? undefined}>
-																	<IconLink className="h-4 w-4" />
-																	{getHousematePayLabel(housemate.name)}
-																</a>
-															</Button>
-														))}
 													{bill.pdfUrl && bill.pdfSha256 ? (
 														<Button
 															variant="outline"
