@@ -54,7 +54,8 @@ async function composeAssistantReply(
 	const {
 		buildAssistantOtherHousemateSummary,
 		buildWhatsappAssistantReply,
-		referencesOtherHousemate,
+		findReferencedHousemate,
+		referencesWholeHouse,
 	} = await import("../src/api/services/whatsapp-assistant");
 	const { buildUnknownHousematePaySummary } = await import(
 		"../src/api/services/whatsapp-message-composer"
@@ -94,7 +95,8 @@ async function composeAssistantReply(
 	}
 
 	if (
-		referencesOtherHousemate({
+		!context.isPrivileged &&
+		findReferencedHousemate({
 			body: context.body,
 			housemate: context.housemate,
 			activeHousemates: context.activeHousemates,
@@ -125,9 +127,20 @@ async function composeAssistantReply(
 		};
 	}
 
+	const targetHousemate =
+		context.isPrivileged && !referencesWholeHouse(context.body)
+			? (findReferencedHousemate({
+					body: context.body,
+					housemate: context.housemate,
+					activeHousemates: context.activeHousemates,
+				}) ?? context.housemate)
+			: context.housemate;
+
 	const reply = await buildWhatsappAssistantReply({
 		body: context.body,
-		housemate: context.housemate,
+		housemate: targetHousemate,
+		requesterHousemate: context.housemate,
+		isPrivileged: context.isPrivileged,
 		previewDate: BillPdfStorageService.getMessageCacheDate(),
 	});
 
@@ -143,7 +156,9 @@ async function composeAssistantReply(
 				model: reply.model,
 				toolNames: reply.toolNames,
 				messagePreview: reply.redactedPreview,
-				housemateId: context.housemate.id,
+				housemateId: targetHousemate.id,
+				requesterHousemateId: context.housemate.id,
+				isPrivileged: context.isPrivileged,
 			},
 		},
 	});

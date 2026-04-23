@@ -12,8 +12,12 @@ import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { whatsappNotifications } from "../db/schema/whatsapp-notifications";
 import { createAbsolutePayUrl } from "./housemate-pay-page.server";
+import { getWhatsappAdminChatId } from "./waha";
 import { resolveWhatsappChatIdToNumber } from "./waha";
-import { whatsappNumberToChatId } from "./whatsapp-phone";
+import {
+	whatsappChatIdToNumber,
+	whatsappNumberToChatId,
+} from "./whatsapp-phone";
 
 export type WhatsappNotificationRecord =
 	typeof whatsappNotifications.$inferSelect;
@@ -76,6 +80,17 @@ export type HousematePayLinkBatch = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function chatIdsMatch(left: string, right: string) {
+	if (left === right) {
+		return true;
+	}
+
+	const leftNumber = whatsappChatIdToNumber(left);
+	const rightNumber = whatsappChatIdToNumber(right);
+
+	return leftNumber !== null && leftNumber === rightNumber;
 }
 
 function getNotificationPayload(
@@ -1213,12 +1228,14 @@ export async function getAssistantMessageNotificationContext(
 	const whatsappNumber = await resolveWhatsappChatIdToNumber(
 		notification.inboundSenderChatId,
 	);
+	const adminChatId = getWhatsappAdminChatId();
 	const [senderHousemate] = whatsappNumber
 		? await db
 				.select({
 					id: housemates.id,
 					name: housemates.name,
 					whatsappNumber: housemates.whatsappNumber,
+					isOwner: housemates.isOwner,
 				})
 				.from(housemates)
 				.where(eq(housemates.whatsappNumber, whatsappNumber))
@@ -1229,6 +1246,7 @@ export async function getAssistantMessageNotificationContext(
 		.select({
 			id: housemates.id,
 			name: housemates.name,
+			isOwner: housemates.isOwner,
 		})
 		.from(housemates)
 		.where(eq(housemates.isActive, true));
@@ -1239,6 +1257,11 @@ export async function getAssistantMessageNotificationContext(
 		body,
 		inboundSenderWhatsappNumber: whatsappNumber,
 		housemate: senderHousemate ?? null,
+		isPrivileged:
+			(senderHousemate?.isOwner ?? false) ||
+			(adminChatId
+				? chatIdsMatch(notification.inboundSenderChatId, adminChatId)
+				: false),
 		activeHousemates,
 	};
 }

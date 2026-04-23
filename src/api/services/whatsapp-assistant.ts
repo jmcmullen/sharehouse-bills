@@ -1,7 +1,6 @@
-import { generateText, tool } from "ai";
+import { generateText, jsonSchema, tool } from "ai";
 import { and, desc, eq } from "drizzle-orm";
 import { createError } from "evlog";
-import { z } from "zod";
 import { formatReminderBillLabel } from "../../lib/reminder-preview";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
@@ -17,7 +16,7 @@ import {
 } from "./housemate-pay-page.server";
 import { getVertexModel } from "./vertex-ai";
 
-const WHATSAPP_ASSISTANT_MODEL = "gemini-2.0-flash-lite-preview-02-05";
+const WHATSAPP_ASSISTANT_MODEL = "gemini-2.5-flash";
 const WHATSAPP_ASSISTANT_TIMEOUT_MS = 30_000;
 const DUE_SOON_WINDOW_DAYS = 7;
 const RECENT_PAYMENT_LIMIT = 3;
@@ -35,6 +34,7 @@ type AssistantBillType = (typeof BILL_TYPE_VALUES)[number];
 type AssistantHousemate = {
 	id: string;
 	name: string;
+	isOwner?: boolean;
 };
 
 type AssistantPayItem = Awaited<
@@ -72,6 +72,37 @@ type AssistantToolContext = {
 	housemate: AssistantHousemate;
 	previewDate?: string | null;
 };
+
+const EMPTY_TOOL_PARAMETERS = jsonSchema({
+	type: "object",
+	properties: {},
+	additionalProperties: false,
+});
+const BILL_TYPE_TOOL_PARAMETERS = jsonSchema<{ billType: AssistantBillType }>({
+	type: "object",
+	properties: {
+		billType: {
+			type: "string",
+			enum: [...BILL_TYPE_VALUES],
+			description:
+				"The bill type to look up. Use electricity, gas, internet, phone, water, or other.",
+		},
+	},
+	required: ["billType"],
+	additionalProperties: false,
+});
+const BILL_QUERY_TOOL_PARAMETERS = jsonSchema<{ query: string }>({
+	type: "object",
+	properties: {
+		query: {
+			type: "string",
+			description:
+				"The bill name or biller to search for, such as cleaners, telstra, or electricity.",
+		},
+	},
+	required: ["query"],
+	additionalProperties: false,
+});
 
 function formatDate(date: Date) {
 	return new Intl.DateTimeFormat("en-AU", {
@@ -151,29 +182,55 @@ function isPaymentClaimMessage(body: string) {
 export function referencesOtherHousemate(input: {
 	body: string;
 	housemate: AssistantHousemate;
-	activeHousemates: Array<{ id: string; name: string }>;
+	activeHousemates: Array<{ id: string; name: string; isOwner?: boolean }>;
+}) {
+	return findReferencedHousemate(input) !== null;
+}
+
+function findReferencedHousemate(input: {
+	body: string;
+	housemate: AssistantHousemate;
+	activeHousemates: Array<{ id: string; name: string; isOwner?: boolean }>;
 }) {
 	const normalizedBody = normalizeText(input.body);
 	const ownFirstName =
 		input.housemate.name.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
 
-	return input.activeHousemates.some((activeHousemate) => {
-		if (activeHousemate.id === input.housemate.id) {
-			return false;
-		}
+	return (
+		input.activeHousemates.find((activeHousemate) => {
+			if (activeHousemate.id === input.housemate.id) {
+				return false;
+			}
 
-		const firstName = activeHousemate.name
-			.trim()
-			.split(/\s+/)[0]
-			?.toLowerCase();
-		if (!firstName || firstName === ownFirstName) {
-			return false;
-		}
+			const firstName = activeHousemate.name
+				.trim()
+				.split(/\s+/)[0]
+				?.toLowerCase();
+			if (!firstName || firstName === ownFirstName || activeHousemate.isOwner) {
+				return false;
+			}
 
-		return new RegExp(
-			`\\b${firstName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`,
-		).test(normalizedBody);
-	});
+			return new RegExp(
+				`\\b${firstName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`,
+			).test(normalizedBody);
+		}) ?? null
+	);
+}
+
+function referencesWholeHouse(body: string) {
+	const normalized = normalizeText(body);
+	const asksAboutAmount =
+		/\b(owe|owes|owed|due|outstanding|left to pay|in total|total)\b/.test(
+			normalized,
+		);
+
+	return (
+		asksAboutAmount &&
+		(/\b(everyone|everybody)\b/.test(normalized) ||
+			/\ball housemates\b/.test(normalized) ||
+			/\ball of us\b/.test(normalized) ||
+			/\bthe house\b/.test(normalized))
+	);
 }
 
 function getBillLabel(
@@ -227,12 +284,60 @@ async function getAssistantPayPageData(input: {
 
 	const page = await getPublicHousematePayPageData(token);
 	if (!page) {
-		throw createError({
-			message: "Unable to load pay page data for WhatsApp assistant",
-			status: 404,
-			why: `The assistant could not load pay page data for housemate ${input.housemateId}.`,
-			fix: "Verify the housemate still exists and has a valid pay page token.",
-		});
+		const [housemate] = await db
+			.select({
+				id: housemates.id,
+				name: housemates.name,
+			})
+			.from(housemates)
+			.where(eq(housemates.id, input.housemateId))
+			.limit(1);
+
+		if (!housemate) {
+			throw createError({
+				message: "Unable to load pay page data for WhatsApp assistant",
+				status: 404,
+				why: `The assistant could not load pay page data for housemate ${input.housemateId}.`,
+				fix: "Verify the housemate still exists and has a valid pay page token.",
+			});
+		}
+
+		return {
+			housemate,
+			scope: {
+				kind: "all" as const,
+				stackGroup: null,
+				billIds: null,
+				allBillsPath: null,
+			},
+			summary: {
+				billCount: 0,
+				overdueCount: 0,
+				utilityBillCount: 0,
+				otherBillCount: 0,
+			},
+			paymentProgress: {
+				settledAmount: 0,
+				remainingAmount: 0,
+				percentage: 100,
+			},
+			recentlySettled: {
+				amount: 0,
+				billCount: 0,
+				sinceIso: new Date().toISOString(),
+				latestPaidIso: null,
+			},
+			items: [],
+			utilityGroups: [],
+			nonUtilityItems: [],
+			links: {
+				pagePath: "",
+				pageUrl: null,
+				ogImagePath: "",
+				ogImageUrl: null,
+			},
+			pageUrl: null,
+		};
 	}
 
 	return {
@@ -294,6 +399,58 @@ async function getRecentHousematePayments(housemateId: string) {
 		paidAt: row.settledAt ?? row.upCreatedAt ?? row.createdAt,
 		matchedDebtIds: row.matchedDebtIds ?? [],
 	})) satisfies RecentPayment[];
+}
+
+async function getHousewideOutstandingSummary() {
+	const rows = await db
+		.select({
+			id: housemates.id,
+			name: housemates.name,
+			isOwner: housemates.isOwner,
+			creditBalance: housemates.creditBalance,
+			amountOwed: debts.amountOwed,
+			amountPaid: debts.amountPaid,
+			isPaid: debts.isPaid,
+		})
+		.from(housemates)
+		.leftJoin(debts, eq(debts.housemateId, housemates.id))
+		.where(and(eq(housemates.isActive, true), eq(housemates.isOwner, false)));
+
+	const perHousemate = new Map<
+		string,
+		{ id: string; name: string; amount: number; creditBalance: number }
+	>();
+
+	for (const row of rows) {
+		const current = perHousemate.get(row.id) ?? {
+			id: row.id,
+			name: row.name,
+			amount: 0,
+			creditBalance: row.creditBalance,
+		};
+
+		if (row.amountOwed !== null && !row.isPaid) {
+			current.amount += Math.max(0, row.amountOwed - (row.amountPaid ?? 0));
+		}
+
+		perHousemate.set(row.id, current);
+	}
+
+	const housematesWithBalances = [...perHousemate.values()]
+		.map((row) => ({
+			...row,
+			amount: Math.max(0, row.amount - row.creditBalance),
+		}))
+		.filter((row) => row.amount > 0.009)
+		.sort((left, right) => right.amount - left.amount);
+
+	return {
+		totalOutstanding: housematesWithBalances.reduce(
+			(sum, row) => sum + row.amount,
+			0,
+		),
+		housemates: housematesWithBalances,
+	};
 }
 
 async function getLatestHousemateReceipt(input: {
@@ -435,12 +592,13 @@ function createAssistantTools(context: AssistantToolContext) {
 		housemateId: context.housemate.id,
 		previewDate: context.previewDate,
 	});
+	const housewideOutstandingPromise = getHousewideOutstandingSummary();
 
-	return {
+	const tools = {
 		get_housemate_outstanding_summary: tool({
 			description:
 				"Get the sender's current unpaid total, unpaid bill count, overdue count, grouped utilities, and pay link.",
-			parameters: z.object({}),
+			parameters: EMPTY_TOOL_PARAMETERS,
 			execute: async () => {
 				const page = await payPagePromise;
 				return {
@@ -463,7 +621,7 @@ function createAssistantTools(context: AssistantToolContext) {
 		get_overdue_summary: tool({
 			description:
 				"Get only the sender's overdue unpaid bills and overdue total.",
-			parameters: z.object({}),
+			parameters: EMPTY_TOOL_PARAMETERS,
 			execute: async () => {
 				const page = await payPagePromise;
 				const overdueItems = page.items.filter((item) => item.isOverdue);
@@ -488,7 +646,7 @@ function createAssistantTools(context: AssistantToolContext) {
 		get_due_soon_summary: tool({
 			description:
 				"Get the sender's unpaid bills due in the next 7 days, excluding already overdue bills.",
-			parameters: z.object({}),
+			parameters: EMPTY_TOOL_PARAMETERS,
 			execute: async () => {
 				const page = await payPagePromise;
 				const today = new Date();
@@ -519,7 +677,7 @@ function createAssistantTools(context: AssistantToolContext) {
 		}),
 		get_unpaid_bill_count: tool({
 			description: "Get the sender's current unpaid bill count.",
-			parameters: z.object({}),
+			parameters: EMPTY_TOOL_PARAMETERS,
 			execute: async () => {
 				const page = await payPagePromise;
 				return {
@@ -532,10 +690,12 @@ function createAssistantTools(context: AssistantToolContext) {
 		get_bill_type_total_due: tool({
 			description:
 				"Get the sender's unpaid total for a bill type such as electricity or gas.",
-			parameters: z.object({
-				billType: z.enum(BILL_TYPE_VALUES),
-			}),
-			execute: async ({ billType }) => {
+			parameters: BILL_TYPE_TOOL_PARAMETERS,
+			execute: async ({
+				billType,
+			}: {
+				billType: AssistantBillType;
+			}) => {
 				const page = await payPagePromise;
 				const matchingItems = filterItemsByBillType(page.items, billType);
 				return {
@@ -552,10 +712,12 @@ function createAssistantTools(context: AssistantToolContext) {
 		get_bill_type_breakdown: tool({
 			description:
 				"Get a short period-and-amount breakdown for one bill type such as electricity or gas.",
-			parameters: z.object({
-				billType: z.enum(BILL_TYPE_VALUES),
-			}),
-			execute: async ({ billType }) => {
+			parameters: BILL_TYPE_TOOL_PARAMETERS,
+			execute: async ({
+				billType,
+			}: {
+				billType: AssistantBillType;
+			}) => {
 				const page = await payPagePromise;
 				const matchingItems = filterItemsByBillType(page.items, billType);
 				return {
@@ -575,7 +737,7 @@ function createAssistantTools(context: AssistantToolContext) {
 		}),
 		get_most_urgent_bill: tool({
 			description: "Get the sender's single most urgent unpaid bill.",
-			parameters: z.object({}),
+			parameters: EMPTY_TOOL_PARAMETERS,
 			execute: async () => {
 				const page = await payPagePromise;
 				const item = getMostUrgentItem(page.items);
@@ -601,10 +763,8 @@ function createAssistantTools(context: AssistantToolContext) {
 		get_bill_link_by_name: tool({
 			description:
 				"Find one of the sender's unpaid bills by a biller or template name and return its individual bill link.",
-			parameters: z.object({
-				query: z.string().min(1),
-			}),
-			execute: async ({ query }) => {
+			parameters: BILL_QUERY_TOOL_PARAMETERS,
+			execute: async ({ query }: { query: string }) => {
 				const page = await payPagePromise;
 				const match = findBillMatch(page.items, query);
 				if (!match) {
@@ -627,7 +787,7 @@ function createAssistantTools(context: AssistantToolContext) {
 		}),
 		get_housemate_pay_link: tool({
 			description: "Get the sender's pay-all link for current unpaid bills.",
-			parameters: z.object({}),
+			parameters: EMPTY_TOOL_PARAMETERS,
 			execute: async () => {
 				const page = await payPagePromise;
 				return {
@@ -639,7 +799,7 @@ function createAssistantTools(context: AssistantToolContext) {
 		}),
 		get_housemate_credit_balance: tool({
 			description: "Get the sender's current credit balance.",
-			parameters: z.object({}),
+			parameters: EMPTY_TOOL_PARAMETERS,
 			execute: async () => {
 				const creditBalance = await creditBalancePromise;
 				return {
@@ -652,7 +812,7 @@ function createAssistantTools(context: AssistantToolContext) {
 		get_recent_payment_summary: tool({
 			description:
 				"Get the sender's recent matched payments, up to the last 3 payments.",
-			parameters: z.object({}),
+			parameters: EMPTY_TOOL_PARAMETERS,
 			execute: async () => {
 				const recentPayments = await recentPaymentsPromise;
 				return {
@@ -669,7 +829,7 @@ function createAssistantTools(context: AssistantToolContext) {
 		}),
 		get_latest_receipt_link: tool({
 			description: "Get the sender's latest available payment receipt link.",
-			parameters: z.object({}),
+			parameters: EMPTY_TOOL_PARAMETERS,
 			execute: async () => {
 				const latestReceipt = await latestReceiptPromise;
 				if (!latestReceipt) {
@@ -692,7 +852,7 @@ function createAssistantTools(context: AssistantToolContext) {
 		}),
 		list_allowed_capabilities: tool({
 			description: "List what the WhatsApp billing assistant can help with.",
-			parameters: z.object({}),
+			parameters: EMPTY_TOOL_PARAMETERS,
 			execute: async () => ({
 				housemateName: context.housemate.name,
 				capabilities: [
@@ -715,11 +875,36 @@ function createAssistantTools(context: AssistantToolContext) {
 			}),
 		}),
 	};
+
+	if (context.housemate.isOwner) {
+		return {
+			...tools,
+			get_housewide_outstanding_summary: tool({
+				description:
+					"Get the total outstanding amount for all non-owner housemates, including a short per-housemate breakdown.",
+				parameters: EMPTY_TOOL_PARAMETERS,
+				execute: async () => {
+					const housewideSummary = await housewideOutstandingPromise;
+					return {
+						totalOutstanding: housewideSummary.totalOutstanding,
+						housemates: housewideSummary.housemates.map((housemate) => ({
+							name: housemate.name,
+							amount: housemate.amount,
+						})),
+					};
+				},
+			}),
+		};
+	}
+
+	return tools;
 }
 
 export async function buildWhatsappAssistantReply(input: {
 	body: string;
 	housemate: AssistantHousemate;
+	requesterHousemate?: AssistantHousemate;
+	isPrivileged?: boolean;
 	previewDate?: string | null;
 }) {
 	const redactedPreview = previewMessageBody(input.body);
@@ -738,10 +923,17 @@ export async function buildWhatsappAssistantReply(input: {
 		const result = await generateText({
 			model: getVertexModel(WHATSAPP_ASSISTANT_MODEL),
 			system: [
-				"You are a WhatsApp billing assistant for one housemate only.",
-				"You can help only with the sender's own bills, pay link, credit, recent payments, and receipt links.",
+				input.isPrivileged
+					? "You are a WhatsApp billing assistant for the house admin. You can help with the requester's own bills, other named housemates, and house-wide totals when relevant."
+					: "You are a WhatsApp billing assistant for one housemate only.",
+				input.isPrivileged
+					? `The current target account is ${input.housemate.name}. If the user asked about a named housemate, that target has already been resolved for you.`
+					: "You can help only with the sender's own bills, pay link, credit, recent payments, and receipt links.",
 				"You must use the provided tools before answering questions about balances, bills, payments, or links.",
-				"If the request is unsupported, asks to change data, disputes a payment, or asks about someone else's bills, reply exactly with UNSUPPORTED_REQUEST.",
+				input.isPrivileged
+					? "If the request is unsupported or asks to change data or disputes a payment, reply exactly with UNSUPPORTED_REQUEST."
+					: "If the request is unsupported, asks to change data, disputes a payment, or asks about someone else's bills, reply exactly with UNSUPPORTED_REQUEST.",
+				"When mentioning money, use Australian dollars.",
 				"Keep replies short and useful for WhatsApp.",
 				"Never invent amounts, dates, bill names, or links.",
 			].join(" "),
@@ -797,4 +989,6 @@ export {
 	buildAssistantOtherHousemateSummary,
 	buildAssistantUnsupportedSummary,
 	buildPaymentClaimRedirectSummary,
+	findReferencedHousemate,
+	referencesWholeHouse,
 };
