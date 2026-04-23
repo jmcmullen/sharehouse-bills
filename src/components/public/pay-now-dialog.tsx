@@ -125,7 +125,7 @@ export function PayNowDialog(input: PayNowDialogProps) {
 			</DialogTrigger>
 			<DialogContent
 				showCloseButton={false}
-				className="h-dvh max-h-dvh w-screen max-w-none overflow-y-auto rounded-none border-0 p-0"
+				className="!inset-0 !top-0 !left-0 !h-dvh !max-h-none !w-screen !max-w-none !translate-x-0 !translate-y-0 overflow-y-auto rounded-none border-0 p-0"
 				onOpenAutoFocus={(event) => event.preventDefault()}
 				onCloseAutoFocus={(event) => {
 					event.preventDefault();
