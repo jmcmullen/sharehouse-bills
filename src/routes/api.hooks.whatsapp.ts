@@ -30,6 +30,10 @@ function getStringValue(value: unknown) {
 	return typeof value === "string" ? value : null;
 }
 
+function isGroupChatId(chatId: string) {
+	return chatId.endsWith("@g.us");
+}
+
 function chatIdsMatch(left: string, right: string) {
 	if (left === right) {
 		return true;
@@ -234,8 +238,12 @@ export const Route = createFileRoute("/api/hooks/whatsapp")({
 				}
 
 				const configuredChatId = getConfiguredWhatsappGroupChatId();
+				const isPrivateChat = !isGroupChatId(groupMessage.chatId);
 
-				if (!isAllowedInboundChat(groupMessage.chatId, configuredChatId)) {
+				if (
+					!isPrivateChat &&
+					!isAllowedInboundChat(groupMessage.chatId, configuredChatId)
+				) {
 					setApiResponseContext(
 						log,
 						{ contentType: "application/json" },
@@ -254,35 +262,27 @@ export const Route = createFileRoute("/api/hooks/whatsapp")({
 					});
 				}
 
-				const parsedCommand = parseInboundWhatsappCommand({
-					body: groupMessage.body,
-					dueKeyword: DUE_COMMAND_KEYWORD,
-				});
-				const isAdminSender = isDueOverrideAllowed({
-					senderChatId: groupMessage.senderChatId,
-					adminChatId: getWhatsappAdminChatId(),
-				});
-
-				if (isAdminSender && !parsedCommand) {
-					setApiResponseContext(
-						log,
-						{ contentType: "application/json" },
-						{
-							webhook: {
-								provider: "waha",
-								ignored: true,
-								ignoreReason: "unsupported_command",
-							},
-						},
-					);
-					return Response.json({
-						success: true,
-						ignored: true,
-						reason: "unsupported_command",
-					});
-				}
-
 				const commandDetails = (() => {
+					if (isPrivateChat) {
+						return {
+							commandType: "due",
+							requestedFirstName: null,
+						} as const;
+					}
+
+					const parsedCommand = parseInboundWhatsappCommand({
+						body: groupMessage.body,
+						dueKeyword: DUE_COMMAND_KEYWORD,
+					});
+					const isAdminSender = isDueOverrideAllowed({
+						senderChatId: groupMessage.senderChatId,
+						adminChatId: getWhatsappAdminChatId(),
+					});
+
+					if (isAdminSender && !parsedCommand) {
+						return null;
+					}
+
 					if (isAdminSender) {
 						if (!parsedCommand) {
 							throw new Error("Admin command must be parsed before enqueue");
@@ -306,6 +306,25 @@ export const Route = createFileRoute("/api/hooks/whatsapp")({
 						requestedFirstName: null,
 					} as const;
 				})();
+
+				if (!commandDetails) {
+					setApiResponseContext(
+						log,
+						{ contentType: "application/json" },
+						{
+							webhook: {
+								provider: "waha",
+								ignored: true,
+								ignoreReason: "unsupported_command",
+							},
+						},
+					);
+					return Response.json({
+						success: true,
+						ignored: true,
+						reason: "unsupported_command",
+					});
+				}
 
 				await enqueueDueCommandNotification({
 					messageId: groupMessage.messageId,
