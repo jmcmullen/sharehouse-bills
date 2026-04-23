@@ -2,6 +2,7 @@ export type InboundCommandType =
 	| "due"
 	| "new"
 	| "paid"
+	| "billpaid"
 	| "init"
 	| "paylinks"
 	| "pay"
@@ -61,6 +62,7 @@ export function parseInboundWhatsappCommand(input: {
 	if (
 		parsedBody.commandToken === "new" ||
 		parsedBody.commandToken === "paid" ||
+		parsedBody.commandToken === "billpaid" ||
 		parsedBody.commandToken === "init" ||
 		parsedBody.commandToken === "paylinks"
 	) {
@@ -82,6 +84,10 @@ export function parseStoredInboundCommandType(
 
 	if (commandType === "paid") {
 		return "paid";
+	}
+
+	if (commandType === "billpaid") {
+		return "billpaid";
 	}
 
 	if (commandType === "init") {

@@ -5,6 +5,7 @@ export interface Housemate {
 	whatsappNumber?: string | null;
 	bankAlias?: string | null;
 	creditBalance?: number;
+	payPath?: string | null;
 	isActive: boolean;
 	isOwner: boolean;
 	createdAt: Date;

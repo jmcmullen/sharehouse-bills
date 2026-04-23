@@ -684,7 +684,10 @@ export async function getRandomBillPaidPreviewContext() {
 			id: bills.id,
 		})
 		.from(bills)
+		.innerJoin(debts, eq(debts.billId, bills.id))
 		.where(eq(bills.status, "paid"))
+		.groupBy(bills.id)
+		.having(sql`count(${debts.id}) > 1`)
 		.orderBy(sql`random()`)
 		.limit(1);
 

@@ -17,6 +17,7 @@ import {
 	IconChevronRight,
 	IconEye,
 	IconFileText,
+	IconLink,
 	IconPlus,
 	IconReceipt,
 } from "@tabler/icons-react";
@@ -30,6 +31,11 @@ import {
 	getDebtSummary,
 	getReminderSummaryLabel,
 } from "./utils";
+
+function getHousematePayLabel(name: string) {
+	const [firstName] = name.trim().split(/\s+/);
+	return `Pay ${firstName || name}`;
+}
 
 interface BillsTableProps {
 	bills: GroupedBill[];
@@ -180,7 +186,31 @@ export function BillsTable({
 												</div>
 											</TableCell>
 											<TableCell className="text-right">
-												<div className="flex items-center justify-end gap-2">
+												<div className="flex flex-wrap items-center justify-end gap-2">
+													<Button variant="outline" size="sm" asChild>
+														<a href={bill.publicPath ?? `/bill/${bill.id}`}>
+															<IconLink className="h-4 w-4" />
+															View Bill
+														</a>
+													</Button>
+													{debts
+														.filter(
+															({ debt, housemate }) =>
+																!debt.isPaid && Boolean(housemate.payPath),
+														)
+														.map(({ debt, housemate }) => (
+															<Button
+																key={debt.id}
+																variant="outline"
+																size="sm"
+																asChild
+															>
+																<a href={housemate.payPath ?? undefined}>
+																	<IconLink className="h-4 w-4" />
+																	{getHousematePayLabel(housemate.name)}
+																</a>
+															</Button>
+														))}
 													{bill.pdfUrl && bill.pdfSha256 ? (
 														<Button
 															variant="outline"

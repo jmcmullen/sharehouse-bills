@@ -92,6 +92,7 @@ async function sendDueCommandSummary(notificationId: string) {
 
 	const context = await requireDueCommandContext(notificationId);
 	const {
+		buildBillPaidSummary,
 		buildAdminPayLinksSummary,
 		buildDueCommandNotFoundSummary,
 		buildInitBillsSummary,
@@ -221,6 +222,7 @@ async function sendDueCommandSummary(notificationId: string) {
 				await buildInboundCommandResponse({
 					commandType: context.commandType,
 					context,
+					buildBillPaidSummary,
 					buildDueCommandNotFoundSummary,
 					buildNotAllowedSummary,
 					buildPayLinkSummary,
@@ -330,6 +332,7 @@ type InboundCommandContext = Awaited<ReturnType<typeof loadDueCommandContext>>;
 type BuildInboundCommandResponseArgs = {
 	commandType: InboundCommandType;
 	context: NonNullable<InboundCommandContext>;
+	buildBillPaidSummary: (input: { billUrl: string }) => string;
 	buildDueCommandNotFoundSummary: (firstName: string) => string;
 	buildNotAllowedSummary: () => string;
 	buildPayLinkSummary: (input: {
@@ -378,6 +381,8 @@ async function buildInboundCommandResponse(
 			return await buildNewCommandResponse(args);
 		case "paid":
 			return await buildPaidCommandResponse(args);
+		case "billpaid":
+			return await buildBillPaidCommandResponse(args);
 		case "pay":
 			return buildPayCommandResponseMessage(args);
 		case "not_allowed":
@@ -437,10 +442,29 @@ async function buildPaidCommandResponse(args: BuildInboundCommandResponseArgs) {
 		if (!billUrl) {
 			throw new FatalError("Unable to build a bill link for paid command");
 		}
-		sections.push(billUrl);
+		sections.push(args.buildBillPaidSummary({ billUrl }));
 	}
 
 	return sections.join("\n\n");
+}
+
+async function buildBillPaidCommandResponse(
+	args: BuildInboundCommandResponseArgs,
+) {
+	const billPaidContext = await args.getRandomBillPaidPreviewContext();
+	if (!billPaidContext) {
+		return "*No paid group bills found.* Mark a shared bill paid first, then try /billpaid again.";
+	}
+
+	const billUrl = args.getAbsoluteViewerUrl(
+		billPaidContext.bill.id,
+		args.previewDate,
+	);
+	if (!billUrl) {
+		throw new FatalError("Unable to build a bill link for billpaid command");
+	}
+
+	return args.buildBillPaidSummary({ billUrl });
 }
 
 function buildDueCommandResponseMessage(args: BuildInboundCommandResponseArgs) {

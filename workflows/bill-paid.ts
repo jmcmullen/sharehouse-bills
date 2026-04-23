@@ -46,6 +46,9 @@ async function sendBillPaidSummary(notificationId: string) {
 	const { BillPdfStorageService } = await import(
 		"../src/api/services/bill-pdf-storage"
 	);
+	const { buildBillPaidSummary } = await import(
+		"../src/api/services/whatsapp-message-composer"
+	);
 	const { getConfiguredWhatsappGroupChatId, sendWhatsappTextMessage } =
 		await import("../src/api/services/waha");
 	const billUrl = BillPdfStorageService.getAbsoluteViewerUrl(
@@ -63,7 +66,7 @@ async function sendBillPaidSummary(notificationId: string) {
 		deliver: async () =>
 			await sendWhatsappTextMessage(
 				getConfiguredWhatsappGroupChatId(),
-				billUrl,
+				buildBillPaidSummary({ billUrl }),
 			),
 	});
 }

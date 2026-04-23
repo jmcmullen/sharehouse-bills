@@ -140,3 +140,7 @@ export function buildAdminPayLinksSummary(input: {
 
 	return lines.join("\n");
 }
+
+export function buildBillPaidSummary(input: { billUrl: string }) {
+	return input.billUrl;
+}

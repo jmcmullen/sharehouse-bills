@@ -11,6 +11,7 @@ import {
 	getRemainingDebtAmount,
 	updateBillStatusFromDebts,
 } from "../api/services/debt-payment-state";
+import { createPayPath } from "../api/services/housemate-pay-page.server";
 import { generateWeeklyRentBill } from "../api/services/recurring-bill";
 import {
 	enqueueBillCreatedNotification,
@@ -29,7 +30,7 @@ import { getRequestLogger } from "../lib/request-logger";
 export const getAllBills = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
 	.handler(async () => {
-		return await db
+		const rows = await db
 			.select({
 				bill: bills,
 				debt: debts,
@@ -39,6 +40,23 @@ export const getAllBills = createServerFn({ method: "GET" })
 			.leftJoin(debts, eq(bills.id, debts.billId))
 			.leftJoin(housemates, eq(debts.housemateId, housemates.id))
 			.orderBy(desc(bills.dueDate));
+
+		return rows.map((row) => ({
+			...row,
+			bill: {
+				...row.bill,
+				publicPath: `/bill/${row.bill.id}`,
+			},
+			housemate: row.housemate
+				? {
+						...row.housemate,
+						payPath: createPayPath({
+							housemateId: row.housemate.id,
+							stackGroup: row.bill.stackGroup,
+						}),
+					}
+				: null,
+		}));
 	});
 
 // Get a specific bill with its debts

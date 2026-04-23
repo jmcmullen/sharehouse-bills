@@ -3,6 +3,7 @@ import { TableCell, TableRow } from "@/components/ui/table";
 import {
 	IconEdit,
 	IconEye,
+	IconLink,
 	IconMail,
 	IconTrash,
 	IconUser,
@@ -60,7 +61,15 @@ export function HousemateTableRow({
 			</TableCell>
 			<TableCell>{formatDate(housemate.createdAt)}</TableCell>
 			<TableCell className="text-right">
-				<div className="flex items-center justify-end gap-2">
+				<div className="flex flex-wrap items-center justify-end gap-2">
+					{housemate.payPath ? (
+						<Button variant="outline" size="sm" asChild>
+							<a href={housemate.payPath}>
+								<IconLink className="h-4 w-4" />
+								View Bills
+							</a>
+						</Button>
+					) : null}
 					<Button
 						variant="outline"
 						size="sm"

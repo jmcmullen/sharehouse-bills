@@ -8,6 +8,7 @@ export interface BillData {
 		id: string;
 		totalAmount: number;
 		billerName: string;
+		publicPath?: string | null;
 		dueDate: string | Date;
 		status: string;
 		pdfSha256?: string | null;
@@ -28,6 +29,7 @@ export interface BillData {
 	} | null;
 	housemate?: {
 		name: string;
+		payPath?: string | null;
 	} | null;
 }
 
