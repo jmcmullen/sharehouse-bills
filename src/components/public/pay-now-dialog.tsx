@@ -9,7 +9,7 @@ import {
 	DialogTrigger,
 } from "@/components/ui/dialog";
 import { Check, Copy } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 type PayNowDialogProps = {
@@ -18,7 +18,6 @@ type PayNowDialogProps = {
 	payId: string | null;
 	amount: number;
 	descriptionValue: string;
-	onInitiated?: () => void;
 };
 
 function formatCurrency(amount: number) {
@@ -60,7 +59,6 @@ async function writeToClipboard(value: string) {
 
 export function PayNowDialog(input: PayNowDialogProps) {
 	const [copiedStep, setCopiedStep] = useState<string | null>(null);
-	const copiedAnyRef = useRef(false);
 
 	async function handleCopy(stepId: string, rawValue: string) {
 		const value = sanitizeCopyValue(rawValue);
@@ -72,7 +70,6 @@ export function PayNowDialog(input: PayNowDialogProps) {
 			return;
 		}
 
-		copiedAnyRef.current = true;
 		setCopiedStep(stepId);
 		toast.success("Copied", {
 			description: "Ready to paste into your banking app.",
@@ -81,13 +78,6 @@ export function PayNowDialog(input: PayNowDialogProps) {
 			() => setCopiedStep((current) => (current === stepId ? null : current)),
 			2000,
 		);
-	}
-
-	function handleOpenChange(open: boolean) {
-		if (!open && copiedAnyRef.current) {
-			input.onInitiated?.();
-			copiedAnyRef.current = false;
-		}
 	}
 
 	const steps = [
@@ -117,7 +107,7 @@ export function PayNowDialog(input: PayNowDialogProps) {
 	] as const;
 
 	return (
-		<Dialog onOpenChange={handleOpenChange}>
+		<Dialog>
 			<DialogTrigger asChild>
 				<Button className="h-11 w-full font-medium">
 					{input.triggerLabel}

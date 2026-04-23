@@ -1,7 +1,6 @@
 import { BillPdfStorageService } from "@/api/services/bill-pdf-storage";
 import { PayNowDialog } from "@/components/public/pay-now-dialog";
 import { PublicStatusBadge } from "@/components/public/status-badge";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { getPublicHousematePay } from "@/functions/public-housemate-pay";
@@ -12,10 +11,8 @@ import {
 import { buildOpenGraphMeta } from "@/lib/share-preview";
 import { createFileRoute } from "@tanstack/react-router";
 import confetti from "canvas-confetti";
-import { ExternalLink, Loader2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-
-const INITIATED_TTL_MS = 30 * 60 * 1000;
+import { ExternalLink } from "lucide-react";
+import { useEffect, useRef } from "react";
 
 function formatCurrency(amount: number) {
 	return new Intl.NumberFormat("en-AU", {
@@ -306,69 +303,6 @@ function AllSortedPanel({
 	);
 }
 
-function LookingOutBanner({ onDismiss }: { onDismiss: () => void }) {
-	return (
-		<Alert className="motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:animate-in motion-safe:duration-500">
-			<Loader2
-				className="text-muted-foreground motion-safe:animate-spin"
-				strokeWidth={2.5}
-			/>
-			<AlertTitle>Looking out for your payment</AlertTitle>
-			<AlertDescription>
-				<p>
-					Usually sorts itself within a few minutes of the transfer landing.
-				</p>
-				<button
-					type="button"
-					onClick={onDismiss}
-					className="rounded-sm text-left font-medium text-foreground underline underline-offset-4 ring-offset-background transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-				>
-					Paid but not showing?
-				</button>
-			</AlertDescription>
-		</Alert>
-	);
-}
-
-function useInitiatedPayment(token: string) {
-	const [hasInitiated, setHasInitiated] = useState(false);
-
-	useEffect(() => {
-		if (typeof window === "undefined") return;
-		try {
-			const raw = window.localStorage.getItem(`pay-initiated:${token}`);
-			if (!raw) return;
-			const initiatedAt = Number(raw);
-			if (
-				Number.isFinite(initiatedAt) &&
-				Date.now() - initiatedAt < INITIATED_TTL_MS
-			) {
-				setHasInitiated(true);
-			} else {
-				window.localStorage.removeItem(`pay-initiated:${token}`);
-			}
-		} catch {}
-	}, [token]);
-
-	function markInitiated() {
-		if (typeof window === "undefined") return;
-		try {
-			window.localStorage.setItem(`pay-initiated:${token}`, String(Date.now()));
-		} catch {}
-		setHasInitiated(true);
-	}
-
-	function clearInitiated() {
-		if (typeof window === "undefined") return;
-		try {
-			window.localStorage.removeItem(`pay-initiated:${token}`);
-		} catch {}
-		setHasInitiated(false);
-	}
-
-	return { hasInitiated, markInitiated, clearInitiated };
-}
-
 export const Route = createFileRoute("/pay/$token")({
 	loader: async ({ params, location }) =>
 		await getPublicHousematePay({
@@ -532,10 +466,6 @@ function BillRow({
 
 function PublicPayPage() {
 	const loaderData = Route.useLoaderData();
-	const params = Route.useParams();
-	const { hasInitiated, markInitiated, clearInitiated } = useInitiatedPayment(
-		params.token,
-	);
 
 	if (!loaderData) {
 		return (
@@ -577,33 +507,48 @@ function PublicPayPage() {
 	const stackGroupLabel =
 		scope.kind === "stack" ? formatStackGroupLabel(scope.stackGroup) : null;
 	const isBillsScope = scope.kind === "bills";
+	const singleReminderItem =
+		!isAllSorted && isBillsScope && items.length === 1 ? items[0] : null;
 	const showProgress = !isAllSorted && paymentProgress.settledAmount > 0;
-	const showLookingOut = !isAllSorted && hasInitiated;
 	const housemateFirstName = getFirstName(housemate.name);
 	const statusBadge = isAllSorted
 		? {
 				label: "Nothing due",
 				tone: "success" as const,
 			}
-		: summary.overdueCount > 0
+		: singleReminderItem
 			? {
-					label: `${summary.overdueCount} overdue, ${summary.billCount} unpaid`,
-					tone: "danger" as const,
+					label: singleReminderItem.isOverdue ? "Overdue reminder" : "Reminder",
+					tone: singleReminderItem.isOverdue
+						? ("danger" as const)
+						: ("warning" as const),
 				}
-			: {
-					label: `${summary.billCount} unpaid`,
-					tone: "warning" as const,
-				};
+			: summary.overdueCount > 0
+				? {
+						label: `${summary.overdueCount} overdue, ${summary.billCount} unpaid`,
+						tone: "danger" as const,
+					}
+				: {
+						label: `${summary.billCount} unpaid`,
+						tone: "warning" as const,
+					};
 	const payVerb =
 		scope.kind === "stack" && stackGroupLabel
 			? `Pay ${stackGroupLabel.toLowerCase()}`
 			: isBillsScope
-				? "Pay these bills"
+				? summary.billCount === 1
+					? "Pay this bill"
+					: "Pay these bills"
 				: "Pay all bills";
+	const hasFooterActions =
+		!isAllSorted ||
+		((scope.kind === "stack" || isBillsScope) && Boolean(scope.allBillsPath));
 
 	return (
 		<div className="min-h-screen bg-background text-foreground">
-			<div className="mx-auto flex max-w-md flex-col gap-7 px-5 pt-5 pb-6 sm:gap-8 sm:pt-8 sm:pb-12">
+			<div
+				className={`mx-auto flex min-h-screen max-w-md flex-col gap-7 px-5 pt-5 ${hasFooterActions ? "pb-32 sm:pb-12" : "pb-6 sm:pb-12"} sm:min-h-0 sm:gap-8 sm:pt-8`}
+			>
 				<header className="flex flex-col gap-3">
 					<p className="truncate font-semibold text-[15px] tracking-tight">
 						{housemate.name}
@@ -624,7 +569,7 @@ function PublicPayPage() {
 							<PublicStatusBadge tone="neutral">
 								{stackGroupLabel}
 							</PublicStatusBadge>
-						) : isBillsScope ? (
+						) : isBillsScope && !singleReminderItem ? (
 							<PublicStatusBadge tone="neutral">Reminder</PublicStatusBadge>
 						) : null}
 					</div>
@@ -635,10 +580,6 @@ function PublicPayPage() {
 						housemateFirstName={housemateFirstName}
 						recentlySettled={recentlySettled}
 					/>
-				) : null}
-
-				{showLookingOut ? (
-					<LookingOutBanner onDismiss={clearInitiated} />
 				) : null}
 
 				{showProgress ? (
@@ -719,19 +660,21 @@ function PublicPayPage() {
 
 				{isAllSorted ? (
 					(scope.kind === "stack" || isBillsScope) && scope.allBillsPath ? (
-						<div className="flex flex-col gap-2.5">
-							<Button
-								asChild
-								variant="outline"
-								className="h-11 w-full font-medium"
-							>
-								<a href={scope.allBillsPath}>View all bills</a>
-							</Button>
+						<div className="fixed inset-x-0 bottom-0 z-20 bg-background/95 px-5 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:z-auto sm:mt-auto sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0 sm:backdrop-blur-none">
+							<div className="mx-auto flex w-full max-w-md flex-col gap-2.5">
+								<Button
+									asChild
+									variant="outline"
+									className="h-11 w-full font-medium"
+								>
+									<a href={scope.allBillsPath}>View all bills</a>
+								</Button>
+							</div>
 						</div>
 					) : null
 				) : (
-					<div className="-mx-5 sticky bottom-0 z-20 bg-background px-5 pt-2 pb-2 sm:static sm:mx-0 sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0">
-						<div className="flex flex-col gap-2.5">
+					<div className="fixed inset-x-0 bottom-0 z-20 bg-background/95 px-5 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:z-auto sm:mt-auto sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0 sm:backdrop-blur-none">
+						<div className="mx-auto flex w-full max-w-md flex-col gap-2.5">
 							{(scope.kind === "stack" || isBillsScope) &&
 							scope.allBillsPath ? (
 								<Button
@@ -747,14 +690,7 @@ function PublicPayPage() {
 								title={payVerb}
 								payId={payId}
 								amount={paymentProgress.remainingAmount}
-								descriptionValue={
-									scope.kind === "stack" && stackGroupLabel
-										? stackGroupLabel
-										: isBillsScope
-											? "Reminder bills"
-											: "Bills"
-								}
-								onInitiated={markInitiated}
+								descriptionValue="Bills"
 							/>
 						</div>
 					</div>

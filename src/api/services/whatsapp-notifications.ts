@@ -154,7 +154,8 @@ async function createNotification(input: {
 		| "bill_paid"
 		| "debt_paid"
 		| "bill_reminder"
-		| "due_command";
+		| "due_command"
+		| "assistant_message";
 	billId?: string | null;
 	debtId?: string | null;
 	housemateId?: string | null;
@@ -283,6 +284,26 @@ export async function createDueCommandNotification(input: {
 			sessionName: input.sessionName,
 			commandType: input.commandType,
 			requestedFirstName: input.requestedFirstName,
+		},
+	});
+}
+
+export async function createAssistantMessageNotification(input: {
+	messageId: string;
+	chatId: string;
+	senderChatId: string;
+	body: string;
+	sessionName: string | null;
+}) {
+	return await createNotification({
+		eventKey: `assistant-message:${input.messageId}`,
+		eventType: "assistant_message",
+		inboundMessageId: input.messageId,
+		inboundChatId: input.chatId,
+		inboundSenderChatId: input.senderChatId,
+		payload: {
+			body: input.body,
+			sessionName: input.sessionName,
 		},
 	});
 }
@@ -1170,5 +1191,54 @@ export async function getDueCommandNotificationContext(notificationId: string) {
 		debts: debtRows,
 		inboundSenderWhatsappNumber: whatsappNumber,
 		requestedFirstName,
+	};
+}
+
+export async function getAssistantMessageNotificationContext(
+	notificationId: string,
+) {
+	const notification = await getWhatsappNotificationById(notificationId);
+	if (!notification?.inboundChatId || !notification.inboundSenderChatId) {
+		return null;
+	}
+
+	const body =
+		typeof notification.payload?.body === "string"
+			? notification.payload.body
+			: null;
+	if (!body) {
+		return null;
+	}
+
+	const whatsappNumber = await resolveWhatsappChatIdToNumber(
+		notification.inboundSenderChatId,
+	);
+	const [senderHousemate] = whatsappNumber
+		? await db
+				.select({
+					id: housemates.id,
+					name: housemates.name,
+					whatsappNumber: housemates.whatsappNumber,
+				})
+				.from(housemates)
+				.where(eq(housemates.whatsappNumber, whatsappNumber))
+				.limit(1)
+		: [];
+
+	const activeHousemates = await db
+		.select({
+			id: housemates.id,
+			name: housemates.name,
+		})
+		.from(housemates)
+		.where(eq(housemates.isActive, true));
+
+	return {
+		notification,
+		replyChatId: notification.inboundChatId,
+		body,
+		inboundSenderWhatsappNumber: whatsappNumber,
+		housemate: senderHousemate ?? null,
+		activeHousemates,
 	};
 }

@@ -1,4 +1,5 @@
 import { start } from "workflow/api";
+import { runAssistantMessageNotification } from "../../../workflows/assistant-message";
 import { runBillCreatedNotification } from "../../../workflows/bill-created";
 import { runBillPaidNotification } from "../../../workflows/bill-paid";
 import { runBillReminderNotification } from "../../../workflows/bill-reminder";
@@ -8,6 +9,7 @@ import { getRequestLogger } from "../../lib/request-logger";
 import type { InboundCommandType } from "../../lib/whatsapp-commands";
 import {
 	type WhatsappNotificationRecord,
+	createAssistantMessageNotification,
 	createBillCreatedNotification,
 	createBillPaidNotification,
 	createBillReminderNotification,
@@ -182,6 +184,24 @@ export async function enqueueDueCommandNotification(input: {
 		"due-command WhatsApp workflow",
 		async () =>
 			await start(runDueCommandNotification, [result.notification.id]),
+	);
+
+	return result.notification;
+}
+
+export async function enqueueAssistantMessageNotification(input: {
+	messageId: string;
+	chatId: string;
+	senderChatId: string;
+	body: string;
+	sessionName: string | null;
+}) {
+	const result = await createAssistantMessageNotification(input);
+	await startNotificationWorkflow(
+		result.notification,
+		"assistant-message WhatsApp workflow",
+		async () =>
+			await start(runAssistantMessageNotification, [result.notification.id]),
 	);
 
 	return result.notification;

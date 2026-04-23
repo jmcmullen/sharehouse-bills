@@ -1,8 +1,8 @@
-import { createVertex } from "@ai-sdk/google-vertex";
 import { generateText } from "ai";
 import { createError } from "evlog";
 import { z } from "zod";
 import { getRequestLogger } from "../../lib/request-logger";
+import { getVertexModel } from "./vertex-ai";
 
 // Schema for parsed bill data
 export const parsedBillSchema = z.object({
@@ -18,25 +18,6 @@ export const parsedBillSchema = z.object({
 });
 
 export type ParsedBill = z.infer<typeof parsedBillSchema>;
-
-// Configure Google Cloud credentials
-const vertexConfig: Parameters<typeof createVertex>[0] = {
-	project: process.env.GOOGLE_VERTEX_PROJECT,
-	location: process.env.GOOGLE_CLOUD_REGION || "us-central1",
-};
-
-// For Vercel deployment, use individual credential fields
-if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
-	vertexConfig.googleAuthOptions = {
-		credentials: {
-			client_email: process.env.GOOGLE_CLIENT_EMAIL,
-			private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-		},
-		scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-	};
-}
-
-const vertex = createVertex(vertexConfig);
 
 export class AIParserService {
 	// Vertex AI will use environment variables for authentication
@@ -84,7 +65,7 @@ Important guidelines:
 `;
 
 			const { text } = await generateText({
-				model: vertex("gemini-1.5-pro"),
+				model: getVertexModel("gemini-1.5-pro"),
 				messages: [
 					{
 						role: "user",
@@ -221,7 +202,7 @@ Important guidelines:
 		const log = getRequestLogger();
 		try {
 			const { text } = await generateText({
-				model: vertex("gemini-2.0-flash-lite-preview-02-05"),
+				model: getVertexModel("gemini-2.0-flash-lite-preview-02-05"),
 				messages: [
 					{
 						role: "user",

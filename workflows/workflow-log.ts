@@ -124,6 +124,35 @@ export function emitWorkflowOutcome(input: {
 	});
 }
 
+export function emitWorkflowStepEvent(input: {
+	workflowName: string;
+	notificationId: string;
+	stepName: string;
+	level: "info" | "warn" | "error";
+	message: string;
+	context?: Record<string, unknown>;
+	error?: unknown;
+}) {
+	const log = createWorkflowStepLogger(input);
+	if (input.context) {
+		log.set(input.context);
+	}
+
+	if (input.level === "error") {
+		log.error(
+			input.error ? toLoggedError(input.error) : new Error(input.message),
+		);
+	} else if (input.level === "warn") {
+		log.warn(input.message);
+	} else {
+		log.info(input.message);
+	}
+
+	log.emit({
+		_forceKeep: true,
+	});
+}
+
 export function emitWorkflowDeliveryEvent(input: {
 	notificationId: string;
 	deliveryKey: string;

@@ -249,10 +249,13 @@ function PublicBillPage() {
 		shareSummary.amountEach ??
 		participants.find((participant) => !participant.isOwner)?.amountOwed ??
 		paymentProgress.remainingAmount;
+	const hasFooterActions = bill.hasPdf || !isAllSorted;
 
 	return (
 		<div className="min-h-screen bg-background text-foreground">
-			<div className="mx-auto flex max-w-md flex-col gap-7 px-5 pt-5 pb-6 sm:gap-8 sm:pt-8 sm:pb-12">
+			<div
+				className={`mx-auto flex min-h-screen max-w-md flex-col gap-7 px-5 pt-5 ${hasFooterActions ? "pb-32 sm:pb-12" : "pb-6 sm:pb-12"} sm:min-h-0 sm:gap-8 sm:pt-8`}
+			>
 				{/* Hero */}
 				<header className="flex flex-col gap-3">
 					<p className="truncate font-semibold text-[15px] tracking-tight">
@@ -348,17 +351,8 @@ function PublicBillPage() {
 				</section>
 
 				{/* Actions */}
-				<div className="-mx-5 sticky bottom-0 z-20 bg-background px-5 pt-2 pb-2 sm:static sm:mx-0 sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0">
-					<div className="flex flex-col gap-2.5">
-						{!isAllSorted ? (
-							<PayNowDialog
-								triggerLabel="Pay now"
-								title="Pay this bill"
-								payId={payId}
-								amount={payNowAmount}
-								descriptionValue="Bills"
-							/>
-						) : null}
+				<div className="fixed inset-x-0 bottom-0 z-20 bg-background/95 px-5 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:z-auto sm:mt-auto sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0 sm:backdrop-blur-none">
+					<div className="mx-auto flex w-full max-w-md flex-col gap-2.5">
 						{bill.hasPdf ? (
 							<Button
 								asChild
@@ -369,6 +363,15 @@ function PublicBillPage() {
 									View invoice PDF
 								</a>
 							</Button>
+						) : null}
+						{!isAllSorted ? (
+							<PayNowDialog
+								triggerLabel="Pay now"
+								title="Pay this bill"
+								payId={payId}
+								amount={payNowAmount}
+								descriptionValue="Bills"
+							/>
 						) : null}
 					</div>
 				</div>

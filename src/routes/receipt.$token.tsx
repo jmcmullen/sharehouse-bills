@@ -141,7 +141,7 @@ function PublicReceiptPage() {
 
 	return (
 		<div className="min-h-screen bg-background text-foreground">
-			<div className="mx-auto flex max-w-md flex-col gap-7 px-5 pt-0 pb-6 sm:gap-8 sm:pt-8 sm:pb-12">
+			<div className="mx-auto flex min-h-screen max-w-md flex-col gap-7 px-5 pt-0 pb-32 sm:min-h-0 sm:gap-8 sm:pt-8 sm:pb-12">
 				<header className="flex flex-col gap-3">
 					<p className="truncate font-semibold text-[15px] tracking-tight">
 						{loaderData.housemate.name}
@@ -193,8 +193,8 @@ function PublicReceiptPage() {
 					</div>
 				</section>
 
-				<div className="-mx-5 sticky bottom-0 z-20 bg-background px-5 pt-2 pb-2 sm:static sm:mx-0 sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0">
-					<div className="flex flex-col gap-2.5">
+				<div className="fixed inset-x-0 bottom-0 z-20 bg-background/95 px-5 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:z-auto sm:mt-auto sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0 sm:backdrop-blur-none">
+					<div className="mx-auto flex w-full max-w-md flex-col gap-2.5">
 						<Button
 							asChild
 							variant="outline"

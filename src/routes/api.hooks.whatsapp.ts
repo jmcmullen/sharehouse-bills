@@ -6,7 +6,10 @@ import {
 	getWahaWebhookSecret,
 	getWhatsappAdminChatId,
 } from "../api/services/waha";
-import { enqueueDueCommandNotification } from "../api/services/whatsapp-notification-events";
+import {
+	enqueueAssistantMessageNotification,
+	enqueueDueCommandNotification,
+} from "../api/services/whatsapp-notification-events";
 import { whatsappChatIdToNumber } from "../api/services/whatsapp-phone";
 import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";
 import { getRequestLogger } from "../lib/request-logger";
@@ -262,30 +265,45 @@ export const Route = createFileRoute("/api/hooks/whatsapp")({
 					});
 				}
 
-				const commandDetails = (() => {
-					const parsedCommand = parseInboundWhatsappCommand({
-						body: groupMessage.body,
-						dueKeyword: DUE_COMMAND_KEYWORD,
-					});
-					const isAdminSender = isDueOverrideAllowed({
+				const parsedCommand = parseInboundWhatsappCommand({
+					body: groupMessage.body,
+					dueKeyword: DUE_COMMAND_KEYWORD,
+				});
+				const isAdminSender = isDueOverrideAllowed({
+					senderChatId: groupMessage.senderChatId,
+					adminChatId: getWhatsappAdminChatId(),
+				});
+
+				if (isPrivateChat && !(isAdminSender && parsedCommand)) {
+					await enqueueAssistantMessageNotification({
+						messageId: groupMessage.messageId,
+						chatId: groupMessage.chatId,
 						senderChatId: groupMessage.senderChatId,
-						adminChatId: getWhatsappAdminChatId(),
+						body: groupMessage.body,
+						sessionName: groupMessage.sessionName,
 					});
 
+					setApiResponseContext(log, {
+						contentType: "application/json",
+					});
+					return Response.json({
+						success: true,
+						queued: true,
+					});
+				}
+
+				const commandDetails = (() => {
 					if (isPrivateChat) {
-						if (isAdminSender && parsedCommand) {
-							return {
-								commandType: parsedCommand.commandType,
-								requestedFirstName:
-									parsedCommand.commandType === "due"
-										? parsedCommand.requestedFirstName
-										: null,
-							} as const;
+						if (!parsedCommand) {
+							return null;
 						}
 
 						return {
-							commandType: "due",
-							requestedFirstName: null,
+							commandType: parsedCommand.commandType,
+							requestedFirstName:
+								parsedCommand.commandType === "due"
+									? parsedCommand.requestedFirstName
+									: null,
 						} as const;
 					}
 
