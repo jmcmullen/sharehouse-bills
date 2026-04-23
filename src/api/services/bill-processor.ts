@@ -4,6 +4,7 @@ import {
 	getDefaultBillReminderConfig,
 	toBillReminderDbValues,
 } from "../../lib/bill-reminder-config";
+import { getEqualSplitAmounts } from "../../lib/equal-split";
 import { getRequestLogger } from "../../lib/request-logger";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
@@ -232,12 +233,15 @@ export class BillProcessorService {
 						});
 					}
 
-					const amountPerPerson =
-						parsedData.totalAmount / nonOwnerHousemates.length;
+					const { amountPerDebtor } = getEqualSplitAmounts({
+						totalAmount: parsedData.totalAmount,
+						participantCount: activeHousemates.length,
+						ownerCount: activeHousemates.length - nonOwnerHousemates.length,
+					});
 					const debtRecords = nonOwnerHousemates.map((housemate) => ({
 						billId: newBill.id,
 						housemateId: housemate.id,
-						amountOwed: amountPerPerson,
+						amountOwed: amountPerDebtor,
 						amountPaid: 0,
 					}));
 
@@ -258,7 +262,7 @@ export class BillProcessorService {
 						debtCreation: {
 							billId: newBill.id,
 							debtRecordCount: debtRecords.length,
-							amountPerPerson,
+							amountPerPerson: amountPerDebtor,
 						},
 					});
 					await enqueueBillCreatedNotification(newBill.id, "email_import");

@@ -2,6 +2,7 @@ import {
 	formatReminderOffsetsInput,
 	parseReminderOffsetsInput,
 } from "@/lib/bill-reminder-config";
+import { getEqualSplitAmounts } from "@/lib/equal-split";
 import type {
 	HousemateOption,
 	RecurringBillFormData,
@@ -365,22 +366,25 @@ export function calculateRecurringBillPreview(
 	}
 
 	if (formData.splitStrategy === "equal") {
-		const amountPerPerson = totalAmount / includedAssignments.length;
+		const { amountPerDebtor, ownerShareTotal } = getEqualSplitAmounts({
+			totalAmount,
+			participantCount: includedAssignments.length,
+			ownerCount: includedAssignments.filter((assignment) => assignment.isOwner)
+				.length,
+		});
 		const assignments = includedAssignments.map((assignment) => ({
 			housemateId: assignment.housemateId,
 			name: assignment.name,
 			isOwner: assignment.isOwner,
 			isActive: true,
-			amountOwed: assignment.isOwner ? 0 : amountPerPerson,
+			amountOwed: assignment.isOwner ? 0 : amountPerDebtor,
 			customAmount: null,
 		}));
 
 		return {
 			includedCount: includedAssignments.length,
-			amountPerPerson,
-			ownerShare: assignments
-				.filter((assignment) => assignment.isOwner)
-				.reduce((sum) => sum + amountPerPerson, 0),
+			amountPerPerson: amountPerDebtor,
+			ownerShare: ownerShareTotal,
 			nonOwnerTotal: assignments.reduce(
 				(sum, assignment) => sum + assignment.amountOwed,
 				0,

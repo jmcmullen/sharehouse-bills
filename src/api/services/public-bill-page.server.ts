@@ -1,8 +1,10 @@
 import { and, asc, eq } from "drizzle-orm";
+import { distributeCurrencyAmount, roundCurrency } from "../../lib/equal-split";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
+import { recurringBills } from "../db/schema/recurring-bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
 
 type PublicBillDebtRecord = {
@@ -31,6 +33,7 @@ export type PublicBillPageData = {
 		billPeriodStart: Date | null;
 		billPeriodEnd: Date | null;
 		pdfSha256: string | null;
+		recurringTemplateName: string | null;
 		sourceFilename: string | null;
 		hasPdf: boolean;
 	};
@@ -89,6 +92,7 @@ export async function getPublicBillPageData(
 				billPeriodEnd: bills.billPeriodEnd,
 				pdfSha256: bills.pdfSha256,
 				pdfUrl: bills.pdfUrl,
+				recurringTemplateName: recurringBills.templateName,
 				sourceFilename: bills.sourceFilename,
 				debtId: debts.id,
 				amountOwed: debts.amountOwed,
@@ -101,6 +105,7 @@ export async function getPublicBillPageData(
 			.from(bills)
 			.leftJoin(debts, eq(debts.billId, bills.id))
 			.leftJoin(housemates, eq(housemates.id, debts.housemateId))
+			.leftJoin(recurringBills, eq(recurringBills.id, bills.recurringBillId))
 			.where(billLookup)
 			.orderBy(asc(debts.id)),
 		db
@@ -132,21 +137,20 @@ export async function getPublicBillPageData(
 	const debtShareCount = debtRecords.length;
 	const ownerCount = ownerRows.length;
 	const participantCount = debtShareCount + ownerCount;
-	const firstShareAmount =
-		participantCount > 0
-			? rows[0].totalAmount / participantCount
-			: (debtRecords[0]?.amountOwed ?? null);
+	const firstDebtAmount = debtRecords[0]?.amountOwed ?? null;
+	const ownerShareTotal = roundCurrency(
+		rows[0].totalAmount -
+			debtRecords.reduce((total, debt) => total + debt.amountOwed, 0),
+	);
+	const ownerShares = distributeCurrencyAmount(ownerShareTotal, ownerCount);
 	const hasEvenShares =
-		firstShareAmount !== null &&
+		firstDebtAmount !== null &&
 		debtRecords.length > 0 &&
 		debtRecords.every(
-			(debt) => Math.abs(debt.amountOwed - firstShareAmount) < 0.005,
+			(debt) => Math.abs(debt.amountOwed - firstDebtAmount) < 0.005,
 		);
 	const settledCount = ownerCount + debtRecords.filter(isDebtPaid).length;
-	const settledAmount =
-		(ownerCount > 0 && firstShareAmount !== null
-			? ownerCount * firstShareAmount
-			: 0) + settledDebtAmount;
+	const settledAmount = ownerShareTotal + settledDebtAmount;
 	const debtParticipants: PublicBillParticipant[] = rows
 		.filter((row) => row.debtId !== null && row.housemateId !== null)
 		.map((row) => ({
@@ -163,14 +167,16 @@ export async function getPublicBillPageData(
 			isOwner: false,
 		}));
 
-	const ownerParticipants: PublicBillParticipant[] = ownerRows.map((owner) => ({
-		id: owner.id,
-		name: owner.name,
-		amountOwed: firstShareAmount ?? 0,
-		amountPaid: firstShareAmount ?? 0,
-		isPaid: true,
-		isOwner: true,
-	}));
+	const ownerParticipants: PublicBillParticipant[] = ownerRows.map(
+		(owner, index) => ({
+			id: owner.id,
+			name: owner.name,
+			amountOwed: ownerShares[index] ?? 0,
+			amountPaid: ownerShares[index] ?? 0,
+			isPaid: true,
+			isOwner: true,
+		}),
+	);
 
 	const participants: PublicBillParticipant[] = [
 		...ownerParticipants,
@@ -192,13 +198,14 @@ export async function getPublicBillPageData(
 			billPeriodStart: rows[0].billPeriodStart,
 			billPeriodEnd: rows[0].billPeriodEnd,
 			pdfSha256: rows[0].pdfSha256,
+			recurringTemplateName: rows[0].recurringTemplateName,
 			sourceFilename: rows[0].sourceFilename,
 			hasPdf: !!rows[0].pdfUrl,
 		},
 		shareSummary: {
 			participantCount,
 			hasEvenShares,
-			amountEach: hasEvenShares ? firstShareAmount : null,
+			amountEach: hasEvenShares ? firstDebtAmount : null,
 		},
 		paymentProgress: {
 			settledCount,

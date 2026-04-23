@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, isNull, lte, or } from "drizzle-orm";
 import { createError } from "evlog";
 import { toBillReminderDbValues } from "../../lib/bill-reminder-config";
+import { getEqualSplitAmounts } from "../../lib/equal-split";
 import { getRequestLogger } from "../../lib/request-logger";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
@@ -312,25 +313,23 @@ export async function previewRecurringBill(
 	}
 
 	if (recurringBill.splitStrategy === "equal") {
-		const amountPerPerson = roundCurrency(
-			recurringBill.totalAmount / assignments.length,
-		);
+		const { amountPerDebtor, ownerShareTotal } = getEqualSplitAmounts({
+			totalAmount: recurringBill.totalAmount,
+			participantCount: assignments.length,
+			ownerCount: assignments.filter((assignment) => assignment.isOwner).length,
+		});
 		const previews = assignments.map((assignment) => ({
 			housemateId: assignment.housemateId,
 			name: assignment.name,
 			isOwner: assignment.isOwner,
 			customAmount: assignment.customAmount,
-			amountOwed: assignment.isOwner ? 0 : amountPerPerson,
+			amountOwed: assignment.isOwner ? 0 : amountPerDebtor,
 		}));
-		const ownerShare = roundCurrency(
-			assignments.filter((assignment) => assignment.isOwner).length *
-				amountPerPerson,
-		);
 
 		return {
 			nextDueDate,
 			assignments: previews,
-			ownerShare,
+			ownerShare: ownerShareTotal,
 		};
 	}
 
@@ -414,13 +413,15 @@ async function generateBillFromTemplate(
 		}> = [];
 
 		if (recurringBill.splitStrategy === "equal") {
-			const amountPerPerson = roundCurrency(
-				recurringBill.totalAmount / nonOwnerAssignments.length,
-			);
+			const { amountPerDebtor } = getEqualSplitAmounts({
+				totalAmount: recurringBill.totalAmount,
+				participantCount: activeAssignments.length,
+				ownerCount: activeAssignments.length - nonOwnerAssignments.length,
+			});
 			debtEntries = nonOwnerAssignments.map((assignment) => ({
 				billId: newBill.id,
 				housemateId: assignment.housemateId,
-				amountOwed: amountPerPerson,
+				amountOwed: amountPerDebtor,
 				amountPaid: 0,
 				isPaid: false,
 			}));

@@ -23,6 +23,7 @@ import {
 	getDefaultBillReminderConfig,
 	toBillReminderDbValues,
 } from "../lib/bill-reminder-config";
+import { getEqualSplitAmounts } from "../lib/equal-split";
 import { entityIdSchema } from "../lib/id";
 import { getRequestLogger } from "../lib/request-logger";
 
@@ -139,14 +140,18 @@ export const createBill = createServerFn({ method: "POST" })
 			});
 		}
 
-		// Split the bill equally among the housemates who actually owe it.
-		const amountPerPerson = data.totalAmount / nonOwnerHousemates.length;
+		// Owners pay the bill up-front, and absorb the rounding remainder.
+		const { amountPerDebtor } = getEqualSplitAmounts({
+			totalAmount: data.totalAmount,
+			participantCount: activeHousemates.length,
+			ownerCount: activeHousemates.length - nonOwnerHousemates.length,
+		});
 
 		// Create debt records for each housemate
 		const debtRecords = nonOwnerHousemates.map((housemate) => ({
 			billId: newBill.id,
 			housemateId: housemate.id,
-			amountOwed: amountPerPerson,
+			amountOwed: amountPerDebtor,
 			amountPaid: 0,
 			isPaid: false,
 		}));
@@ -168,7 +173,7 @@ export const createBill = createServerFn({ method: "POST" })
 			},
 			debts: {
 				recordCount: debtRecords.length,
-				amountPerPerson,
+				amountPerPerson: amountPerDebtor,
 			},
 		});
 		await enqueueBillCreatedNotification(newBill.id, "manual");
@@ -239,12 +244,16 @@ export const createBillFromParsedData = createServerFn({ method: "POST" })
 			});
 		}
 
-		const amountPerPerson = data.totalAmount / nonOwnerHousemates.length;
+		const { amountPerDebtor } = getEqualSplitAmounts({
+			totalAmount: data.totalAmount,
+			participantCount: activeHousemates.length,
+			ownerCount: activeHousemates.length - nonOwnerHousemates.length,
+		});
 
 		const debtRecords = nonOwnerHousemates.map((housemate) => ({
 			billId: newBill.id,
 			housemateId: housemate.id,
-			amountOwed: amountPerPerson,
+			amountOwed: amountPerDebtor,
 			amountPaid: 0,
 			isPaid: false,
 		}));
@@ -266,7 +275,7 @@ export const createBillFromParsedData = createServerFn({ method: "POST" })
 			},
 			debts: {
 				recordCount: debtRecords.length,
-				amountPerPerson,
+				amountPerPerson: amountPerDebtor,
 			},
 		});
 		await enqueueBillCreatedNotification(newBill.id, "parsed");

@@ -12,6 +12,20 @@ const billCardFontSetupPromise = resolveFontSetup({
 	}),
 });
 
+function getBillOgTitle(input: {
+	billerName: string;
+	recurringTemplateName: string | null;
+}) {
+	const templateName = input.recurringTemplateName?.trim();
+	if (!templateName) {
+		return input.billerName;
+	}
+
+	return input.billerName.toLowerCase().includes(templateName.toLowerCase())
+		? input.billerName
+		: `${input.billerName} ${templateName}`;
+}
+
 export const Route = createFileRoute("/api/cards/$pdfSha256")({
 	server: {
 		handlers: {
@@ -51,7 +65,13 @@ export const Route = createFileRoute("/api/cards/$pdfSha256")({
 									? `Split across ${bill.shareSummary.participantCount} ${bill.shareSummary.participantCount === 1 ? "housemate" : "housemates"}`
 									: null
 							}
-							title={truncate(bill.bill.billerName, 40)}
+							title={truncate(
+								getBillOgTitle({
+									billerName: bill.bill.billerName,
+									recurringTemplateName: bill.bill.recurringTemplateName,
+								}),
+								40,
+							)}
 							titleColor="#e8e3d6"
 						/>
 					),
