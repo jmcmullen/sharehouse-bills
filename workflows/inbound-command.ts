@@ -216,31 +216,20 @@ async function sendDueCommandSummary(notificationId: string) {
 			return;
 		}
 
-		const payUrl = createAbsolutePayUrl(
-			{
-				housemateId: reminderPreview.housemate.id,
-				billIds: [
-					...new Set(
-						reminderPreview.reminders.flatMap((reminder) =>
-							reminder.debts.map((debt) => debt.billId),
-						),
-					),
-				],
-			},
-			previewDate,
-		);
-		if (!payUrl) {
-			throw new FatalError("Unable to build a pay link for reminder preview");
-		}
+		const reminderMessages = reminderPreview.reminders.map((reminder) => {
+			const payUrl = createAbsolutePayUrl(
+				{
+					housemateId: reminderPreview.housemate.id,
+					billIds: [reminder.debt.billId],
+				},
+				previewDate,
+			);
+			if (!payUrl) {
+				throw new FatalError("Unable to build a pay link for reminder preview");
+			}
 
-		const reminderMessages = reminderPreview.reminders.map((reminder) =>
-			buildBillReminderSummary({
-				kind: reminder.kind,
-				mode: reminder.mode,
-				debts: reminder.debts,
-				payUrl,
-			}),
-		);
+			return buildBillReminderSummary({ payUrl });
+		});
 
 		await performTrackedWhatsappDelivery({
 			notificationId,

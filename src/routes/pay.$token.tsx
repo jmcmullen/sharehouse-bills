@@ -5,6 +5,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { getPublicHousematePay } from "@/functions/public-housemate-pay";
+import {
+	formatReminderBillLabel,
+	formatReminderMetaDescription,
+} from "@/lib/reminder-preview";
 import { buildOpenGraphMeta } from "@/lib/share-preview";
 import { createFileRoute } from "@tanstack/react-router";
 import confetti from "canvas-confetti";
@@ -124,6 +128,10 @@ function formatPayPageTitle(input: {
 		stackGroup: string | null;
 	};
 	isAllSorted: boolean;
+	reminderBill: {
+		billerName: string;
+		recurringTemplateName: string | null;
+	} | null;
 }) {
 	const firstName = getFirstName(input.housemateName);
 
@@ -135,6 +143,10 @@ function formatPayPageTitle(input: {
 			return `${firstName}'s reminder bills are all sorted 🎉`;
 		}
 		return `${firstName} is all sorted 🎉`;
+	}
+
+	if (input.reminderBill) {
+		return `Reminder to pay ${formatReminderBillLabel(input.reminderBill)}`;
 	}
 
 	if (input.scope.kind === "stack" && input.scope.stackGroup) {
@@ -152,6 +164,12 @@ function formatPayPageDescription(input: {
 	remainingAmount: number;
 	billCount: number;
 	isAllSorted: boolean;
+	reminderBill: {
+		billerName: string;
+		recurringTemplateName: string | null;
+		dueDateIso: string;
+		isOverdue: boolean;
+	} | null;
 	recentlySettled: {
 		amount: number;
 		billCount: number;
@@ -162,6 +180,15 @@ function formatPayPageDescription(input: {
 			return `Nothing to pay right now — ${formatCurrency(input.recentlySettled.amount)} sorted across ${input.recentlySettled.billCount} ${input.recentlySettled.billCount === 1 ? "bill" : "bills"} recently. Thanks!`;
 		}
 		return "Nothing to pay right now. Thanks for staying on top of it.";
+	}
+	if (input.reminderBill) {
+		return formatReminderMetaDescription({
+			billerName: input.reminderBill.billerName,
+			recurringTemplateName: input.reminderBill.recurringTemplateName,
+			dueDate: input.reminderBill.dueDateIso,
+			remainingAmount: input.remainingAmount,
+			isOverdue: input.reminderBill.isOverdue,
+		});
 	}
 	return `${formatCurrency(input.remainingAmount)} across ${input.billCount} unpaid ${input.billCount === 1 ? "bill" : "bills"}.`;
 }
@@ -386,15 +413,35 @@ export const Route = createFileRoute("/pay/$token")({
 		}
 
 		const isAllSorted = loaderData.summary.billCount === 0;
+		const reminderBill =
+			!isAllSorted &&
+			loaderData.scope.kind === "bills" &&
+			loaderData.items.length === 1
+				? loaderData.items[0]
+				: null;
 		const title = formatPayPageTitle({
 			housemateName: loaderData.housemate.name,
 			scope: loaderData.scope,
 			isAllSorted,
+			reminderBill: reminderBill
+				? {
+						billerName: reminderBill.billerName,
+						recurringTemplateName: reminderBill.recurringTemplateName,
+					}
+				: null,
 		});
 		const description = formatPayPageDescription({
 			remainingAmount: loaderData.paymentProgress.remainingAmount,
 			billCount: loaderData.summary.billCount,
 			isAllSorted,
+			reminderBill: reminderBill
+				? {
+						billerName: reminderBill.billerName,
+						recurringTemplateName: reminderBill.recurringTemplateName,
+						dueDateIso: reminderBill.dueDateIso,
+						isOverdue: reminderBill.isOverdue,
+					}
+				: null,
 			recentlySettled: loaderData.recentlySettled,
 		});
 		const previewDate = loaderData.previewDate;

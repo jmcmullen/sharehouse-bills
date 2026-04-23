@@ -4,6 +4,10 @@ import { OgCard } from "../lib/og-card";
 import { loadGoogleFonts, resolveFontSetup } from "../lib/og-fonts.server";
 import { createOgRouteHandler } from "../lib/og-route.server";
 import {
+	formatReminderBillLabel,
+	formatReminderDueLine,
+} from "../lib/reminder-preview";
+import {
 	formatCurrency,
 	formatStackGroupLabel,
 	truncate,
@@ -53,6 +57,12 @@ export const Route = createFileRoute("/api/cards/pay/$token")({
 
 				const fontSetup = await payCardFontSetupPromise;
 				const isAllSorted = payPage.summary.billCount === 0;
+				const reminderBill =
+					!isAllSorted &&
+					payPage.scope.kind === "bills" &&
+					payPage.items.length === 1
+						? payPage.items[0]
+						: null;
 
 				const cardProps = isAllSorted
 					? {
@@ -73,22 +83,44 @@ export const Route = createFileRoute("/api/cards/pay/$token")({
 							),
 							titleColor: "#f0fbf4",
 						}
-					: {
-							backgroundColor: "#1f221b",
-							primaryValue: formatCurrency(
-								payPage.paymentProgress.remainingAmount,
-							),
-							secondaryColor: "#c7d1be",
-							tertiaryValue: `${payPage.summary.billCount} unpaid ${payPage.summary.billCount === 1 ? "bill" : "bills"}`,
-							title: truncate(
-								formatPayTitle({
-									housemateName: payPage.housemate.name,
-									scope: payPage.scope,
+					: reminderBill
+						? {
+								backgroundColor: "#291717",
+								primaryValue: formatCurrency(reminderBill.remainingAmount),
+								secondaryColor: "#e0b5b8",
+								secondaryValue: reminderBill.isOverdue
+									? "Overdue reminder"
+									: "Reminder",
+								tertiaryColor: "#c99599",
+								tertiaryValue: formatReminderDueLine({
+									dueDate: reminderBill.dueDate,
+									isOverdue: reminderBill.isOverdue,
 								}),
-								42,
-							),
-							titleColor: "#f4f7ef",
-						};
+								title: truncate(
+									formatReminderBillLabel({
+										billerName: reminderBill.billerName,
+										recurringTemplateName: reminderBill.recurringTemplateName,
+									}),
+									40,
+								),
+								titleColor: "#fff2f1",
+							}
+						: {
+								backgroundColor: "#1f221b",
+								primaryValue: formatCurrency(
+									payPage.paymentProgress.remainingAmount,
+								),
+								secondaryColor: "#c7d1be",
+								tertiaryValue: `${payPage.summary.billCount} unpaid ${payPage.summary.billCount === 1 ? "bill" : "bills"}`,
+								title: truncate(
+									formatPayTitle({
+										housemateName: payPage.housemate.name,
+										scope: payPage.scope,
+									}),
+									42,
+								),
+								titleColor: "#f4f7ef",
+							};
 
 				const getOg = createOgRouteHandler({
 					baseFonts: fontSetup.fonts,

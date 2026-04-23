@@ -78,9 +78,6 @@ async function sendBillReminderSummary(notificationId: string) {
 	}
 
 	const message = buildBillReminderSummary({
-		kind: context.kind,
-		mode: context.mode,
-		debts: context.debts,
 		payUrl,
 	});
 

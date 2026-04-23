@@ -42,18 +42,10 @@ type ReminderCandidateRow = {
 	overdueWeekday: number | null;
 };
 
-type ReminderPreviewEntry =
-	| {
-			mode: "individual";
-			kind: "pre_due" | "overdue";
-			debts: [ReminderDebtPreview];
-	  }
-	| {
-			mode: "stacked";
-			kind: "overdue";
-			stackGroup: string;
-			debts: ReminderDebtPreview[];
-	  };
+type ReminderPreviewEntry = {
+	kind: "pre_due" | "overdue";
+	debt: ReminderDebtPreview;
+};
 
 export type RandomBillReminderPreview = {
 	housemate: {
@@ -103,37 +95,58 @@ function toReminderDebtPreview(row: ReminderCandidateRow): ReminderDebtPreview {
 	};
 }
 
+function getReminderKindForRow(input: {
+	row: ReminderCandidateRow;
+	targetDate: Date;
+}) {
+	const config = normalizeBillReminderConfig({
+		remindersEnabled: input.row.remindersEnabled,
+		reminderMode: input.row.reminderMode,
+		stackGroup: input.row.stackGroup,
+		preDueOffsetsDays: input.row.preDueOffsetsDays,
+		overdueCadence: input.row.overdueCadence,
+		overdueWeekday: input.row.overdueWeekday,
+	});
+	if (!config.remindersEnabled) {
+		return null;
+	}
+
+	if (config.reminderMode === "individual") {
+		return isIndividualReminderDueToday({
+			targetDate: input.targetDate,
+			dueDate: input.row.dueDate,
+			config,
+		});
+	}
+
+	if (!config.stackGroup) {
+		return null;
+	}
+
+	return isStackedReminderDueToday({
+		targetDate: input.targetDate,
+		dueDate: input.row.dueDate,
+		config,
+	})
+		? "overdue"
+		: null;
+}
+
 function collectReminderPreviewByHousemate(
 	rows: ReminderCandidateRow[],
 	targetDate: Date,
 ) {
 	const previews = new Map<string, RandomBillReminderPreview>();
-	const stackedGroups = new Map<
-		string,
-		{
-			housemateId: string;
-			stackGroup: string;
-			debts: ReminderDebtPreview[];
-		}
-	>();
 
 	for (const row of rows) {
 		if (!row.whatsappNumber) {
 			continue;
 		}
 
-		const config = normalizeBillReminderConfig({
-			remindersEnabled: row.remindersEnabled,
-			reminderMode: row.reminderMode,
-			stackGroup: row.stackGroup,
-			preDueOffsetsDays: row.preDueOffsetsDays,
-			overdueCadence: row.overdueCadence,
-			overdueWeekday: row.overdueWeekday,
-		});
-		if (!config.remindersEnabled) {
+		const kind = getReminderKindForRow({ row, targetDate });
+		if (!kind) {
 			continue;
 		}
-
 		const preview =
 			previews.get(row.housemateId) ??
 			({
@@ -146,65 +159,11 @@ function collectReminderPreviewByHousemate(
 				scheduledForDate: getReminderScheduledForDate(targetDate),
 			} satisfies RandomBillReminderPreview);
 
-		if (config.reminderMode === "individual") {
-			const kind = isIndividualReminderDueToday({
-				targetDate,
-				dueDate: row.dueDate,
-				config,
-			});
-			if (!kind) {
-				continue;
-			}
-
-			preview.reminders.push({
-				mode: "individual",
-				kind,
-				debts: [toReminderDebtPreview(row)],
-			});
-			previews.set(row.housemateId, preview);
-			continue;
-		}
-
-		if (!config.stackGroup) {
-			continue;
-		}
-
-		if (
-			!isStackedReminderDueToday({
-				targetDate,
-				dueDate: row.dueDate,
-				config,
-			})
-		) {
-			continue;
-		}
-
-		const groupKey = `${row.housemateId}:${config.stackGroup}`;
-		const existingGroup = stackedGroups.get(groupKey);
-		if (existingGroup) {
-			existingGroup.debts.push(toReminderDebtPreview(row));
-		} else {
-			stackedGroups.set(groupKey, {
-				housemateId: row.housemateId,
-				stackGroup: config.stackGroup,
-				debts: [toReminderDebtPreview(row)],
-			});
-		}
-		previews.set(row.housemateId, preview);
-	}
-
-	for (const group of stackedGroups.values()) {
-		const preview = previews.get(group.housemateId);
-		if (!preview) {
-			continue;
-		}
-
 		preview.reminders.push({
-			mode: "stacked",
-			kind: "overdue",
-			stackGroup: group.stackGroup,
-			debts: group.debts,
+			kind,
+			debt: toReminderDebtPreview(row),
 		});
+		previews.set(row.housemateId, preview);
 	}
 
 	return [...previews.values()].filter(
@@ -230,84 +189,28 @@ export async function enqueueDueBillReminders(targetDate: Date) {
 	const rows = await getReminderCandidateRows();
 
 	let scheduledCount = 0;
-	const stackedGroups = new Map<
-		string,
-		{
-			housemateId: string;
-			stackGroup: string;
-		}
-	>();
 
 	for (const row of rows) {
 		if (!row.whatsappNumber) {
 			continue;
 		}
 
-		const config = normalizeBillReminderConfig({
-			remindersEnabled: row.remindersEnabled,
-			reminderMode: row.reminderMode,
-			stackGroup: row.stackGroup,
-			preDueOffsetsDays: row.preDueOffsetsDays,
-			overdueCadence: row.overdueCadence,
-			overdueWeekday: row.overdueWeekday,
+		const kind = getReminderKindForRow({
+			row,
+			targetDate: scheduledForDate,
 		});
-		if (!config.remindersEnabled) {
+		if (!kind) {
 			continue;
 		}
 
-		if (config.reminderMode === "individual") {
-			const kind = isIndividualReminderDueToday({
-				targetDate: scheduledForDate,
-				dueDate: row.dueDate,
-				config,
-			});
-			if (!kind) {
-				continue;
-			}
-
-			await enqueueBillReminderNotification({
-				eventKey: `bill-reminder:individual:${row.billId}:${row.housemateId}:${scheduledForDateIso}`,
-				billId: row.billId,
-				housemateId: row.housemateId,
-				payload: {
-					mode: "individual",
-					kind,
-					scheduledForDate: scheduledForDateIso,
-				},
-			});
-			scheduledCount += 1;
-			continue;
-		}
-
-		if (!config.stackGroup) {
-			continue;
-		}
-
-		if (
-			!isStackedReminderDueToday({
-				targetDate: scheduledForDate,
-				dueDate: row.dueDate,
-				config,
-			})
-		) {
-			continue;
-		}
-
-		stackedGroups.set(`${row.housemateId}:${config.stackGroup}`, {
-			housemateId: row.housemateId,
-			stackGroup: config.stackGroup,
-		});
-	}
-
-	for (const group of stackedGroups.values()) {
 		await enqueueBillReminderNotification({
-			eventKey: `bill-reminder:stacked:${group.housemateId}:${group.stackGroup}:${scheduledForDateIso}`,
-			housemateId: group.housemateId,
+			eventKey: `bill-reminder:${row.billId}:${row.housemateId}:${scheduledForDateIso}`,
+			billId: row.billId,
+			housemateId: row.housemateId,
 			payload: {
-				mode: "stacked",
-				kind: "overdue",
+				mode: "individual",
+				kind,
 				scheduledForDate: scheduledForDateIso,
-				stackGroup: group.stackGroup,
 			},
 		});
 		scheduledCount += 1;
@@ -315,7 +218,7 @@ export async function enqueueDueBillReminders(targetDate: Date) {
 
 	return {
 		scheduledCount,
-		stackedGroupCount: stackedGroups.size,
+		stackedGroupCount: 0,
 		checkedDebtCount: rows.length,
 	};
 }

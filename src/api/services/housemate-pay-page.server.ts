@@ -3,6 +3,7 @@ import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
+import { recurringBills } from "../db/schema/recurring-bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
 import {
 	createSignedPublicLinkToken,
@@ -22,6 +23,7 @@ type PayPageItem = {
 	billId: string;
 	billerName: string;
 	billType: string | null;
+	recurringTemplateName: string | null;
 	billPath: string;
 	billUrl: string | null;
 	dueDate: Date;
@@ -338,6 +340,7 @@ export async function getPublicHousematePayPageData(token: string) {
 			billId: bills.id,
 			billerName: bills.billerName,
 			billType: bills.billType,
+			recurringTemplateName: recurringBills.templateName,
 			stackGroup: bills.stackGroup,
 			dueDate: bills.dueDate,
 			billPeriodStart: bills.billPeriodStart,
@@ -347,6 +350,7 @@ export async function getPublicHousematePayPageData(token: string) {
 		})
 		.from(debts)
 		.innerJoin(bills, eq(bills.id, debts.billId))
+		.leftJoin(recurringBills, eq(recurringBills.id, bills.recurringBillId))
 		.where(
 			and(
 				eq(debts.housemateId, housemate.id),
@@ -368,6 +372,7 @@ export async function getPublicHousematePayPageData(token: string) {
 			billId: row.billId,
 			billerName: row.billerName,
 			billType: row.billType,
+			recurringTemplateName: row.recurringTemplateName,
 			billPath,
 			billUrl: BillPdfStorageService.getAbsoluteAppUrl(billPath),
 			dueDate,

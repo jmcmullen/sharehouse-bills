@@ -1,4 +1,4 @@
-import { getReceiptBillLabel } from "../../lib/debt-receipt";
+import { formatReminderBillLabel } from "../../lib/reminder-preview";
 
 function formatCurrency(amount: number) {
 	return new Intl.NumberFormat("en-AU", {
@@ -155,64 +155,21 @@ function formatReminderDate(date: Date) {
 	}).format(date);
 }
 
-export function buildBillReminderSummary(input: {
-	kind: "pre_due" | "overdue";
-	mode: "individual" | "stacked";
-	debts: Array<{
-		billerName: string;
-		recurringTemplateName?: string | null;
-		dueDate: Date;
-		amountOwed: number;
-		amountPaid: number | null;
-	}>;
-	payUrl: string;
-}) {
-	const title =
-		input.kind === "pre_due"
-			? "*Upcoming bill reminder*"
-			: "*Overdue bill reminder*";
-
-	const billLines = input.debts.map((debt, index) => {
-		const remainingAmount = Math.max(
-			0,
-			debt.amountOwed - (debt.amountPaid ?? 0),
-		);
-		const duePrefix = input.kind === "pre_due" ? "Due" : "Was due";
-		const billLabel = getReceiptBillLabel({
-			billerName: debt.billerName,
-			recurringTemplateName: debt.recurringTemplateName,
-		});
-
-		return `${index + 1}. ${billLabel}\n${duePrefix} ${formatReminderDate(debt.dueDate)} · ${formatCurrency(remainingAmount)}`;
-	});
-
-	return [title, "", ...billLines, "", "Pay here:", input.payUrl].join("\n");
+export function buildBillReminderSummary(input: { payUrl: string }) {
+	return input.payUrl;
 }
 
 export function buildBillReminderPreviewSummary(input: {
 	asOf: Date;
 	housemateName: string;
-	reminders: Array<
-		| {
-				mode: "individual";
-				kind: "pre_due" | "overdue";
-				debts: Array<{
-					billerName: string;
-					recurringTemplateName?: string | null;
-					dueDate: Date;
-				}>;
-		  }
-		| {
-				mode: "stacked";
-				kind: "overdue";
-				stackGroup: string;
-				debts: Array<{
-					billerName: string;
-					recurringTemplateName?: string | null;
-					dueDate: Date;
-				}>;
-		  }
-	>;
+	reminders: Array<{
+		kind: "pre_due" | "overdue";
+		debt: {
+			billerName: string;
+			recurringTemplateName?: string | null;
+			dueDate: Date;
+		};
+	}>;
 }) {
 	const lines = [
 		`*Random reminder preview for ${input.housemateName}*`,
@@ -227,23 +184,11 @@ export function buildBillReminderPreviewSummary(input: {
 
 	lines.push(
 		...input.reminders.map((reminder, index) => {
-			if (reminder.mode === "individual") {
-				const label = reminder.kind === "pre_due" ? "pre-due" : "overdue";
-				const debt = reminder.debts[0];
-				if (!debt) {
-					return `${index + 1}. Individual ${label}`;
-				}
-				return `${index + 1}. Individual ${label}: ${getReceiptBillLabel({
-					billerName: debt.billerName,
-					recurringTemplateName: debt.recurringTemplateName,
-				})} due ${new Intl.DateTimeFormat("en-AU", {
-					weekday: "short",
-					day: "numeric",
-					month: "short",
-				}).format(debt.dueDate)}`;
-			}
-
-			return `${index + 1}. Stacked overdue: ${reminder.stackGroup} across ${reminder.debts.length} ${reminder.debts.length === 1 ? "bill" : "bills"}`;
+			const label = reminder.kind === "pre_due" ? "pre-due" : "overdue";
+			return `${index + 1}. ${label}: ${formatReminderBillLabel({
+				billerName: reminder.debt.billerName,
+				recurringTemplateName: reminder.debt.recurringTemplateName,
+			})} due ${formatReminderDate(reminder.debt.dueDate)}`;
 		}),
 	);
 
