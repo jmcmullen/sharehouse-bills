@@ -16,6 +16,35 @@ function formatDate(dateIso: string) {
 	}).format(new Date(dateIso));
 }
 
+function formatBillPageTitle(input: {
+	billerName: string;
+	totalAmount: number;
+	isAllSorted: boolean;
+}) {
+	if (input.isAllSorted) {
+		return `${input.billerName} paid in full`;
+	}
+
+	return `Bill from ${input.billerName} for ${formatCurrency(input.totalAmount)}`;
+}
+
+function formatBillPageDescription(input: {
+	dueDateIso: string;
+	hasEvenShares: boolean;
+	amountEach: number | null;
+	participantCount: number;
+	isAllSorted: boolean;
+}) {
+	if (input.isAllSorted) {
+		return "Thanks everyone for settling up.";
+	}
+
+	const dueLabel = formatDate(input.dueDateIso);
+	return input.hasEvenShares && input.amountEach !== null
+		? `Due ${dueLabel}. ${formatCurrency(input.amountEach)} each.`
+		: `Due ${dueLabel}. Split across ${input.participantCount} ${input.participantCount === 1 ? "housemate" : "housemates"}.`;
+}
+
 function startOfDay(date: Date) {
 	const copy = new Date(date);
 	copy.setHours(0, 0, 0, 0);
@@ -115,14 +144,19 @@ export const Route = createFileRoute("/bill/$pdfSha256")({
 			};
 		}
 
-		const totalLabel = formatCurrency(loaderData.bill.totalAmount);
-		const dueLabel = formatDate(loaderData.bill.dueDateIso);
-		const title = `Bill from ${loaderData.bill.billerName} for ${totalLabel}`;
-		const description =
-			loaderData.shareSummary.hasEvenShares &&
-			loaderData.shareSummary.amountEach !== null
-				? `Due ${dueLabel}. ${formatCurrency(loaderData.shareSummary.amountEach)} each.`
-				: `Due ${dueLabel}. Split across ${loaderData.shareSummary.participantCount} ${loaderData.shareSummary.participantCount === 1 ? "housemate" : "housemates"}.`;
+		const isAllSorted = loaderData.paymentProgress.percentage === 100;
+		const title = formatBillPageTitle({
+			billerName: loaderData.bill.billerName,
+			totalAmount: loaderData.bill.totalAmount,
+			isAllSorted,
+		});
+		const description = formatBillPageDescription({
+			dueDateIso: loaderData.bill.dueDateIso,
+			hasEvenShares: loaderData.shareSummary.hasEvenShares,
+			amountEach: loaderData.shareSummary.amountEach,
+			participantCount: loaderData.shareSummary.participantCount,
+			isAllSorted,
+		});
 		const previewDate = loaderData.previewDate;
 		const sharePageUrl = BillPdfStorageService.getAbsoluteViewerUrl(
 			loaderData.bill.id,

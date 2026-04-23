@@ -38,32 +38,39 @@ export const Route = createFileRoute("/api/cards/$pdfSha256")({
 				}
 
 				const fontSetup = await billCardFontSetupPromise;
+				const isAllSorted = bill.paymentProgress.percentage === 100;
 
 				const getOg = createOgRouteHandler({
 					baseFonts: fontSetup.fonts,
 					component: (
 						<OgCard
-							backgroundColor="#2a2824"
+							backgroundColor={isAllSorted ? "#0d1f14" : "#2a2824"}
 							fontFamily={fontSetup.families.base}
 							primaryValue={
-								bill.shareSummary.hasEvenShares &&
-								bill.shareSummary.amountEach !== null
-									? `${formatCurrency(bill.shareSummary.amountEach)} each`
-									: formatCurrency(bill.bill.totalAmount)
+								isAllSorted
+									? "Paid in full"
+									: bill.shareSummary.hasEvenShares &&
+											bill.shareSummary.amountEach !== null
+										? `${formatCurrency(bill.shareSummary.amountEach)} each`
+										: formatCurrency(bill.bill.totalAmount)
 							}
-							secondaryColor="#b8b0a0"
+							secondaryColor={isAllSorted ? "#b9e4c9" : "#b8b0a0"}
 							secondaryValue={
-								bill.shareSummary.hasEvenShares &&
-								bill.shareSummary.amountEach !== null
-									? `Total ${formatCurrency(bill.bill.totalAmount)}`
-									: null
+								isAllSorted
+									? "Thanks everyone"
+									: bill.shareSummary.hasEvenShares &&
+											bill.shareSummary.amountEach !== null
+										? `Total ${formatCurrency(bill.bill.totalAmount)}`
+										: null
 							}
-							tertiaryColor="#938b7d"
+							tertiaryColor={isAllSorted ? "#8fc6a5" : "#938b7d"}
 							tertiaryValue={
-								!bill.shareSummary.hasEvenShares &&
-								bill.shareSummary.participantCount > 0
-									? `Split across ${bill.shareSummary.participantCount} ${bill.shareSummary.participantCount === 1 ? "housemate" : "housemates"}`
-									: null
+								isAllSorted
+									? "Settled and squared away"
+									: !bill.shareSummary.hasEvenShares &&
+											bill.shareSummary.participantCount > 0
+										? `Split across ${bill.shareSummary.participantCount} ${bill.shareSummary.participantCount === 1 ? "housemate" : "housemates"}`
+										: null
 							}
 							title={truncate(
 								getBillOgTitle({
@@ -72,7 +79,7 @@ export const Route = createFileRoute("/api/cards/$pdfSha256")({
 								}),
 								40,
 							)}
-							titleColor="#e8e3d6"
+							titleColor={isAllSorted ? "#f0fbf4" : "#e8e3d6"}
 						/>
 					),
 				});
