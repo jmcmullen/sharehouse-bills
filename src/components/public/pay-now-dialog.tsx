@@ -125,7 +125,7 @@ export function PayNowDialog(input: PayNowDialogProps) {
 			</DialogTrigger>
 			<DialogContent
 				showCloseButton={false}
-				className="h-dvh max-h-dvh w-screen max-w-none overflow-y-auto rounded-none border-0 p-0 sm:h-auto sm:max-h-[calc(100dvh-4rem)] sm:max-w-md sm:rounded-xl sm:border"
+				className="h-dvh max-h-dvh w-screen max-w-none overflow-y-auto rounded-none border-0 p-0"
 				onOpenAutoFocus={(event) => event.preventDefault()}
 				onCloseAutoFocus={(event) => {
 					event.preventDefault();
@@ -134,8 +134,8 @@ export function PayNowDialog(input: PayNowDialogProps) {
 					}
 				}}
 			>
-				<div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-6 px-5 pt-8 pb-24 sm:min-h-0 sm:py-8">
-					<DialogHeader className="text-left sm:text-left">
+				<div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-6 px-5 pt-8 pb-24">
+					<DialogHeader className="text-left">
 						<DialogTitle className="text-2xl tracking-tight">
 							{input.title}
 						</DialogTitle>
@@ -184,7 +184,7 @@ export function PayNowDialog(input: PayNowDialogProps) {
 					<DialogClose asChild>
 						<Button
 							variant="outline"
-							className="mt-auto h-11 w-full font-medium sm:mt-4"
+							className="mt-auto h-11 w-full font-medium"
 						>
 							Close
 						</Button>
