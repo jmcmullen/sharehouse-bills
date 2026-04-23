@@ -1,12 +1,15 @@
 import { BillPdfStorageService } from "@/api/services/bill-pdf-storage";
 import { PayNowDialog } from "@/components/public/pay-now-dialog";
+import { PublicStatusBadge } from "@/components/public/status-badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { getPublicHousematePay } from "@/functions/public-housemate-pay";
 import { buildOpenGraphMeta } from "@/lib/share-preview";
 import { createFileRoute } from "@tanstack/react-router";
-import { Check, ExternalLink, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import confetti from "canvas-confetti";
+import { ExternalLink, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 const INITIATED_TTL_MS = 30 * 60 * 1000;
 
@@ -108,13 +111,29 @@ function formatStackGroupLabel(stackGroup: string) {
 		.join(" ");
 }
 
+function getFirstName(fullName: string) {
+	const trimmed = fullName.trim();
+	const first = trimmed.split(/\s+/)[0];
+	return first || trimmed || "you";
+}
+
 function formatPayPageTitle(input: {
 	housemateName: string;
 	scope: {
 		kind: "all" | "stack";
 		stackGroup: string | null;
 	};
+	isAllSorted: boolean;
 }) {
+	const firstName = getFirstName(input.housemateName);
+
+	if (input.isAllSorted) {
+		if (input.scope.kind === "stack" && input.scope.stackGroup) {
+			return `${firstName}'s ${formatStackGroupLabel(input.scope.stackGroup).toLowerCase()} are all sorted 🎉`;
+		}
+		return `${firstName} is all sorted 🎉`;
+	}
+
 	if (input.scope.kind === "stack" && input.scope.stackGroup) {
 		return `Pay ${input.housemateName}'s ${formatStackGroupLabel(input.scope.stackGroup).toLowerCase()} bills`;
 	}
@@ -125,64 +144,155 @@ function formatPayPageTitle(input: {
 function formatPayPageDescription(input: {
 	remainingAmount: number;
 	billCount: number;
+	isAllSorted: boolean;
+	recentlySettled: {
+		amount: number;
+		billCount: number;
+	};
 }) {
+	if (input.isAllSorted) {
+		if (input.recentlySettled.billCount > 0) {
+			return `Nothing to pay right now — ${formatCurrency(input.recentlySettled.amount)} sorted across ${input.recentlySettled.billCount} ${input.recentlySettled.billCount === 1 ? "bill" : "bills"} recently. Thanks!`;
+		}
+		return "Nothing to pay right now. Thanks for staying on top of it.";
+	}
 	return `${formatCurrency(input.remainingAmount)} across ${input.billCount} unpaid ${input.billCount === 1 ? "bill" : "bills"}.`;
 }
 
 const SECTION_LABEL_CLASS =
 	"font-semibold text-[11px] text-muted-foreground uppercase tracking-[0.12em]";
 
-function AllSortedBanner({ message }: { message: string }) {
+const CELEBRATION_COLORS = ["#c87553", "#4fb377", "#dda94a", "#f0bfa2"];
+
+function firePopper(origin: { x: number; y: number }) {
+	if (typeof window === "undefined") return;
+	const prefersReducedMotion = window.matchMedia(
+		"(prefers-reduced-motion: reduce)",
+	).matches;
+	if (prefersReducedMotion) return;
+
+	const base = {
+		particleCount: 55,
+		startVelocity: 42,
+		spread: 55,
+		ticks: 200,
+		colors: CELEBRATION_COLORS,
+		scalar: 0.9,
+		disableForReducedMotion: true,
+	};
+	confetti({ ...base, origin, angle: 65 });
+	confetti({ ...base, origin, angle: 115 });
+	window.setTimeout(() => {
+		confetti({
+			particleCount: 30,
+			spread: 110,
+			startVelocity: 22,
+			origin,
+			colors: CELEBRATION_COLORS,
+			scalar: 0.7,
+			ticks: 160,
+			gravity: 0.9,
+			disableForReducedMotion: true,
+		});
+	}, 240);
+}
+
+function getAnchorOrigin(element: HTMLElement | null) {
+	if (typeof window === "undefined") return { x: 0.5, y: 0.35 };
+	const rect = element?.getBoundingClientRect();
+	if (!rect) return { x: 0.5, y: 0.35 };
+	return {
+		x: (rect.left + rect.width / 2) / window.innerWidth,
+		y: (rect.top + rect.height / 2) / window.innerHeight,
+	};
+}
+
+function useCelebration(active: boolean) {
+	const anchorRef = useRef<HTMLButtonElement | null>(null);
+	const firedRef = useRef(false);
+
+	useEffect(() => {
+		if (!active || firedRef.current) return;
+		firedRef.current = true;
+		firePopper(getAnchorOrigin(anchorRef.current));
+	}, [active]);
+
+	function replay() {
+		firePopper(getAnchorOrigin(anchorRef.current));
+	}
+
+	return { anchorRef, replay };
+}
+
+function AllSortedPanel({
+	housemateFirstName,
+	recentlySettled,
+}: {
+	housemateFirstName: string;
+	recentlySettled: {
+		amount: number;
+		billCount: number;
+	};
+}) {
+	const { anchorRef, replay } = useCelebration(true);
+	const hasRecap = recentlySettled.billCount > 0;
+	const isStreak = recentlySettled.billCount >= 3;
+
 	return (
-		<div className="motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 relative overflow-hidden rounded-2xl bg-success-muted px-5 py-4 motion-safe:animate-in motion-safe:duration-500">
-			<div className="flex items-center gap-3">
-				<div
-					aria-hidden
-					className="motion-safe:zoom-in-50 flex h-9 w-9 items-center justify-center rounded-full bg-success text-success-foreground motion-safe:animate-in motion-safe:delay-150 motion-safe:duration-300"
+		<section className="motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 flex flex-col gap-2 motion-safe:animate-in motion-safe:duration-500">
+			<h2 className="font-semibold text-xl tracking-tight">
+				Thanks, {housemateFirstName}{" "}
+				<button
+					ref={anchorRef}
+					type="button"
+					onClick={replay}
+					aria-label="Celebrate again"
+					className="motion-safe:hover:-rotate-12 inline-block cursor-pointer select-none rounded-sm border-0 bg-transparent p-0 align-middle ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-safe:transition-transform motion-safe:duration-300 motion-safe:active:scale-95"
 				>
-					<Check className="h-5 w-5" strokeWidth={3} />
-				</div>
-				<div className="flex-1">
-					<p className="font-bold text-[15px] text-success-muted-foreground tracking-tight">
-						All sorted 🎉
-					</p>
-					<p className="text-[12.5px] text-success-muted-foreground/80">
-						{message}
-					</p>
-				</div>
-			</div>
-		</div>
+					🎉
+				</button>
+			</h2>
+			{hasRecap ? (
+				<p className="text-muted-foreground text-sm leading-6">
+					You&apos;ve sorted{" "}
+					<span className="font-semibold text-success tabular-nums">
+						{formatCurrency(recentlySettled.amount)}
+					</span>{" "}
+					across {recentlySettled.billCount}{" "}
+					{recentlySettled.billCount === 1 ? "bill" : "bills"} in the last 30
+					days
+					{isStreak ? " — absolute legend." : "."}
+				</p>
+			) : (
+				<p className="text-muted-foreground text-sm leading-6">
+					Your tab&apos;s empty.
+				</p>
+			)}
+		</section>
 	);
 }
 
 function LookingOutBanner({ onDismiss }: { onDismiss: () => void }) {
 	return (
-		<div className="motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 flex items-start gap-3 rounded-2xl border border-border/60 bg-muted/40 px-5 py-4 motion-safe:animate-in motion-safe:duration-400">
-			<div
-				aria-hidden
-				className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-background text-muted-foreground"
-			>
-				<Loader2
-					className="h-4 w-4 motion-safe:animate-spin"
-					strokeWidth={2.5}
-				/>
-			</div>
-			<div className="flex-1 space-y-1.5">
-				<p className="font-semibold text-[14px] tracking-tight">
-					Looking out for your payment
+		<Alert className="motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:animate-in motion-safe:duration-500">
+			<Loader2
+				className="text-muted-foreground motion-safe:animate-spin"
+				strokeWidth={2.5}
+			/>
+			<AlertTitle>Looking out for your payment</AlertTitle>
+			<AlertDescription>
+				<p>
+					Usually sorts itself within a few minutes of the transfer landing.
 				</p>
-				<p className="text-[12.5px] text-muted-foreground leading-5">
-					Usually sorts itself within a few minutes of the transfer landing.{" "}
-					<button
-						type="button"
-						onClick={onDismiss}
-						className="underline underline-offset-4 transition-colors hover:text-foreground"
-					>
-						Paid but not showing?
-					</button>
-				</p>
-			</div>
-		</div>
+				<button
+					type="button"
+					onClick={onDismiss}
+					className="rounded-sm text-left font-medium text-foreground underline underline-offset-4 ring-offset-background transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+				>
+					Paid but not showing?
+				</button>
+			</AlertDescription>
+		</Alert>
 	);
 }
 
@@ -268,13 +378,17 @@ export const Route = createFileRoute("/pay/$token")({
 			};
 		}
 
+		const isAllSorted = loaderData.summary.billCount === 0;
 		const title = formatPayPageTitle({
 			housemateName: loaderData.housemate.name,
 			scope: loaderData.scope,
+			isAllSorted,
 		});
 		const description = formatPayPageDescription({
 			remainingAmount: loaderData.paymentProgress.remainingAmount,
 			billCount: loaderData.summary.billCount,
+			isAllSorted,
+			recentlySettled: loaderData.recentlySettled,
 		});
 		const previewDate = loaderData.previewDate;
 		const token = loaderData.links.pagePath.split("/").pop() ?? "";
@@ -396,17 +510,35 @@ function PublicPayPage() {
 		);
 	}
 
-	const { housemate, scope, items, paymentProgress, summary, payId } =
-		loaderData;
+	const {
+		housemate,
+		scope,
+		items,
+		paymentProgress,
+		summary,
+		payId,
+		recentlySettled,
+	} = loaderData;
 	const isAllSorted = summary.billCount === 0;
 	const stackGroupLabel =
 		scope.kind === "stack" ? formatStackGroupLabel(scope.stackGroup) : null;
-	const allSortedMessage =
-		scope.kind === "stack" && stackGroupLabel
-			? `${housemate.name} has no unpaid ${stackGroupLabel.toLowerCase()} bills right now.`
-			: `${housemate.name} has no unpaid bills right now.`;
 	const showProgress = !isAllSorted && paymentProgress.settledAmount > 0;
 	const showLookingOut = !isAllSorted && hasInitiated;
+	const housemateFirstName = getFirstName(housemate.name);
+	const statusBadge = isAllSorted
+		? {
+				label: "Nothing due",
+				tone: "success" as const,
+			}
+		: summary.overdueCount > 0
+			? {
+					label: `${summary.overdueCount} overdue, ${summary.billCount} unpaid`,
+					tone: "danger" as const,
+				}
+			: {
+					label: `${summary.billCount} unpaid`,
+					tone: "warning" as const,
+				};
 	const payVerb =
 		scope.kind === "stack" && stackGroupLabel
 			? `Pay ${stackGroupLabel.toLowerCase()}`
@@ -428,26 +560,23 @@ function PublicPayPage() {
 						</h1>
 					</div>
 					<div className="flex flex-wrap gap-2">
-						<span
-							className={
-								summary.overdueCount > 0
-									? "inline-flex items-center rounded-full bg-destructive/10 px-2.5 py-1 font-semibold text-destructive text-xs tracking-tight dark:bg-destructive/20"
-									: "inline-flex items-center rounded-full bg-muted px-2.5 py-1 font-medium text-muted-foreground text-xs tracking-tight"
-							}
-						>
-							{summary.overdueCount > 0
-								? `${summary.overdueCount} overdue, ${summary.billCount} unpaid`
-								: `${summary.billCount} unpaid`}
-						</span>
+						<PublicStatusBadge tone={statusBadge.tone}>
+							{statusBadge.label}
+						</PublicStatusBadge>
 						{scope.kind === "stack" && stackGroupLabel ? (
-							<span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 font-medium text-muted-foreground text-xs tracking-tight">
+							<PublicStatusBadge tone="neutral">
 								{stackGroupLabel}
-							</span>
+							</PublicStatusBadge>
 						) : null}
 					</div>
 				</header>
 
-				{isAllSorted ? <AllSortedBanner message={allSortedMessage} /> : null}
+				{isAllSorted ? (
+					<AllSortedPanel
+						housemateFirstName={housemateFirstName}
+						recentlySettled={recentlySettled}
+					/>
+				) : null}
 
 				{showLookingOut ? (
 					<LookingOutBanner onDismiss={clearInitiated} />
@@ -527,9 +656,9 @@ function PublicPayPage() {
 					</section>
 				)}
 
-				<div className="-mx-5 sticky bottom-0 z-20 bg-background px-5 pt-2 pb-2 sm:static sm:mx-0 sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0">
-					<div className="flex flex-col gap-2.5">
-						{scope.kind === "stack" && scope.allBillsPath ? (
+				{isAllSorted ? (
+					scope.kind === "stack" && scope.allBillsPath ? (
+						<div className="flex flex-col gap-2.5">
 							<Button
 								asChild
 								variant="outline"
@@ -537,8 +666,20 @@ function PublicPayPage() {
 							>
 								<a href={scope.allBillsPath}>View all bills</a>
 							</Button>
-						) : null}
-						{!isAllSorted ? (
+						</div>
+					) : null
+				) : (
+					<div className="-mx-5 sticky bottom-0 z-20 bg-background px-5 pt-2 pb-2 sm:static sm:mx-0 sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0">
+						<div className="flex flex-col gap-2.5">
+							{scope.kind === "stack" && scope.allBillsPath ? (
+								<Button
+									asChild
+									variant="outline"
+									className="h-11 w-full font-medium"
+								>
+									<a href={scope.allBillsPath}>View all bills</a>
+								</Button>
+							) : null}
 							<PayNowDialog
 								triggerLabel={payVerb}
 								title={payVerb}
@@ -551,9 +692,9 @@ function PublicPayPage() {
 								}
 								onInitiated={markInitiated}
 							/>
-						) : null}
+						</div>
 					</div>
-				</div>
+				)}
 			</div>
 		</div>
 	);

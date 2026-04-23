@@ -9,6 +9,12 @@ import {
 	truncate,
 } from "../lib/share-preview";
 
+function getFirstName(fullName: string) {
+	const trimmed = fullName.trim();
+	const first = trimmed.split(/\s+/)[0];
+	return first || trimmed || "you";
+}
+
 const payCardFontSetupPromise = resolveFontSetup({
 	baseFonts: loadGoogleFonts({
 		family: "Plus Jakarta Sans",
@@ -42,27 +48,48 @@ export const Route = createFileRoute("/api/cards/pay/$token")({
 				}
 
 				const fontSetup = await payCardFontSetupPromise;
+				const isAllSorted = payPage.summary.billCount === 0;
 
-				const getOg = createOgRouteHandler({
-					baseFonts: fontSetup.fonts,
-					component: (
-						<OgCard
-							backgroundColor="#1f221b"
-							fontFamily={fontSetup.families.base}
-							primaryValue={formatCurrency(
-								payPage.paymentProgress.remainingAmount,
-							)}
-							secondaryColor="#c7d1be"
-							tertiaryValue={`${payPage.summary.billCount} unpaid ${payPage.summary.billCount === 1 ? "bill" : "bills"}`}
-							title={truncate(
+				const cardProps = isAllSorted
+					? {
+							backgroundColor: "#0d1f14",
+							primaryValue: "All sorted 🎉",
+							secondaryColor: "#b9e4c9",
+							secondaryValue: `Thanks, ${getFirstName(payPage.housemate.name)}`,
+							tertiaryValue:
+								payPage.recentlySettled.billCount > 0
+									? `${formatCurrency(payPage.recentlySettled.amount)} paid across ${payPage.recentlySettled.billCount} ${payPage.recentlySettled.billCount === 1 ? "bill" : "bills"} recently`
+									: "You're all caught up",
+							title: truncate(
 								formatPayTitle({
 									housemateName: payPage.housemate.name,
 									scope: payPage.scope,
 								}),
 								42,
-							)}
-							titleColor="#f4f7ef"
-						/>
+							),
+							titleColor: "#f0fbf4",
+						}
+					: {
+							backgroundColor: "#1f221b",
+							primaryValue: formatCurrency(
+								payPage.paymentProgress.remainingAmount,
+							),
+							secondaryColor: "#c7d1be",
+							tertiaryValue: `${payPage.summary.billCount} unpaid ${payPage.summary.billCount === 1 ? "bill" : "bills"}`,
+							title: truncate(
+								formatPayTitle({
+									housemateName: payPage.housemate.name,
+									scope: payPage.scope,
+								}),
+								42,
+							),
+							titleColor: "#f4f7ef",
+						};
+
+				const getOg = createOgRouteHandler({
+					baseFonts: fontSetup.fonts,
+					component: (
+						<OgCard {...cardProps} fontFamily={fontSetup.families.base} />
 					),
 				});
 

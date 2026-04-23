@@ -1,5 +1,6 @@
 import { BillPdfStorageService } from "@/api/services/bill-pdf-storage";
 import { PayNowDialog } from "@/components/public/pay-now-dialog";
+import { PublicStatusBadge } from "@/components/public/status-badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { getPublicBillByPdfSha } from "@/functions/public-bill";
@@ -186,6 +187,30 @@ function PublicBillPage() {
 		loaderData;
 	const urgency = formatDueUrgency(bill.dueDateIso);
 	const isAllSorted = paymentProgress.percentage === 100;
+	const statusBadge = isAllSorted
+		? {
+				label: "Paid in full",
+				tone: "success" as const,
+			}
+		: urgency.tone === "overdue"
+			? {
+					label: urgency.label,
+					tone: "danger" as const,
+				}
+			: urgency.tone === "today"
+				? {
+						label: urgency.label,
+						tone: "warning" as const,
+					}
+				: urgency.tone === "soon"
+					? {
+							label: urgency.label,
+							tone: "info" as const,
+						}
+					: {
+							label: urgency.label,
+							tone: "neutral" as const,
+						};
 	const payNowAmount =
 		shareSummary.amountEach ??
 		participants.find((participant) => !participant.isOwner)?.amountOwed ??
@@ -203,19 +228,9 @@ function PublicBillPage() {
 						{formatCurrency(bill.totalAmount)}
 					</h1>
 					<div>
-						<span
-							className={
-								urgency.tone === "overdue"
-									? "inline-flex items-center rounded-full bg-destructive/10 px-2.5 py-1 font-semibold text-destructive text-xs tracking-tight dark:bg-destructive/20"
-									: urgency.tone === "today"
-										? "inline-flex items-center rounded-full bg-warning-muted px-2.5 py-1 font-semibold text-warning-muted-foreground text-xs tracking-tight"
-										: urgency.tone === "soon"
-											? "inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 font-semibold text-primary text-xs tracking-tight dark:bg-primary/20"
-											: "inline-flex items-center rounded-full bg-muted px-2.5 py-1 font-medium text-muted-foreground text-xs tracking-tight"
-							}
-						>
-							{urgency.label}
-						</span>
+						<PublicStatusBadge tone={statusBadge.tone}>
+							{statusBadge.label}
+						</PublicStatusBadge>
 					</div>
 				</header>
 

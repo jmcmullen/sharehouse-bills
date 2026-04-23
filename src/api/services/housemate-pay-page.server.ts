@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, gte, isNotNull } from "drizzle-orm";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
@@ -65,6 +65,12 @@ export type PublicHousematePayPageData = {
 		settledAmount: number;
 		remainingAmount: number;
 		percentage: number;
+	};
+	recentlySettled: {
+		amount: number;
+		billCount: number;
+		sinceIso: string;
+		latestPaidIso: string | null;
 	};
 	items: PayPageItem[];
 	utilityGroups: PayPageGroup[];
@@ -333,6 +339,38 @@ export async function getPublicHousematePayPageData(token: string) {
 		canonicalToken ?? token.trim(),
 	);
 
+	const RECENT_WINDOW_DAYS = 30;
+	const recentSince = new Date(
+		Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+	);
+	const recentRows = await db
+		.select({
+			amountPaid: debts.amountPaid,
+			paidAt: debts.paidAt,
+		})
+		.from(debts)
+		.innerJoin(bills, eq(bills.id, debts.billId))
+		.where(
+			and(
+				eq(debts.housemateId, housemate.id),
+				eq(debts.isPaid, true),
+				isNotNull(debts.paidAt),
+				gte(debts.paidAt, recentSince),
+				...(parsedToken.scope.kind === "stack"
+					? [eq(bills.stackGroup, parsedToken.scope.stackGroup)]
+					: []),
+			),
+		);
+	const recentlySettledAmount = recentRows.reduce(
+		(total, row) => total + row.amountPaid,
+		0,
+	);
+	const latestPaidAt = recentRows.reduce<Date | null>((latest, row) => {
+		if (!row.paidAt) return latest;
+		if (!latest || row.paidAt.getTime() > latest.getTime()) return row.paidAt;
+		return latest;
+	}, null);
+
 	return {
 		housemate: {
 			id: housemate.id,
@@ -355,6 +393,12 @@ export async function getPublicHousematePayPageData(token: string) {
 				totalAmount <= 0
 					? 100
 					: Math.round((settledAmount / totalAmount) * 100),
+		},
+		recentlySettled: {
+			amount: recentlySettledAmount,
+			billCount: recentRows.length,
+			sinceIso: recentSince.toISOString(),
+			latestPaidIso: latestPaidAt ? latestPaidAt.toISOString() : null,
 		},
 		items,
 		utilityGroups,
