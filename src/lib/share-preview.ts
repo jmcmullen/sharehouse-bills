@@ -5,6 +5,85 @@ export function formatCurrency(amount: number) {
 	}).format(amount);
 }
 
+export type BillDueStatus = {
+	label: string;
+	tone: "overdue" | "today" | "soon" | "later";
+	daysUntilDue: number;
+	dueLabel: string;
+};
+
+const DAY_IN_MS = 1000 * 60 * 60 * 24;
+
+function startOfLocalDay(date: Date) {
+	const copy = new Date(date);
+	copy.setHours(0, 0, 0, 0);
+	return copy;
+}
+
+export function formatBillDueDate(date: Date | string) {
+	return new Intl.DateTimeFormat("en-AU", {
+		weekday: "short",
+		day: "numeric",
+		month: "short",
+	}).format(new Date(date));
+}
+
+export function getBillDueStatus(
+	date: Date | string,
+	now: Date = new Date(),
+): BillDueStatus {
+	const dueLabel = formatBillDueDate(date);
+	const daysUntilDue = Math.round(
+		(startOfLocalDay(new Date(date)).getTime() -
+			startOfLocalDay(now).getTime()) /
+			DAY_IN_MS,
+	);
+
+	if (daysUntilDue < 0) {
+		const daysOverdue = Math.abs(daysUntilDue);
+		return {
+			label: `Overdue by ${daysOverdue} ${daysOverdue === 1 ? "day" : "days"}`,
+			tone: "overdue",
+			daysUntilDue,
+			dueLabel,
+		};
+	}
+
+	if (daysUntilDue === 0) {
+		return {
+			label: "Due today",
+			tone: "today",
+			daysUntilDue,
+			dueLabel,
+		};
+	}
+
+	if (daysUntilDue === 1) {
+		return {
+			label: "Due tomorrow",
+			tone: "soon",
+			daysUntilDue,
+			dueLabel,
+		};
+	}
+
+	if (daysUntilDue <= 7) {
+		return {
+			label: `Due in ${daysUntilDue} days`,
+			tone: "soon",
+			daysUntilDue,
+			dueLabel,
+		};
+	}
+
+	return {
+		label: `Due ${dueLabel}`,
+		tone: "later",
+		daysUntilDue,
+		dueLabel,
+	};
+}
+
 export function escapeXml(value: string) {
 	return value
 		.replaceAll("&", "&amp;")

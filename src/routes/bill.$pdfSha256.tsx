@@ -4,74 +4,68 @@ import { PublicStatusBadge } from "@/components/public/status-badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { getPublicBillByPdfSha } from "@/functions/public-bill";
-import { buildOpenGraphMeta, formatCurrency } from "@/lib/share-preview";
+import {
+	type BillDueStatus,
+	buildOpenGraphMeta,
+	formatCurrency,
+	getBillDueStatus,
+} from "@/lib/share-preview";
 import { createFileRoute } from "@tanstack/react-router";
 import { Check } from "lucide-react";
-
-function formatDate(dateIso: string) {
-	return new Intl.DateTimeFormat("en-AU", {
-		weekday: "short",
-		day: "numeric",
-		month: "short",
-	}).format(new Date(dateIso));
-}
 
 function formatBillPageTitle(input: {
 	billerName: string;
 	totalAmount: number;
 	isAllSorted: boolean;
+	dueStatus: BillDueStatus;
 }) {
 	if (input.isAllSorted) {
 		return `${input.billerName} paid in full`;
 	}
 
+	if (input.dueStatus.tone === "overdue") {
+		return `${input.billerName} bill is overdue`;
+	}
+
+	if (input.dueStatus.tone === "today") {
+		return `${input.billerName} bill is due today`;
+	}
+
 	return `Bill from ${input.billerName} for ${formatCurrency(input.totalAmount)}`;
 }
 
+function formatBillShareDescription(input: {
+	hasEvenShares: boolean;
+	amountEach: number | null;
+	participantCount: number;
+}) {
+	return input.hasEvenShares && input.amountEach !== null
+		? `${formatCurrency(input.amountEach)} each.`
+		: `Split across ${input.participantCount} ${input.participantCount === 1 ? "housemate" : "housemates"}.`;
+}
+
 function formatBillPageDescription(input: {
-	dueDateIso: string;
 	hasEvenShares: boolean;
 	amountEach: number | null;
 	participantCount: number;
 	isAllSorted: boolean;
+	dueStatus: BillDueStatus;
 }) {
 	if (input.isAllSorted) {
 		return "Thanks everyone for settling up.";
 	}
 
-	const dueLabel = formatDate(input.dueDateIso);
-	return input.hasEvenShares && input.amountEach !== null
-		? `Due ${dueLabel}. ${formatCurrency(input.amountEach)} each.`
-		: `Due ${dueLabel}. Split across ${input.participantCount} ${input.participantCount === 1 ? "housemate" : "housemates"}.`;
-}
+	const shareDescription = formatBillShareDescription(input);
 
-function startOfDay(date: Date) {
-	const copy = new Date(date);
-	copy.setHours(0, 0, 0, 0);
-	return copy;
-}
-
-function formatDueUrgency(dateIso: string): {
-	label: string;
-	tone: "overdue" | "today" | "soon" | "later";
-} {
-	const today = startOfDay(new Date());
-	const due = startOfDay(new Date(dateIso));
-	const days = Math.round(
-		(due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-	);
-
-	if (days < 0) {
-		const n = Math.abs(days);
-		return {
-			label: `Overdue by ${n} ${n === 1 ? "day" : "days"}`,
-			tone: "overdue",
-		};
+	if (input.dueStatus.tone === "overdue") {
+		return `${input.dueStatus.label}. ${shareDescription}`;
 	}
-	if (days === 0) return { label: "Due today", tone: "today" };
-	if (days === 1) return { label: "Due tomorrow", tone: "soon" };
-	if (days <= 7) return { label: `Due in ${days} days`, tone: "soon" };
-	return { label: `Due ${formatDate(dateIso)}`, tone: "later" };
+
+	if (input.dueStatus.tone === "today") {
+		return `Due today. ${shareDescription}`;
+	}
+
+	return `Due ${input.dueStatus.dueLabel}. ${shareDescription}`;
 }
 
 function getInitials(name: string) {
@@ -145,17 +139,19 @@ export const Route = createFileRoute("/bill/$pdfSha256")({
 		}
 
 		const isAllSorted = loaderData.paymentProgress.percentage === 100;
+		const dueStatus = getBillDueStatus(loaderData.bill.dueDateIso);
 		const title = formatBillPageTitle({
 			billerName: loaderData.bill.billerName,
 			totalAmount: loaderData.bill.totalAmount,
 			isAllSorted,
+			dueStatus,
 		});
 		const description = formatBillPageDescription({
-			dueDateIso: loaderData.bill.dueDateIso,
 			hasEvenShares: loaderData.shareSummary.hasEvenShares,
 			amountEach: loaderData.shareSummary.amountEach,
 			participantCount: loaderData.shareSummary.participantCount,
 			isAllSorted,
+			dueStatus,
 		});
 		const previewDate = loaderData.previewDate;
 		const sharePageUrl = BillPdfStorageService.getAbsoluteViewerUrl(
@@ -219,7 +215,7 @@ function PublicBillPage() {
 
 	const { bill, shareSummary, paymentProgress, participants, links, payId } =
 		loaderData;
-	const urgency = formatDueUrgency(bill.dueDateIso);
+	const urgency = getBillDueStatus(bill.dueDateIso);
 	const isAllSorted = paymentProgress.percentage === 100;
 	const statusBadge = isAllSorted
 		? {
