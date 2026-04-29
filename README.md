@@ -48,7 +48,7 @@ Each template stores:
 - template name
 - biller name
 - total amount
-- frequency: weekly, monthly, or yearly
+- frequency: weekly, fortnightly, monthly, or yearly
 - schedule details such as day of week or day of month
 - start date and optional end date
 - active/paused state

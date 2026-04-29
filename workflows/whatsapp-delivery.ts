@@ -35,6 +35,20 @@ function getRetryAfter(error: unknown) {
 	return null;
 }
 
+function getDeliveryMessageId(
+	response: { id?: string | null; messageId?: string | null } | undefined,
+) {
+	if (typeof response?.messageId === "string") {
+		return response.messageId;
+	}
+
+	if (typeof response?.id === "string") {
+		return response.id;
+	}
+
+	return null;
+}
+
 function toWorkflowDeliveryError(error: unknown, operation: string) {
 	if (error instanceof FatalError || error instanceof RetryableError) {
 		return error;
@@ -45,30 +59,11 @@ function toWorkflowDeliveryError(error: unknown, operation: string) {
 	const { attempt } = getStepMetadata();
 	const fallbackRetryAfterMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
 
-	if (errorMessage.includes("is not configured")) {
+	if (isFatalDeliveryError(errorMessage, status)) {
 		return new FatalError(`${operation} failed: ${errorMessage}`);
 	}
 
-	if (status === 400 || status === 401 || status === 403 || status === 404) {
-		return new FatalError(`${operation} failed: ${errorMessage}`);
-	}
-
-	if (status === 409 || status === 410 || status === 422) {
-		return new FatalError(`${operation} failed: ${errorMessage}`);
-	}
-
-	if (status === 408 || status === 429 || (status !== null && status >= 500)) {
-		return new RetryableError(`${operation} failed: ${errorMessage}`, {
-			retryAfter: getRetryAfter(error) ?? fallbackRetryAfterMs,
-		});
-	}
-
-	if (
-		typeof error === "object" &&
-		error !== null &&
-		"name" in error &&
-		error.name === "WahaRequestError"
-	) {
+	if (isRetryableDeliveryError(error, status)) {
 		return new RetryableError(`${operation} failed: ${errorMessage}`, {
 			retryAfter: getRetryAfter(error) ?? fallbackRetryAfterMs,
 		});
@@ -79,11 +74,44 @@ function toWorkflowDeliveryError(error: unknown, operation: string) {
 	});
 }
 
+function isFatalDeliveryError(errorMessage: string, status: number | null) {
+	return (
+		errorMessage.includes("is not configured") ||
+		status === 400 ||
+		status === 401 ||
+		status === 403 ||
+		status === 404 ||
+		status === 409 ||
+		status === 410 ||
+		status === 422
+	);
+}
+
+function isRetryableDeliveryError(error: unknown, status: number | null) {
+	return (
+		status === 408 ||
+		status === 429 ||
+		(status !== null && status >= 500) ||
+		isWahaRequestError(error)
+	);
+}
+
+function isWahaRequestError(error: unknown) {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"name" in error &&
+		error.name === "WahaRequestError"
+	);
+}
+
 export async function performTrackedWhatsappDelivery(input: {
 	notificationId: string;
 	deliveryKey: string;
 	operation: string;
-	deliver: () => Promise<{ messageId?: string | null } | undefined>;
+	deliver: () => Promise<
+		{ id?: string | null; messageId?: string | null } | undefined
+	>;
 }) {
 	const { stepId } = getStepMetadata();
 	const {
@@ -133,13 +161,7 @@ export async function performTrackedWhatsappDelivery(input: {
 			notificationId: input.notificationId,
 			deliveryKey: input.deliveryKey,
 			stepId,
-			messageId:
-				response &&
-				typeof response === "object" &&
-				"messageId" in response &&
-				typeof response.messageId === "string"
-					? response.messageId
-					: null,
+			messageId: getDeliveryMessageId(response),
 		});
 		emitWorkflowDeliveryEvent({
 			notificationId: input.notificationId,

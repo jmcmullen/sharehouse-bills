@@ -15,7 +15,9 @@ function toServerPayload(formData: RecurringBillFormData) {
 		totalAmount: Number.parseFloat(formData.totalAmount),
 		frequency: formData.frequency,
 		dayOfWeek:
-			formData.frequency === "weekly" && formData.dayOfWeek !== ""
+			(formData.frequency === "weekly" ||
+				formData.frequency === "fortnightly") &&
+			formData.dayOfWeek !== ""
 				? Number.parseInt(formData.dayOfWeek, 10)
 				: null,
 		dayOfMonth:

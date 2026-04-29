@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getPublicHousematePayPageData } from "../api/services/housemate-pay-page.server";

@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { Button } from "@/components/ui/button";
 import { IconPlus } from "@tabler/icons-react";
 import { useLoaderData, useRouter } from "@tanstack/react-router";

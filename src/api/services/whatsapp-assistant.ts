@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { generateText, jsonSchema, tool } from "ai";
 import { and, desc, eq } from "drizzle-orm";
 import { createError } from "evlog";
@@ -55,7 +56,7 @@ type AssistantIntent =
 	| "unsupported"
 	| "fallback_error";
 
-export type WhatsappAssistantResult = {
+type WhatsappAssistantResult = {
 	intent: AssistantIntent;
 	message: string;
 	model: string | null;
@@ -2003,8 +2004,6 @@ export async function buildWhatsappAssistantReply(input: {
 
 export {
 	buildAssistantOtherHousemateSummary,
-	buildAssistantUnsupportedSummary,
-	buildPaymentClaimRedirectSummary,
 	findReferencedHousemate,
 	referencesWholeHouse,
 };

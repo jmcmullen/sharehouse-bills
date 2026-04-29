@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import {
 	formatReminderOffsetsInput,
 	parseReminderOffsetsInput,
@@ -9,6 +10,9 @@ import type {
 	RecurringBillListItem,
 	RecurringBillPreviewSummary,
 } from "./types";
+
+type RecurringBillAssignmentFormData =
+	RecurringBillFormData["assignments"][number];
 
 const WEEKDAY_OPTIONS = [
 	"Sunday",
@@ -38,6 +42,8 @@ function addDays(date: Date, days: number) {
 	return new Date(startOfUtcDay(date).getTime() + days * 24 * 60 * 60 * 1000);
 }
 
+const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
+
 function daysInMonth(year: number, monthIndex: number) {
 	return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
 }
@@ -61,10 +67,30 @@ function getNextDueDateForForm(formData: RecurringBillFormData) {
 		new Date(Math.max(startOfUtcDay(startDate).getTime(), today.getTime())),
 	);
 
-	if (formData.frequency === "weekly") {
+	if (formData.frequency === "weekly" || formData.frequency === "fortnightly") {
 		const dayOfWeek = Number.parseInt(formData.dayOfWeek, 10);
 		if (Number.isNaN(dayOfWeek)) {
 			return null;
+		}
+
+		if (formData.frequency === "fortnightly") {
+			const normalizedStartDate = startOfUtcDay(startDate);
+			const firstOccurrence = addDays(
+				normalizedStartDate,
+				(dayOfWeek - normalizedStartDate.getUTCDay() + 7) % 7,
+			);
+
+			if (firstOccurrence.getTime() >= baseDate.getTime()) {
+				return firstOccurrence;
+			}
+
+			return addDays(
+				firstOccurrence,
+				Math.ceil(
+					(baseDate.getTime() - firstOccurrence.getTime()) /
+						(14 * ONE_DAY_IN_MS),
+				) * 14,
+			);
 		}
 
 		return addDays(baseDate, (dayOfWeek - baseDate.getUTCDay() + 7) % 7);
@@ -148,7 +174,7 @@ export function formatDate(value: string | Date | null | undefined) {
 	}).format(date);
 }
 
-export function toDateInputValue(value: string | Date | null | undefined) {
+function toDateInputValue(value: string | Date | null | undefined) {
 	const date = toDate(value);
 	if (!date) {
 		return "";
@@ -157,7 +183,9 @@ export function toDateInputValue(value: string | Date | null | undefined) {
 	return date.toISOString().slice(0, 10);
 }
 
-export function getFrequencyLabel(frequency: "weekly" | "monthly" | "yearly") {
+export function getFrequencyLabel(
+	frequency: RecurringBillFormData["frequency"],
+) {
 	return frequency.charAt(0).toUpperCase() + frequency.slice(1);
 }
 
@@ -165,6 +193,10 @@ export function getScheduleSummary(item: RecurringBillListItem) {
 	const template = item.template;
 	if (template.frequency === "weekly" && template.dayOfWeek !== null) {
 		return `Every ${WEEKDAY_OPTIONS[template.dayOfWeek]}`;
+	}
+
+	if (template.frequency === "fortnightly" && template.dayOfWeek !== null) {
+		return `Every second ${WEEKDAY_OPTIONS[template.dayOfWeek]}`;
 	}
 
 	if (template.frequency === "monthly" && template.dayOfMonth !== null) {
@@ -256,6 +288,26 @@ export function buildRecurringBillFormData(
 }
 
 export function validateRecurringBillForm(formData: RecurringBillFormData) {
+	const totalAmount = Number.parseFloat(formData.totalAmount);
+	const activeAssignments = formData.assignments.filter(
+		(assignment) => assignment.isActive,
+	);
+
+	return (
+		validateRecurringBillBasics(formData, totalAmount) ??
+		validateRecurringBillAssignments({
+			activeAssignments,
+			splitStrategy: formData.splitStrategy,
+			totalAmount,
+		}) ??
+		validateRecurringBillReminderSettings(formData)
+	);
+}
+
+function validateRecurringBillBasics(
+	formData: RecurringBillFormData,
+	totalAmount: number,
+) {
 	if (!formData.templateName.trim()) {
 		return "Template name is required";
 	}
@@ -264,64 +316,91 @@ export function validateRecurringBillForm(formData: RecurringBillFormData) {
 		return "Biller name is required";
 	}
 
-	const totalAmount = Number.parseFloat(formData.totalAmount);
 	if (Number.isNaN(totalAmount) || totalAmount <= 0) {
 		return "Total amount must be greater than zero";
 	}
 
-	if (formData.frequency === "weekly" && formData.dayOfWeek === "") {
-		return "Weekly recurring bills require a weekday";
+	if (
+		(formData.frequency === "weekly" || formData.frequency === "fortnightly") &&
+		formData.dayOfWeek === ""
+	) {
+		return "Weekly and fortnightly recurring bills require a weekday";
 	}
 
 	if (formData.frequency === "monthly" && formData.dayOfMonth === "") {
 		return "Monthly recurring bills require a day of month";
 	}
 
-	const activeAssignments = formData.assignments.filter(
-		(assignment) => assignment.isActive,
-	);
-	if (activeAssignments.length === 0) {
+	return null;
+}
+
+function validateRecurringBillAssignments(input: {
+	activeAssignments: RecurringBillAssignmentFormData[];
+	splitStrategy: RecurringBillFormData["splitStrategy"];
+	totalAmount: number;
+}) {
+	if (input.activeAssignments.length === 0) {
 		return "Select at least one active housemate";
 	}
 
-	if (formData.splitStrategy === "custom") {
-		const hasOwner = activeAssignments.some((assignment) => assignment.isOwner);
-		let customTotal = 0;
-		for (const assignment of activeAssignments) {
-			if (assignment.isOwner) {
-				continue;
-			}
-
-			const customAmount = Number.parseFloat(assignment.customAmount);
-			if (Number.isNaN(customAmount) || customAmount < 0) {
-				return `Custom amount required for ${assignment.name}`;
-			}
-
-			customTotal += customAmount;
-		}
-
-		if (customTotal - totalAmount > 0.01) {
-			return "Custom amounts cannot exceed the total amount";
-		}
-
-		if (!hasOwner && Math.abs(customTotal - totalAmount) > 0.01) {
-			return "Custom amounts must match the total amount unless an owner is included";
-		}
+	if (input.splitStrategy !== "custom") {
+		return null;
 	}
 
-	if (
-		formData.remindersEnabled &&
-		formData.reminderMode === "stacked" &&
-		!formData.stackGroup.trim()
-	) {
+	return validateCustomRecurringAssignments(
+		input.activeAssignments,
+		input.totalAmount,
+	);
+}
+
+function validateCustomRecurringAssignments(
+	activeAssignments: RecurringBillAssignmentFormData[],
+	totalAmount: number,
+) {
+	const hasOwner = activeAssignments.some((assignment) => assignment.isOwner);
+	const customTotalResult = getCustomAssignmentTotal(activeAssignments);
+	if (typeof customTotalResult === "string") {
+		return customTotalResult;
+	}
+
+	if (customTotalResult - totalAmount > 0.01) {
+		return "Custom amounts cannot exceed the total amount";
+	}
+
+	if (!hasOwner && Math.abs(customTotalResult - totalAmount) > 0.01) {
+		return "Custom amounts must match the total amount unless an owner is included";
+	}
+
+	return null;
+}
+
+function getCustomAssignmentTotal(
+	activeAssignments: RecurringBillAssignmentFormData[],
+) {
+	return activeAssignments.reduce<number | string>((total, assignment) => {
+		if (typeof total === "string" || assignment.isOwner) {
+			return total;
+		}
+
+		const customAmount = Number.parseFloat(assignment.customAmount);
+		return Number.isNaN(customAmount) || customAmount < 0
+			? `Custom amount required for ${assignment.name}`
+			: total + customAmount;
+	}, 0);
+}
+
+function validateRecurringBillReminderSettings(
+	formData: RecurringBillFormData,
+) {
+	if (!formData.remindersEnabled) {
+		return null;
+	}
+
+	if (formData.reminderMode === "stacked" && !formData.stackGroup.trim()) {
 		return "Stacked reminders require a stack group";
 	}
 
-	if (
-		formData.remindersEnabled &&
-		formData.overdueCadence === "weekly" &&
-		formData.overdueWeekday === ""
-	) {
+	if (formData.overdueCadence === "weekly" && formData.overdueWeekday === "") {
 		return "Weekly reminders require a weekday";
 	}
 
@@ -429,6 +508,12 @@ export function calculateRecurringBillPreview(
 export function getFormScheduleSummary(formData: RecurringBillFormData) {
 	if (formData.frequency === "weekly" && formData.dayOfWeek !== "") {
 		return `Every ${WEEKDAY_OPTIONS[Number.parseInt(formData.dayOfWeek, 10)]}`;
+	}
+
+	if (formData.frequency === "fortnightly" && formData.dayOfWeek !== "") {
+		return `Every second ${
+			WEEKDAY_OPTIONS[Number.parseInt(formData.dayOfWeek, 10)]
+		}`;
 	}
 
 	if (formData.frequency === "monthly" && formData.dayOfMonth !== "") {

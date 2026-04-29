@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { and, asc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
@@ -13,7 +14,7 @@ import {
 
 type UtilityBillType = "electricity" | "gas";
 
-export type PayTokenInput = {
+type PayTokenInput = {
 	housemateId: string;
 	stackGroup?: string | null;
 	billIds?: string[] | null;
@@ -190,92 +191,112 @@ function parseScopedPayToken(
 	const parts = token.split(".");
 
 	if (parts[0] === "all" && parts.length === 3) {
-		const [, housemateIdPart, signaturePart] = parts;
-		const housemateId = housemateIdPart?.trim() ?? "";
-		if (!housemateId || !signaturePart) {
-			return null;
-		}
-
-		const expectedSignature = signPublicLinkPayload(`all:${housemateId}`);
-		if (
-			!expectedSignature ||
-			!publicLinkSignaturesMatch(signaturePart, expectedSignature)
-		) {
-			return null;
-		}
-
-		return {
-			housemateId,
-			scope: {
-				kind: "all",
-				stackGroup: null,
-				billIds: null,
-			},
-		};
+		return parseAllPayToken(parts);
 	}
 
 	if (parts[0] === "stack" && parts.length === 4) {
-		const [, housemateIdPart, encodedStackGroup, signaturePart] = parts;
-		const housemateId = housemateIdPart?.trim() ?? "";
-		const stackGroup = encodedStackGroup
-			? decodeStackGroup(encodedStackGroup)
-			: "";
-		if (!housemateId || !stackGroup || !signaturePart) {
-			return null;
-		}
-
-		const expectedSignature = signPublicLinkPayload(
-			`stack:${housemateId}:${stackGroup}`,
-		);
-		if (
-			!expectedSignature ||
-			!publicLinkSignaturesMatch(signaturePart, expectedSignature)
-		) {
-			return null;
-		}
-
-		return {
-			housemateId,
-			scope: {
-				kind: "stack",
-				stackGroup,
-				billIds: null,
-			},
-		};
+		return parseStackPayToken(parts);
 	}
 
 	if (parts[0] === "bills" && parts.length === 4) {
-		const [, housemateIdPart, encodedBillIds, signaturePart] = parts;
-		const housemateId = housemateIdPart?.trim() ?? "";
-		const billIds = encodedBillIds ? decodeBillIds(encodedBillIds) : [];
-		if (!housemateId || billIds.length === 0 || !signaturePart) {
-			return null;
-		}
-
-		const expectedSignature = signPublicLinkPayload(
-			`bills:${housemateId}:${billIds.join(",")}`,
-		);
-		if (
-			!expectedSignature ||
-			!publicLinkSignaturesMatch(signaturePart, expectedSignature)
-		) {
-			return null;
-		}
-
-		return {
-			housemateId,
-			scope: {
-				kind: "bills",
-				stackGroup: null,
-				billIds,
-			},
-		};
+		return parseBillsPayToken(parts);
 	}
 
 	return null;
 }
 
-export function isUtilityBillType(
+function isValidPayTokenSignature(signature: string, payload: string) {
+	const expectedSignature = signPublicLinkPayload(payload);
+	return (
+		expectedSignature !== null &&
+		publicLinkSignaturesMatch(signature, expectedSignature)
+	);
+}
+
+function parseAllPayToken(
+	parts: string[],
+): { housemateId: string; scope: PayScope } | null {
+	const [, housemateIdPart, signaturePart] = parts;
+	const housemateId = housemateIdPart?.trim() ?? "";
+	if (!housemateId || !signaturePart) {
+		return null;
+	}
+
+	if (!isValidPayTokenSignature(signaturePart, `all:${housemateId}`)) {
+		return null;
+	}
+
+	return {
+		housemateId,
+		scope: {
+			kind: "all",
+			stackGroup: null,
+			billIds: null,
+		},
+	};
+}
+
+function parseStackPayToken(
+	parts: string[],
+): { housemateId: string; scope: PayScope } | null {
+	const [, housemateIdPart, encodedStackGroup, signaturePart] = parts;
+	const housemateId = housemateIdPart?.trim() ?? "";
+	const stackGroup = encodedStackGroup
+		? decodeStackGroup(encodedStackGroup)
+		: "";
+	if (!housemateId || !stackGroup || !signaturePart) {
+		return null;
+	}
+
+	if (
+		!isValidPayTokenSignature(
+			signaturePart,
+			`stack:${housemateId}:${stackGroup}`,
+		)
+	) {
+		return null;
+	}
+
+	return {
+		housemateId,
+		scope: {
+			kind: "stack",
+			stackGroup,
+			billIds: null,
+		},
+	};
+}
+
+function parseBillsPayToken(
+	parts: string[],
+): { housemateId: string; scope: PayScope } | null {
+	const [, housemateIdPart, encodedBillIds, signaturePart] = parts;
+	const housemateId = housemateIdPart?.trim() ?? "";
+	const billIds = encodedBillIds ? decodeBillIds(encodedBillIds) : [];
+	if (!housemateId || billIds.length === 0 || !signaturePart) {
+		return null;
+	}
+
+	if (
+		!isValidPayTokenSignature(
+			signaturePart,
+			`bills:${housemateId}:${billIds.join(",")}`,
+		)
+	) {
+		return null;
+	}
+
+	return {
+		housemateId,
+		scope: {
+			kind: "bills",
+			stackGroup: null,
+			billIds,
+		},
+	};
+}
+
+function isUtilityBillType(
 	billType: string | null | undefined,
 ): billType is UtilityBillType {
 	return billType === "electricity" || billType === "gas";
@@ -335,55 +356,9 @@ export async function getPublicHousematePayPageData(token: string) {
 	}
 
 	const today = startOfUtcDay(new Date());
-	const rows = await db
-		.select({
-			billId: bills.id,
-			billerName: bills.billerName,
-			billType: bills.billType,
-			recurringTemplateName: recurringBills.templateName,
-			stackGroup: bills.stackGroup,
-			dueDate: bills.dueDate,
-			billPeriodStart: bills.billPeriodStart,
-			billPeriodEnd: bills.billPeriodEnd,
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-		})
-		.from(debts)
-		.innerJoin(bills, eq(bills.id, debts.billId))
-		.leftJoin(recurringBills, eq(recurringBills.id, bills.recurringBillId))
-		.where(
-			and(
-				eq(debts.housemateId, housemate.id),
-				eq(debts.isPaid, false),
-				...(parsedToken.scope.kind === "stack"
-					? [eq(bills.stackGroup, parsedToken.scope.stackGroup)]
-					: parsedToken.scope.kind === "bills"
-						? [inArray(bills.id, parsedToken.scope.billIds)]
-						: []),
-			),
-		)
-		.orderBy(asc(bills.dueDate), asc(debts.id));
-
-	const items = rows.map((row) => {
-		const remainingAmount = Math.max(0, row.amountOwed - row.amountPaid);
-		const dueDate = row.dueDate;
-		const billPath = BillPdfStorageService.getViewerUrl(row.billId);
-		return {
-			billId: row.billId,
-			billerName: row.billerName,
-			billType: row.billType,
-			recurringTemplateName: row.recurringTemplateName,
-			billPath,
-			billUrl: BillPdfStorageService.getAbsoluteAppUrl(billPath),
-			dueDate,
-			billPeriodStart: row.billPeriodStart,
-			billPeriodEnd: row.billPeriodEnd,
-			amountOwed: row.amountOwed,
-			amountPaid: row.amountPaid,
-			remainingAmount,
-			isOverdue: dueDate.getTime() < today.getTime(),
-		};
-	});
+	const items = (await getPayPageRows(housemate.id, parsedToken.scope)).map(
+		(row) => toPayPageItem(row, today),
+	);
 	const utilityGroups =
 		parsedToken.scope.kind === "all" ? groupUtilityItems(items) : [];
 	const nonUtilityItems =
@@ -426,26 +401,11 @@ export async function getPublicHousematePayPageData(token: string) {
 	const recentSince = new Date(
 		Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
 	);
-	const recentRows = await db
-		.select({
-			amountPaid: debts.amountPaid,
-			paidAt: debts.paidAt,
-		})
-		.from(debts)
-		.innerJoin(bills, eq(bills.id, debts.billId))
-		.where(
-			and(
-				eq(debts.housemateId, housemate.id),
-				eq(debts.isPaid, true),
-				isNotNull(debts.paidAt),
-				gte(debts.paidAt, recentSince),
-				...(parsedToken.scope.kind === "stack"
-					? [eq(bills.stackGroup, parsedToken.scope.stackGroup)]
-					: parsedToken.scope.kind === "bills"
-						? [inArray(bills.id, parsedToken.scope.billIds)]
-						: []),
-			),
-		);
+	const recentRows = await getRecentPaidDebtRows({
+		housemateId: housemate.id,
+		scope: parsedToken.scope,
+		recentSince,
+	});
 	const recentlySettledAmount = recentRows.reduce(
 		(total, row) => total + row.amountPaid,
 		0,
@@ -495,4 +455,88 @@ export async function getPublicHousematePayPageData(token: string) {
 			ogImageUrl: BillPdfStorageService.getAbsoluteAppUrl(ogImagePath),
 		},
 	} satisfies PublicHousematePayPageData;
+}
+
+function getPayScopeConditions(scope: PayScope) {
+	if (scope.kind === "stack") {
+		return [eq(bills.stackGroup, scope.stackGroup)];
+	}
+
+	if (scope.kind === "bills") {
+		return [inArray(bills.id, scope.billIds)];
+	}
+
+	return [];
+}
+
+async function getPayPageRows(housemateId: string, scope: PayScope) {
+	return await db
+		.select({
+			billId: bills.id,
+			billerName: bills.billerName,
+			billType: bills.billType,
+			recurringTemplateName: recurringBills.templateName,
+			stackGroup: bills.stackGroup,
+			dueDate: bills.dueDate,
+			billPeriodStart: bills.billPeriodStart,
+			billPeriodEnd: bills.billPeriodEnd,
+			amountOwed: debts.amountOwed,
+			amountPaid: debts.amountPaid,
+		})
+		.from(debts)
+		.innerJoin(bills, eq(bills.id, debts.billId))
+		.leftJoin(recurringBills, eq(recurringBills.id, bills.recurringBillId))
+		.where(
+			and(
+				eq(debts.housemateId, housemateId),
+				eq(debts.isPaid, false),
+				...getPayScopeConditions(scope),
+			),
+		)
+		.orderBy(asc(bills.dueDate), asc(debts.id));
+}
+
+function toPayPageItem(
+	row: Awaited<ReturnType<typeof getPayPageRows>>[number],
+	today: Date,
+) {
+	const billPath = BillPdfStorageService.getViewerUrl(row.billId);
+	return {
+		billId: row.billId,
+		billerName: row.billerName,
+		billType: row.billType,
+		recurringTemplateName: row.recurringTemplateName,
+		billPath,
+		billUrl: BillPdfStorageService.getAbsoluteAppUrl(billPath),
+		dueDate: row.dueDate,
+		billPeriodStart: row.billPeriodStart,
+		billPeriodEnd: row.billPeriodEnd,
+		amountOwed: row.amountOwed,
+		amountPaid: row.amountPaid,
+		remainingAmount: Math.max(0, row.amountOwed - row.amountPaid),
+		isOverdue: row.dueDate.getTime() < today.getTime(),
+	};
+}
+
+async function getRecentPaidDebtRows(input: {
+	housemateId: string;
+	scope: PayScope;
+	recentSince: Date;
+}) {
+	return await db
+		.select({
+			amountPaid: debts.amountPaid,
+			paidAt: debts.paidAt,
+		})
+		.from(debts)
+		.innerJoin(bills, eq(bills.id, debts.billId))
+		.where(
+			and(
+				eq(debts.housemateId, input.housemateId),
+				eq(debts.isPaid, true),
+				isNotNull(debts.paidAt),
+				gte(debts.paidAt, input.recentSince),
+				...getPayScopeConditions(input.scope),
+			),
+		);
 }

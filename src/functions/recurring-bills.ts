@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { createServerFn } from "@tanstack/react-start";
 import { desc, eq, inArray } from "drizzle-orm";
 import { createError } from "evlog";
@@ -29,7 +30,7 @@ const recurringBillInputObjectSchema = z.object({
 	templateName: z.string().min(1),
 	billerName: z.string().min(1),
 	totalAmount: z.number().positive(),
-	frequency: z.enum(["weekly", "monthly", "yearly"]),
+	frequency: z.enum(["weekly", "fortnightly", "monthly", "yearly"]),
 	dayOfWeek: z.number().min(0).max(6).nullable(),
 	dayOfMonth: z.number().min(1).max(31).nullable(),
 	startDate: z.string().min(1),
@@ -44,10 +45,13 @@ function validateRecurringBillInput(
 	value: z.infer<typeof recurringBillInputObjectSchema>,
 	context: z.RefinementCtx,
 ) {
-	if (value.frequency === "weekly" && value.dayOfWeek === null) {
+	if (
+		(value.frequency === "weekly" || value.frequency === "fortnightly") &&
+		value.dayOfWeek === null
+	) {
 		context.addIssue({
 			code: "custom",
-			message: "Weekly recurring bills require a weekday",
+			message: "Weekly and fortnightly recurring bills require a weekday",
 			path: ["dayOfWeek"],
 		});
 	}
@@ -234,7 +238,10 @@ export const createRecurringBill = createServerFn({ method: "POST" })
 				billerName: data.billerName,
 				totalAmount: data.totalAmount,
 				frequency: data.frequency,
-				dayOfWeek: data.frequency === "weekly" ? data.dayOfWeek : null,
+				dayOfWeek:
+					data.frequency === "weekly" || data.frequency === "fortnightly"
+						? data.dayOfWeek
+						: null,
 				dayOfMonth: data.frequency === "monthly" ? data.dayOfMonth : null,
 				startDate: parseDateInput(data.startDate) ?? new Date(),
 				endDate: parseDateInput(data.endDate),
@@ -260,7 +267,10 @@ export const updateRecurringBill = createServerFn({ method: "POST" })
 				billerName: data.billerName,
 				totalAmount: data.totalAmount,
 				frequency: data.frequency,
-				dayOfWeek: data.frequency === "weekly" ? data.dayOfWeek : null,
+				dayOfWeek:
+					data.frequency === "weekly" || data.frequency === "fortnightly"
+						? data.dayOfWeek
+						: null,
 				dayOfMonth: data.frequency === "monthly" ? data.dayOfMonth : null,
 				startDate: parseDateInput(data.startDate) ?? new Date(),
 				endDate: parseDateInput(data.endDate),

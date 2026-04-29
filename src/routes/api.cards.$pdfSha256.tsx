@@ -2,7 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { getPublicBillPageData } from "../api/services/public-bill-page.server";
 import { OgCard } from "../lib/og-card";
 import { loadGoogleFonts, resolveFontSetup } from "../lib/og-fonts.server";
-import { createOgRouteHandler } from "../lib/og-route.server";
+import {
+	createOgHeadResponse,
+	createOgRouteHandler,
+} from "../lib/og-route.server";
 import {
 	type BillDueStatus,
 	formatCurrency,
@@ -98,6 +101,7 @@ function getBillOgCardProps(input: {
 export const Route = createFileRoute("/api/cards/$pdfSha256")({
 	server: {
 		handlers: {
+			HEAD: () => createOgHeadResponse(),
 			GET: async ({ params, request }) => {
 				const bill = await getPublicBillPageData(params.pdfSha256);
 				if (!bill) {

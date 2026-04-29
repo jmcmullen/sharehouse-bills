@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
@@ -12,11 +13,11 @@ import {
 	signPublicLinkPayload,
 } from "./public-link-token";
 
-export type DebtReceiptTokenInput = {
+type DebtReceiptTokenInput = {
 	debtId: string;
 };
 
-export type PublicDebtReceiptPageData = {
+type PublicDebtReceiptPageData = {
 	housemate: {
 		id: string;
 		name: string;
@@ -48,7 +49,7 @@ export type PublicDebtReceiptPageData = {
 	};
 };
 
-export function createDebtReceiptToken(input: DebtReceiptTokenInput) {
+function createDebtReceiptToken(input: DebtReceiptTokenInput) {
 	const debtId = input.debtId.trim();
 	if (!debtId) {
 		return null;

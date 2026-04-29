@@ -62,3 +62,4 @@ packages/api/src/scripts/seed.ts
 # Other
 dev-dist
 .workflow-data/
+.fallow/

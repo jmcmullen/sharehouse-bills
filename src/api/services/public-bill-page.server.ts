@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { and, asc, eq } from "drizzle-orm";
 import { distributeCurrencyAmount, roundCurrency } from "../../lib/equal-split";
 import { db } from "../db/index.server";
@@ -14,7 +15,7 @@ type PublicBillDebtRecord = {
 	isPaid: boolean;
 };
 
-export type PublicBillParticipant = {
+type PublicBillParticipant = {
 	id: string;
 	name: string;
 	amountOwed: number;

@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { roundCurrency } from "../../lib/equal-split";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
@@ -7,7 +8,6 @@ import { paymentTransactions } from "../db/schema/payment-transactions";
 import { unreconciledTransactions } from "../db/schema/unreconciled-transactions";
 import {
 	getRemainingDebtAmount,
-	roundCurrency,
 	updateBillStatusFromDebts,
 } from "./debt-payment-state";
 import { enqueueDebtPaidNotification } from "./whatsapp-notification-events";
@@ -52,6 +52,12 @@ type ReconciliationResultType =
 	| "duplicate"
 	| "ignored";
 
+type MatchedPaymentResultType =
+	| "exact_match"
+	| "combination_match"
+	| "partial_allocation"
+	| "credit_created";
+
 interface ReconciliationResult {
 	success: boolean;
 	type: ReconciliationResultType;
@@ -78,6 +84,10 @@ type DebtAllocationCandidate = DebtCandidate & {
 };
 
 type HousemateRecord = typeof housemates.$inferSelect;
+type PaymentReconciliationClient = Pick<
+	typeof db,
+	"insert" | "select" | "update"
+>;
 
 type ParsedPaymentIntent =
 	| {
@@ -642,129 +652,17 @@ export async function processTransaction(
 		};
 	}
 
-	const matchedDebtIds: string[] = [];
-	const affectedBillIds = new Set<string>();
 	const now = new Date();
-	const result = await db.transaction(async (tx) => {
-		const debtCandidates = prioritizeDebtCandidatesByAmountMatch(
-			await tx
-				.select({
-					id: debts.id,
-					billId: debts.billId,
-					housemateId: debts.housemateId,
-					amountOwed: debts.amountOwed,
-					amountPaid: debts.amountPaid,
-					createdAt: debts.createdAt,
-					billDueDate: bills.dueDate,
-				})
-				.from(debts)
-				.innerJoin(bills, eq(debts.billId, bills.id))
-				.where(
-					and(
-						eq(debts.housemateId, parsedPaymentIntent.housemateId),
-						eq(debts.isPaid, false),
-					),
-				)
-				.orderBy(asc(bills.dueDate), asc(debts.createdAt), asc(debts.id)),
+	const transactionResult = await db.transaction(async (tx) => {
+		return await reconcileMatchedPaymentInTransaction({
+			tx,
+			transaction,
+			housemateId: parsedPaymentIntent.housemateId,
 			amountInDollars,
-		);
-
-		let remainingAmount = amountInDollars;
-		let partiallyAllocated = false;
-
-		for (const debtCandidate of debtCandidates) {
-			const remainingDebtAmount = getRemainingDebtAmount(debtCandidate);
-			if (remainingDebtAmount <= 0.009 || remainingAmount <= 0.009) {
-				continue;
-			}
-
-			const allocatedAmount = Math.min(remainingAmount, remainingDebtAmount);
-			const nextAmountPaid = roundCurrency(
-				debtCandidate.amountPaid + allocatedAmount,
-			);
-			const fullyPaid =
-				getRemainingDebtAmount({
-					amountOwed: debtCandidate.amountOwed,
-					amountPaid: nextAmountPaid,
-				}) <= 0.009;
-
-			if (allocatedAmount + 0.009 < remainingDebtAmount) {
-				partiallyAllocated = true;
-			}
-
-			await tx
-				.update(debts)
-				.set({
-					amountPaid: fullyPaid ? debtCandidate.amountOwed : nextAmountPaid,
-					isPaid: fullyPaid,
-					paidAt: fullyPaid ? now : null,
-					updatedAt: now,
-				})
-				.where(eq(debts.id, debtCandidate.id));
-
-			matchedDebtIds.push(debtCandidate.id);
-			affectedBillIds.add(debtCandidate.billId);
-			remainingAmount = roundCurrency(remainingAmount - allocatedAmount);
-		}
-
-		let creditCreated = 0;
-		if (remainingAmount > 0.009) {
-			const [housemate] = await tx
-				.select({
-					creditBalance: housemates.creditBalance,
-				})
-				.from(housemates)
-				.where(eq(housemates.id, parsedPaymentIntent.housemateId))
-				.limit(1);
-
-			const currentCreditBalance = housemate?.creditBalance ?? 0;
-			creditCreated = remainingAmount;
-			await tx
-				.update(housemates)
-				.set({
-					creditBalance: roundCurrency(currentCreditBalance + remainingAmount),
-					updatedAt: now,
-				})
-				.where(eq(housemates.id, parsedPaymentIntent.housemateId));
-		}
-
-		let matchType: ReconciliationResultType = "credit_created";
-		if (creditCreated > 0.009 || matchedDebtIds.length === 0) {
-			matchType = "credit_created";
-		} else if (partiallyAllocated) {
-			matchType = "partial_allocation";
-		} else if (matchedDebtIds.length === 1) {
-			matchType = "exact_match";
-		} else {
-			matchType = "combination_match";
-		}
-
-		await tx.insert(paymentTransactions).values({
-			transactionId: transaction.id,
-			description: transaction.attributes.description,
-			amount: amountInDollars,
-			housemateId: parsedPaymentIntent.housemateId,
-			status: "matched",
-			source: "up_bank",
-			matchType,
-			matchedDebtIds,
-			rawData: transaction,
-			creditAmount: creditCreated,
-			settledAt: parseTimestamp(transaction.attributes.settledAt),
-			upCreatedAt: parseTimestamp(transaction.attributes.createdAt),
-			createdAt: now,
-			updatedAt: now,
+			now,
 		});
-
-		return {
-			success: true,
-			type: matchType,
-			matchedDebts: matchedDebtIds.length > 0 ? matchedDebtIds : undefined,
-			housemateId: parsedPaymentIntent.housemateId,
-			amountProcessed: amountInDollars,
-			creditCreated,
-		} satisfies ReconciliationResult;
 	});
+	const { result, affectedBillIds } = transactionResult;
 
 	if (result.success && result.matchedDebts?.length) {
 		for (const billId of affectedBillIds) {
@@ -786,6 +684,208 @@ export async function processTransaction(
 	}
 
 	return result;
+}
+
+async function reconcileMatchedPaymentInTransaction(input: {
+	tx: PaymentReconciliationClient;
+	transaction: UpBankTransaction;
+	housemateId: string;
+	amountInDollars: number;
+	now: Date;
+}) {
+	const debtCandidates = prioritizeDebtCandidatesByAmountMatch(
+		await getOpenDebtCandidatesForHousemate(input.tx, input.housemateId),
+		input.amountInDollars,
+	);
+	const allocation = await allocatePaymentAcrossDebts({
+		tx: input.tx,
+		debtCandidates,
+		amountInDollars: input.amountInDollars,
+		now: input.now,
+	});
+	const creditCreated = await createHousemateCreditForRemainingAmount({
+		tx: input.tx,
+		housemateId: input.housemateId,
+		remainingAmount: allocation.remainingAmount,
+		now: input.now,
+	});
+	const matchType = getMatchedPaymentType({
+		creditCreated,
+		matchedDebtCount: allocation.matchedDebtIds.length,
+		partiallyAllocated: allocation.partiallyAllocated,
+	});
+
+	await input.tx.insert(paymentTransactions).values({
+		transactionId: input.transaction.id,
+		description: input.transaction.attributes.description,
+		amount: input.amountInDollars,
+		housemateId: input.housemateId,
+		status: "matched",
+		source: "up_bank",
+		matchType,
+		matchedDebtIds: allocation.matchedDebtIds,
+		rawData: input.transaction,
+		creditAmount: creditCreated,
+		settledAt: parseTimestamp(input.transaction.attributes.settledAt),
+		upCreatedAt: parseTimestamp(input.transaction.attributes.createdAt),
+		createdAt: input.now,
+		updatedAt: input.now,
+	});
+
+	return {
+		result: {
+			success: true,
+			type: matchType,
+			matchedDebts:
+				allocation.matchedDebtIds.length > 0
+					? allocation.matchedDebtIds
+					: undefined,
+			housemateId: input.housemateId,
+			amountProcessed: input.amountInDollars,
+			creditCreated,
+		} satisfies ReconciliationResult,
+		matchedDebtIds: allocation.matchedDebtIds,
+		affectedBillIds: allocation.affectedBillIds,
+	};
+}
+
+async function getOpenDebtCandidatesForHousemate(
+	tx: PaymentReconciliationClient,
+	housemateId: string,
+) {
+	return await tx
+		.select({
+			id: debts.id,
+			billId: debts.billId,
+			housemateId: debts.housemateId,
+			amountOwed: debts.amountOwed,
+			amountPaid: debts.amountPaid,
+			createdAt: debts.createdAt,
+			billDueDate: bills.dueDate,
+		})
+		.from(debts)
+		.innerJoin(bills, eq(debts.billId, bills.id))
+		.where(and(eq(debts.housemateId, housemateId), eq(debts.isPaid, false)))
+		.orderBy(asc(bills.dueDate), asc(debts.createdAt), asc(debts.id));
+}
+
+async function allocatePaymentAcrossDebts(input: {
+	tx: PaymentReconciliationClient;
+	debtCandidates: DebtCandidate[];
+	amountInDollars: number;
+	now: Date;
+}) {
+	const matchedDebtIds: string[] = [];
+	const affectedBillIds = new Set<string>();
+	let remainingAmount = input.amountInDollars;
+	let partiallyAllocated = false;
+
+	for (const debtCandidate of input.debtCandidates) {
+		const allocation = getDebtAllocation(debtCandidate, remainingAmount);
+		if (!allocation) {
+			continue;
+		}
+
+		await input.tx
+			.update(debts)
+			.set({
+				amountPaid: allocation.fullyPaid
+					? debtCandidate.amountOwed
+					: allocation.nextAmountPaid,
+				isPaid: allocation.fullyPaid,
+				paidAt: allocation.fullyPaid ? input.now : null,
+				updatedAt: input.now,
+			})
+			.where(eq(debts.id, debtCandidate.id));
+
+		matchedDebtIds.push(debtCandidate.id);
+		affectedBillIds.add(debtCandidate.billId);
+		partiallyAllocated ||= allocation.partiallyAllocated;
+		remainingAmount = roundCurrency(
+			remainingAmount - allocation.allocatedAmount,
+		);
+	}
+
+	return {
+		matchedDebtIds,
+		affectedBillIds,
+		remainingAmount,
+		partiallyAllocated,
+	};
+}
+
+function getDebtAllocation(
+	debtCandidate: DebtCandidate,
+	remainingAmount: number,
+) {
+	const remainingDebtAmount = getRemainingDebtAmount(debtCandidate);
+	if (remainingDebtAmount <= 0.009 || remainingAmount <= 0.009) {
+		return null;
+	}
+
+	const allocatedAmount = Math.min(remainingAmount, remainingDebtAmount);
+	const nextAmountPaid = roundCurrency(
+		debtCandidate.amountPaid + allocatedAmount,
+	);
+	const fullyPaid =
+		getRemainingDebtAmount({
+			amountOwed: debtCandidate.amountOwed,
+			amountPaid: nextAmountPaid,
+		}) <= 0.009;
+
+	return {
+		allocatedAmount,
+		nextAmountPaid,
+		fullyPaid,
+		partiallyAllocated: allocatedAmount + 0.009 < remainingDebtAmount,
+	};
+}
+
+async function createHousemateCreditForRemainingAmount(input: {
+	tx: PaymentReconciliationClient;
+	housemateId: string;
+	remainingAmount: number;
+	now: Date;
+}) {
+	if (input.remainingAmount <= 0.009) {
+		return 0;
+	}
+
+	const [housemate] = await input.tx
+		.select({
+			creditBalance: housemates.creditBalance,
+		})
+		.from(housemates)
+		.where(eq(housemates.id, input.housemateId))
+		.limit(1);
+
+	await input.tx
+		.update(housemates)
+		.set({
+			creditBalance: roundCurrency(
+				(housemate?.creditBalance ?? 0) + input.remainingAmount,
+			),
+			updatedAt: input.now,
+		})
+		.where(eq(housemates.id, input.housemateId));
+
+	return input.remainingAmount;
+}
+
+function getMatchedPaymentType(input: {
+	creditCreated: number;
+	matchedDebtCount: number;
+	partiallyAllocated: boolean;
+}): MatchedPaymentResultType {
+	if (input.creditCreated > 0.009 || input.matchedDebtCount === 0) {
+		return "credit_created";
+	}
+
+	if (input.partiallyAllocated) {
+		return "partial_allocation";
+	}
+
+	return input.matchedDebtCount === 1 ? "exact_match" : "combination_match";
 }
 
 export async function manuallyReconcileTransaction(

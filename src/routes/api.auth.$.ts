@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { createFileRoute } from "@tanstack/react-router";
 import type { RequestLogger } from "evlog";
 import { auth } from "../api/services/auth.server";

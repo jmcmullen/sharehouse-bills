@@ -64,7 +64,7 @@ function createWorkflowStepLogger(input: {
 	return log;
 }
 
-export function toLoggedError(error: unknown) {
+function toLoggedError(error: unknown) {
 	return error instanceof Error ? error : new Error(String(error));
 }
 

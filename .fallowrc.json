@@ -1,0 +1,61 @@
+{
+	"$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/fallow.schema.json",
+	"dynamicallyLoaded": [
+		"nitro.config.ts",
+		"server/plugins/evlog.ts",
+		"src/components/chart-area-interactive.tsx",
+		"src/components/data-table.tsx",
+		"src/components/header.tsx",
+		"src/components/housemates/housemate-form-fields.tsx",
+		"src/components/housemates/index.ts",
+		"src/components/nav-documents.tsx",
+		"src/components/nav-user.tsx",
+		"src/components/section-cards.tsx",
+		"src/components/sign-up-form.tsx",
+		"src/components/site-header.tsx",
+		"src/components/ui/alert.tsx",
+		"src/components/ui/avatar.tsx",
+		"src/components/ui/drawer.tsx",
+		"src/components/ui/dropdown-menu.tsx",
+		"src/components/ui/empty.tsx",
+		"src/components/ui/tabs.tsx",
+		"src/components/ui/toggle-group.tsx",
+		"src/components/ui/toggle.tsx",
+		"src/components/user-menu.tsx",
+		"src/functions/todo.ts"
+	],
+	"ignoreExports": [
+		{
+			"file": "src/components/ui/**/*.tsx",
+			"exports": ["*"]
+		},
+		{
+			"file": "src/functions/{bills,housemates}.ts",
+			"exports": ["*"]
+		},
+		{
+			"file": "src/api/services/{debt-receipt-page.server,payment-reconciliation,pdf-bill-extractor,recurring-bill,waha,whatsapp-assistant}.ts",
+			"exports": ["*"]
+		},
+		{
+			"file": "src/components/{housemates,payments,recurring-bills}/utils.ts",
+			"exports": ["*"]
+		},
+		{
+			"file": "src/lib/{share-preview,whatsapp-commands}.ts",
+			"exports": ["*"]
+		}
+	],
+	"usedClassMembers": [
+		"getMessageCacheDate",
+		"getPdf",
+		"processEmailAttachments",
+		"testAIConnection"
+	],
+	"duplicates": {
+		"minTokens": 300
+	},
+	"health": {
+		"maxCrap": 999999
+	}
+}

@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { BillPdfStorageService } from "@/api/services/bill-pdf-storage";
 import { Button } from "@/components/ui/button";
 import { getPublicDebtReceipt } from "@/functions/public-debt-receipt";

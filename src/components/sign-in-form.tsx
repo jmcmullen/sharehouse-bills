@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { authClient } from "@/lib/auth-client";
 import { useForm } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";

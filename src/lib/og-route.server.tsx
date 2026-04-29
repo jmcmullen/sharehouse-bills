@@ -46,6 +46,11 @@ type CreateOgRouteHandlerOptions = Omit<
 	width?: number;
 };
 
+type CreateOgHeadResponseOptions = {
+	cacheControl?: string;
+	format?: "png" | "webp";
+};
+
 function createOgContext(width: number, height: number): OgRenderContext {
 	return {
 		aspectRatio: "1.91:1",
@@ -106,4 +111,16 @@ export function createOgRouteHandler({
 
 		return applyCacheControl(response, cacheControl);
 	};
+}
+
+export function createOgHeadResponse({
+	cacheControl = "public, max-age=300",
+	format = "png",
+}: CreateOgHeadResponseOptions = {}) {
+	return new Response(null, {
+		headers: {
+			"Cache-Control": cacheControl,
+			"Content-Type": `image/${format}`,
+		},
+	});
 }

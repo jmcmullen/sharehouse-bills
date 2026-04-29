@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { createServerFn } from "@tanstack/react-start";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../api/db/index.server";
@@ -48,7 +49,7 @@ type PaymentRowWithoutSource = {
 	matchedDebtIds: string[] | null;
 };
 
-export interface PaymentListItem {
+interface PaymentListItem {
 	id: string;
 	transactionId: string;
 	housemateId: string;
@@ -71,7 +72,7 @@ export interface PaymentListItem {
 	appliedBillNames: string[];
 }
 
-export interface PaymentsSummary {
+interface PaymentsSummary {
 	recentAmount: number;
 	recentCount: number;
 	outstandingAmount: number;

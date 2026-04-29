@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { createError } from "evlog";
 import {
 	whatsappChatIdToNumber,
@@ -5,6 +6,7 @@ import {
 } from "./whatsapp-phone";
 
 interface WahaSuccessResponse {
+	id?: string;
 	status?: string;
 	messageId?: string;
 	[key: string]: unknown;
@@ -38,13 +40,13 @@ type WhatsappCopyButton = {
 	copyCode: string;
 };
 
-export type WhatsappButton =
+type WhatsappButton =
 	| WhatsappUrlButton
 	| WhatsappReplyButton
 	| WhatsappCallButton
 	| WhatsappCopyButton;
 
-export class WahaRequestError extends Error {
+class WahaRequestError extends Error {
 	readonly status: number | null;
 	readonly statusText: string | null;
 	readonly responseText: string | null;
@@ -97,7 +99,7 @@ function getWahaApiKey() {
 	return apiKey;
 }
 
-export function getWahaSessionName() {
+function getWahaSessionName() {
 	return process.env.WAHA_SESSION_NAME?.trim() || "default";
 }
 

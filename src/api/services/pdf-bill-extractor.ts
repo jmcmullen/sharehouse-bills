@@ -76,7 +76,7 @@ export class DuplicateBillError extends Error {
 	}
 }
 
-export class UnsupportedBillFormatError extends Error {
+class UnsupportedBillFormatError extends Error {
 	constructor(message: string) {
 		super(message);
 		this.name = "UnsupportedBillFormatError";
@@ -191,17 +191,10 @@ export class PdfBillExtractorService {
 			| "electricity"
 			| "gas"
 			| undefined;
-		const statementDate = this.extractDate(text, AGL_ISSUE_DATE_REGEX);
-		const billPeriodMatch = text.match(AGL_BILL_PERIOD_REGEX);
-		const billPeriodStart = billPeriodMatch?.[1]
-			? this.parseAustralianDate(billPeriodMatch[1])
-			: undefined;
-		const billPeriodEnd = billPeriodMatch?.[2]
-			? this.parseAustralianDate(billPeriodMatch[2])
-			: undefined;
+		const requiredFields = this.getAglRequiredFields(text);
 		const totalAmount = this.extractMoney(text, AGL_NEW_CHARGES_REGEX);
 
-		if (!statementDate || !billType || !billPeriodStart || !billPeriodEnd) {
+		if (!billType || !requiredFields) {
 			throw new UnsupportedBillFormatError(
 				`AGL bill is missing required fields in ${filename}`,
 			);
@@ -213,19 +206,13 @@ export class PdfBillExtractorService {
 			);
 		}
 
-		const currentChargeDueMatch = text.match(AGL_CURRENT_CHARGE_DUE_REGEX);
-		const currentChargeAmount = currentChargeDueMatch?.[1]
-			? this.parseMoney(currentChargeDueMatch[1])
-			: undefined;
-		const chargeDueDate =
-			currentChargeAmount === totalAmount && currentChargeDueMatch?.[2]
-				? this.parseAustralianDate(currentChargeDueMatch[2])
-				: undefined;
+		const chargeDueDate = this.getAglChargeDueDate(text, totalAmount);
 		const accountBalanceDueDate = this.extractDate(
 			text,
 			AGL_ACCOUNT_BALANCE_DUE_REGEX,
 		);
-		const dueDate = chargeDueDate ?? accountBalanceDueDate ?? statementDate;
+		const dueDate =
+			chargeDueDate ?? accountBalanceDueDate ?? requiredFields.statementDate;
 		const accountNumber = this.extractNumericString(
 			text,
 			AGL_ACCOUNT_NUMBER_REGEX,
@@ -241,10 +228,10 @@ export class PdfBillExtractorService {
 			billType,
 			totalAmount,
 			dueDate,
-			statementDate,
+			statementDate: requiredFields.statementDate,
 			chargeDueDate,
-			billPeriodStart,
-			billPeriodEnd,
+			billPeriodStart: requiredFields.billPeriodStart,
+			billPeriodEnd: requiredFields.billPeriodEnd,
 			accountNumber,
 			referenceNumber,
 			parseMethod: "agl_regex",
@@ -255,12 +242,44 @@ export class PdfBillExtractorService {
 				billType,
 				accountNumber ?? "",
 				referenceNumber ?? "",
-				billPeriodStart.toISOString(),
-				billPeriodEnd.toISOString(),
+				requiredFields.billPeriodStart.toISOString(),
+				requiredFields.billPeriodEnd.toISOString(),
 				totalAmount.toFixed(2),
 			]),
 			sourceFilename: filename,
 		};
+	}
+
+	private getAglRequiredFields(text: string) {
+		const statementDate = this.extractDate(text, AGL_ISSUE_DATE_REGEX);
+		const billPeriodMatch = text.match(AGL_BILL_PERIOD_REGEX);
+		const billPeriodStart = billPeriodMatch?.[1]
+			? this.parseAustralianDate(billPeriodMatch[1])
+			: undefined;
+		const billPeriodEnd = billPeriodMatch?.[2]
+			? this.parseAustralianDate(billPeriodMatch[2])
+			: undefined;
+
+		if (!statementDate || !billPeriodStart || !billPeriodEnd) {
+			return null;
+		}
+
+		return {
+			statementDate,
+			billPeriodStart,
+			billPeriodEnd,
+		};
+	}
+
+	private getAglChargeDueDate(text: string, totalAmount: number) {
+		const currentChargeDueMatch = text.match(AGL_CURRENT_CHARGE_DUE_REGEX);
+		const currentChargeAmount = currentChargeDueMatch?.[1]
+			? this.parseMoney(currentChargeDueMatch[1])
+			: undefined;
+
+		return currentChargeAmount === totalAmount && currentChargeDueMatch?.[2]
+			? this.parseAustralianDate(currentChargeDueMatch[2])
+			: undefined;
 	}
 
 	private parseHudsonMcHughBills(

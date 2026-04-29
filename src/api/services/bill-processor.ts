@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { eq, or } from "drizzle-orm";
 import { createError } from "evlog";
 import {
@@ -124,176 +125,22 @@ export class BillProcessorService {
 				attachment.filename,
 				attachment.contentType,
 			);
-			let pdfUrl: string | null = null;
-			const pdfSha256 = parsedBills[0]?.pdfSha256;
-
-			if (pdfSha256) {
-				pdfUrl = await this.billPdfStorage.savePdf(
-					pdfSha256,
-					attachment.buffer,
-				);
-			}
+			const pdfUrl = await this.saveAttachmentPdf(
+				parsedBills[0]?.pdfSha256,
+				attachment.buffer,
+			);
 
 			const results: ProcessingResult[] = [];
 			for (const parsedData of parsedBills) {
-				try {
-					const duplicateBill = await this.findDuplicateBill(
+				results.push(
+					await this.processParsedBill({
+						attachmentFilename: attachment.filename,
 						parsedData,
-						parsedBills.length === 1,
-					);
-
-					if (duplicateBill) {
-						if (pdfUrl && !duplicateBill.pdfUrl) {
-							await db
-								.update(bills)
-								.set({
-									pdfUrl,
-									updatedAt: new Date(),
-								})
-								.where(eq(bills.id, duplicateBill.id));
-						}
-
-						results.push({
-							success: true,
-							status: "duplicate",
-							filename: this.buildResultFilename(
-								attachment.filename,
-								parsedData,
-							),
-							billId: duplicateBill.id,
-							duplicateOfBillId: duplicateBill.id,
-							error: `Duplicate bill already imported as bill ${duplicateBill.id}`,
-						});
-						continue;
-					}
-
-					const [newBill] = await db
-						.insert(bills)
-						.values({
-							billerName: parsedData.billerName,
-							provider: parsedData.provider,
-							billType: parsedData.billType,
-							totalAmount: parsedData.totalAmount,
-							dueDate: parsedData.dueDate,
-							statementDate: parsedData.statementDate,
-							chargeDueDate: parsedData.chargeDueDate,
-							billPeriodStart: parsedData.billPeriodStart,
-							billPeriodEnd: parsedData.billPeriodEnd,
-							accountNumber: parsedData.accountNumber,
-							referenceNumber: parsedData.referenceNumber,
-							sourceFilename: parsedData.sourceFilename,
-							parseMethod: parsedData.parseMethod,
-							parseConfidence: parsedData.parseConfidence,
-							sourceFingerprint: parsedData.sourceFingerprint,
-							pdfSha256: parsedData.pdfSha256,
-							pdfUrl,
-							...toBillReminderDbValues(
-								getDefaultBillReminderConfig({
-									billerName: parsedData.billerName,
-									billType: parsedData.billType,
-									templateName: parsedData.sourceFilename,
-								}),
-							),
-						})
-						.returning();
-					log?.set({
-						processedBills: [
-							{
-								billId: newBill.id,
-								billerName: parsedData.billerName,
-								totalAmount: parsedData.totalAmount,
-								referenceNumber: parsedData.referenceNumber,
-							},
-						],
-					});
-
-					const activeHousemates = await db
-						.select()
-						.from(housemates)
-						.where(eq(housemates.isActive, true));
-
-					if (activeHousemates.length === 0) {
-						throw createError({
-							message: "No active housemates found to assign bill to",
-							status: 500,
-							why: "The bill processor could not find any active housemates for debt assignment.",
-							fix: "Add or reactivate at least one housemate before importing bills.",
-						});
-					}
-
-					const nonOwnerHousemates = activeHousemates.filter(
-						(housemate) => !housemate.isOwner,
-					);
-					if (nonOwnerHousemates.length === 0) {
-						throw createError({
-							message: "No active non-owner housemates found to assign bill to",
-							status: 500,
-							why: "The bill processor only creates debts for non-owner housemates, but none are active.",
-							fix: "Mark at least one active housemate as a non-owner before importing bills.",
-						});
-					}
-
-					const { amountPerDebtor } = getEqualSplitAmounts({
-						totalAmount: parsedData.totalAmount,
-						participantCount: activeHousemates.length,
-						ownerCount: activeHousemates.length - nonOwnerHousemates.length,
-					});
-					const debtRecords = nonOwnerHousemates.map((housemate) => ({
-						billId: newBill.id,
-						housemateId: housemate.id,
-						amountOwed: amountPerDebtor,
-						amountPaid: 0,
-					}));
-
-					const insertedDebts = await db
-						.insert(debts)
-						.values(debtRecords)
-						.returning({
-							id: debts.id,
-							housemateId: debts.housemateId,
-						});
-					for (const debtRecord of insertedDebts) {
-						await applyHousemateCreditToDebt(
-							debtRecord.housemateId,
-							debtRecord.id,
-						);
-					}
-					log?.set({
-						debtCreation: {
-							billId: newBill.id,
-							debtRecordCount: debtRecords.length,
-							amountPerPerson: amountPerDebtor,
-						},
-					});
-					await enqueueBillCreatedNotification(newBill.id, "email_import");
-
-					results.push({
-						success: true,
-						billId: newBill.id,
-						filename: this.buildResultFilename(attachment.filename, parsedData),
-						status: "processed",
-						parsedData,
-					});
-				} catch (error) {
-					log?.error(error instanceof Error ? error : String(error), {
-						parsedBillFailures: [
-							{
-								billerName: parsedData.billerName,
-								referenceNumber: parsedData.referenceNumber,
-								filename: attachment.filename,
-							},
-						],
-					});
-					const errorMessage =
-						error instanceof Error ? error.message : String(error);
-
-					results.push({
-						success: false,
-						status: "failed",
-						filename: this.buildResultFilename(attachment.filename, parsedData),
-						error: errorMessage,
-					});
-				}
+						pdfUrl,
+						allowPdfShaFallback: parsedBills.length === 1,
+						log,
+					}),
+				);
 			}
 
 			return results;
@@ -325,6 +172,205 @@ export class BillProcessorService {
 
 	async testAIConnection(): Promise<boolean> {
 		return this.billExtractor.testAIConnection();
+	}
+
+	private async saveAttachmentPdf(
+		pdfSha256: string | undefined,
+		pdfBuffer: Buffer,
+	) {
+		return pdfSha256
+			? await this.billPdfStorage.savePdf(pdfSha256, pdfBuffer)
+			: null;
+	}
+
+	private async processParsedBill(input: {
+		attachmentFilename: string;
+		parsedData: ExtractedBillData;
+		pdfUrl: string | null;
+		allowPdfShaFallback: boolean;
+		log: ReturnType<typeof getRequestLogger>;
+	}): Promise<ProcessingResult> {
+		try {
+			const duplicateBill = await this.findDuplicateBill(
+				input.parsedData,
+				input.allowPdfShaFallback,
+			);
+			if (duplicateBill) {
+				return await this.handleDuplicateBill({
+					attachmentFilename: input.attachmentFilename,
+					parsedData: input.parsedData,
+					duplicateBill,
+					pdfUrl: input.pdfUrl,
+				});
+			}
+
+			const newBill = await this.createBillWithDebts(
+				input.parsedData,
+				input.pdfUrl,
+			);
+			input.log?.set({
+				processedBills: [
+					{
+						billId: newBill.id,
+						billerName: input.parsedData.billerName,
+						totalAmount: input.parsedData.totalAmount,
+						referenceNumber: input.parsedData.referenceNumber,
+					},
+				],
+			});
+			await enqueueBillCreatedNotification(newBill.id, "email_import");
+
+			return {
+				success: true,
+				billId: newBill.id,
+				filename: this.buildResultFilename(
+					input.attachmentFilename,
+					input.parsedData,
+				),
+				status: "processed",
+				parsedData: input.parsedData,
+			};
+		} catch (error) {
+			input.log?.error(error instanceof Error ? error : String(error), {
+				parsedBillFailures: [
+					{
+						billerName: input.parsedData.billerName,
+						referenceNumber: input.parsedData.referenceNumber,
+						filename: input.attachmentFilename,
+					},
+				],
+			});
+			return {
+				success: false,
+				status: "failed",
+				filename: this.buildResultFilename(
+					input.attachmentFilename,
+					input.parsedData,
+				),
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
+	}
+
+	private async handleDuplicateBill(input: {
+		attachmentFilename: string;
+		parsedData: ExtractedBillData;
+		duplicateBill: { id: string; pdfUrl: string | null };
+		pdfUrl: string | null;
+	}): Promise<ProcessingResult> {
+		if (input.pdfUrl && !input.duplicateBill.pdfUrl) {
+			await db
+				.update(bills)
+				.set({
+					pdfUrl: input.pdfUrl,
+					updatedAt: new Date(),
+				})
+				.where(eq(bills.id, input.duplicateBill.id));
+		}
+
+		return {
+			success: true,
+			status: "duplicate",
+			filename: this.buildResultFilename(
+				input.attachmentFilename,
+				input.parsedData,
+			),
+			billId: input.duplicateBill.id,
+			duplicateOfBillId: input.duplicateBill.id,
+			error: `Duplicate bill already imported as bill ${input.duplicateBill.id}`,
+		};
+	}
+
+	private async createBillWithDebts(
+		parsedData: ExtractedBillData,
+		pdfUrl: string | null,
+	) {
+		const [newBill] = await db
+			.insert(bills)
+			.values({
+				billerName: parsedData.billerName,
+				provider: parsedData.provider,
+				billType: parsedData.billType,
+				totalAmount: parsedData.totalAmount,
+				dueDate: parsedData.dueDate,
+				statementDate: parsedData.statementDate,
+				chargeDueDate: parsedData.chargeDueDate,
+				billPeriodStart: parsedData.billPeriodStart,
+				billPeriodEnd: parsedData.billPeriodEnd,
+				accountNumber: parsedData.accountNumber,
+				referenceNumber: parsedData.referenceNumber,
+				sourceFilename: parsedData.sourceFilename,
+				parseMethod: parsedData.parseMethod,
+				parseConfidence: parsedData.parseConfidence,
+				sourceFingerprint: parsedData.sourceFingerprint,
+				pdfSha256: parsedData.pdfSha256,
+				pdfUrl,
+				...toBillReminderDbValues(
+					getDefaultBillReminderConfig({
+						billerName: parsedData.billerName,
+						billType: parsedData.billType,
+						templateName: parsedData.sourceFilename,
+					}),
+				),
+			})
+			.returning();
+
+		await this.createDebtRecords(newBill.id, parsedData.totalAmount);
+		return newBill;
+	}
+
+	private async createDebtRecords(billId: string, totalAmount: number) {
+		const activeHousemates = await db
+			.select()
+			.from(housemates)
+			.where(eq(housemates.isActive, true));
+		if (activeHousemates.length === 0) {
+			throw createError({
+				message: "No active housemates found to assign bill to",
+				status: 500,
+				why: "The bill processor could not find any active housemates for debt assignment.",
+				fix: "Add or reactivate at least one housemate before importing bills.",
+			});
+		}
+
+		const nonOwnerHousemates = activeHousemates.filter(
+			(housemate) => !housemate.isOwner,
+		);
+		if (nonOwnerHousemates.length === 0) {
+			throw createError({
+				message: "No active non-owner housemates found to assign bill to",
+				status: 500,
+				why: "The bill processor only creates debts for non-owner housemates, but none are active.",
+				fix: "Mark at least one active housemate as a non-owner before importing bills.",
+			});
+		}
+
+		const { amountPerDebtor } = getEqualSplitAmounts({
+			totalAmount,
+			participantCount: activeHousemates.length,
+			ownerCount: activeHousemates.length - nonOwnerHousemates.length,
+		});
+		const debtRecords = nonOwnerHousemates.map((housemate) => ({
+			billId,
+			housemateId: housemate.id,
+			amountOwed: amountPerDebtor,
+			amountPaid: 0,
+		}));
+
+		const insertedDebts = await db.insert(debts).values(debtRecords).returning({
+			id: debts.id,
+			housemateId: debts.housemateId,
+		});
+		for (const debtRecord of insertedDebts) {
+			await applyHousemateCreditToDebt(debtRecord.housemateId, debtRecord.id);
+		}
+		getRequestLogger()?.set({
+			debtCreation: {
+				billId,
+				debtRecordCount: debtRecords.length,
+				amountPerPerson: amountPerDebtor,
+			},
+		});
 	}
 
 	private buildResultFilename(

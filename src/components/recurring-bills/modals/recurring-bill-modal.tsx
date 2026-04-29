@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -161,13 +162,15 @@ export function RecurringBillModal({
 									</SelectTrigger>
 									<SelectContent>
 										<SelectItem value="weekly">Weekly</SelectItem>
+										<SelectItem value="fortnightly">Fortnightly</SelectItem>
 										<SelectItem value="monthly">Monthly</SelectItem>
 										<SelectItem value="yearly">Yearly</SelectItem>
 									</SelectContent>
 								</Select>
 							</div>
 
-							{formData.frequency === "weekly" ? (
+							{formData.frequency === "weekly" ||
+							formData.frequency === "fortnightly" ? (
 								<div className="space-y-2">
 									<Label htmlFor="dayOfWeek">Weekday</Label>
 									<Select

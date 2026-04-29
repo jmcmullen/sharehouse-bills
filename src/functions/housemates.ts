@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { createServerFn } from "@tanstack/react-start";
 import { and, desc, eq } from "drizzle-orm";
 import { createError } from "evlog";

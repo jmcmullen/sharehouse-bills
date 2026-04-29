@@ -3,7 +3,10 @@ import { getPublicDebtReceiptPageData } from "../api/services/debt-receipt-page.
 import { getReceiptBillLabel } from "../lib/debt-receipt";
 import { OgCard } from "../lib/og-card";
 import { loadGoogleFonts, resolveFontSetup } from "../lib/og-fonts.server";
-import { createOgRouteHandler } from "../lib/og-route.server";
+import {
+	createOgHeadResponse,
+	createOgRouteHandler,
+} from "../lib/og-route.server";
 import { formatCurrency, truncate } from "../lib/share-preview";
 
 const receiptCardFontSetupPromise = resolveFontSetup({
@@ -16,6 +19,7 @@ const receiptCardFontSetupPromise = resolveFontSetup({
 export const Route = createFileRoute("/api/cards/receipt/$token")({
 	server: {
 		handlers: {
+			HEAD: () => createOgHeadResponse(),
 			GET: async ({ params, request }) => {
 				const receipt = await getPublicDebtReceiptPageData(params.token);
 				if (!receipt) {

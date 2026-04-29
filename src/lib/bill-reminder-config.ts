@@ -22,7 +22,7 @@ export type BillReminderConfig = {
 	overdueWeekday: number | null;
 };
 
-export const DEFAULT_BILL_REMINDER_CONFIG: BillReminderConfig = {
+const DEFAULT_BILL_REMINDER_CONFIG: BillReminderConfig = {
 	remindersEnabled: true,
 	reminderMode: "individual",
 	stackGroup: null,
@@ -31,7 +31,7 @@ export const DEFAULT_BILL_REMINDER_CONFIG: BillReminderConfig = {
 	overdueWeekday: 2,
 };
 
-export type BillReminderDefaultsInput = {
+type BillReminderDefaultsInput = {
 	billerName?: string | null;
 	billType?:
 		| "electricity"
@@ -48,9 +48,7 @@ function isValidWeekday(value: number) {
 	return Number.isInteger(value) && value >= 0 && value <= 6;
 }
 
-export function normalizePreDueOffsetsDays(
-	offsets: number[] | null | undefined,
-) {
+function normalizePreDueOffsetsDays(offsets: number[] | null | undefined) {
 	if (!offsets) {
 		return [...DEFAULT_BILL_REMINDER_CONFIG.preDueOffsetsDays];
 	}
@@ -60,7 +58,7 @@ export function normalizePreDueOffsetsDays(
 		.sort((left, right) => right - left);
 }
 
-export function normalizeStackGroup(value: string | null | undefined) {
+function normalizeStackGroup(value: string | null | undefined) {
 	const trimmed = value?.trim();
 	return trimmed ? trimmed : null;
 }

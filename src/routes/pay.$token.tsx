@@ -1,4 +1,6 @@
+// fallow-ignore-file code-duplication
 import { BillPdfStorageService } from "@/api/services/bill-pdf-storage";
+import type { PublicHousematePayPageData } from "@/api/services/housemate-pay-page.server";
 import { PayNowDialog } from "@/components/public/pay-now-dialog";
 import { PublicStatusBadge } from "@/components/public/status-badge";
 import { Button } from "@/components/ui/button";
@@ -464,237 +466,343 @@ function BillRow({
 	);
 }
 
+type PayPageItem = Omit<
+	PublicHousematePayPageData["items"][number],
+	"billPeriodEnd" | "billPeriodStart" | "dueDate"
+> & {
+	billPeriodEndIso: string | null;
+	billPeriodStartIso: string | null;
+	dueDateIso: string;
+};
+
+type PayPageData = Omit<
+	PublicHousematePayPageData,
+	"items" | "nonUtilityItems" | "utilityGroups"
+> & {
+	items: PayPageItem[];
+	nonUtilityItems: PayPageItem[];
+	payId: string | null;
+	previewDate: string | null;
+	utilityGroups: Array<{
+		label: string;
+		items: PayPageItem[];
+	}>;
+};
+
+function ExpiredPayPage() {
+	return (
+		<div className="flex min-h-screen items-center justify-center bg-background px-5 py-12">
+			<div className="mx-auto flex max-w-sm flex-col items-center gap-5 text-center">
+				<div
+					aria-hidden
+					className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted font-bold text-2xl text-muted-foreground"
+				>
+					?
+				</div>
+				<div className="space-y-2">
+					<h1 className="font-bold text-2xl tracking-tight">
+						Hmm, this payment page&apos;s gone walkabout
+					</h1>
+					<p className="text-[14px] text-muted-foreground leading-6">
+						The link might be old, or there are no unpaid bills left. Ask
+						whoever sent it for a fresh one.
+					</p>
+				</div>
+				<Button asChild variant="outline" className="h-11 font-medium">
+					<a href="/">Head home</a>
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+function getSingleReminderItem(data: PayPageData) {
+	return data.summary.billCount > 0 &&
+		data.scope.kind === "bills" &&
+		data.items.length === 1
+		? data.items[0]
+		: null;
+}
+
+function getPayStatusBadge(input: {
+	isAllSorted: boolean;
+	singleReminderItem: PayPageItem | null;
+	summary: PayPageData["summary"];
+}) {
+	if (input.isAllSorted) {
+		return { label: "Nothing due", tone: "success" as const };
+	}
+
+	if (input.singleReminderItem) {
+		return {
+			label: input.singleReminderItem.isOverdue
+				? "Overdue reminder"
+				: "Reminder",
+			tone: input.singleReminderItem.isOverdue
+				? ("danger" as const)
+				: ("warning" as const),
+		};
+	}
+
+	if (input.summary.overdueCount > 0) {
+		return {
+			label: `${input.summary.overdueCount} overdue, ${input.summary.billCount} unpaid`,
+			tone: "danger" as const,
+		};
+	}
+
+	return {
+		label: `${input.summary.billCount} unpaid`,
+		tone: "warning" as const,
+	};
+}
+
+function getPayVerb(input: {
+	scope: PayPageData["scope"];
+	stackGroupLabel: string | null;
+	billCount: number;
+}) {
+	if (input.scope.kind === "stack" && input.stackGroupLabel) {
+		return `Pay ${input.stackGroupLabel.toLowerCase()}`;
+	}
+
+	if (input.scope.kind === "bills") {
+		return input.billCount === 1 ? "Pay this bill" : "Pay these bills";
+	}
+
+	return "Pay all bills";
+}
+
+function PayHeader({
+	data,
+	isAllSorted,
+	stackGroupLabel,
+	singleReminderItem,
+}: {
+	data: PayPageData;
+	isAllSorted: boolean;
+	stackGroupLabel: string | null;
+	singleReminderItem: PayPageItem | null;
+}) {
+	const statusBadge = getPayStatusBadge({
+		isAllSorted,
+		singleReminderItem,
+		summary: data.summary,
+	});
+
+	return (
+		<header className="flex flex-col gap-3">
+			<p className="truncate font-semibold text-[15px] tracking-tight">
+				{data.housemate.name}
+			</p>
+			<div className="flex flex-col gap-1">
+				<p className={SECTION_LABEL_CLASS}>
+					{isAllSorted ? "All sorted" : "You owe"}
+				</p>
+				<h1 className="font-bold text-[3.25rem] tabular-nums leading-[1.02] tracking-[-0.03em]">
+					{formatCurrency(data.paymentProgress.remainingAmount)}
+				</h1>
+			</div>
+			<div className="flex flex-wrap gap-2">
+				<PublicStatusBadge tone={statusBadge.tone}>
+					{statusBadge.label}
+				</PublicStatusBadge>
+				{stackGroupLabel ? (
+					<PublicStatusBadge tone="neutral">
+						{stackGroupLabel}
+					</PublicStatusBadge>
+				) : data.scope.kind === "bills" && !singleReminderItem ? (
+					<PublicStatusBadge tone="neutral">Reminder</PublicStatusBadge>
+				) : null}
+			</div>
+		</header>
+	);
+}
+
+function PaymentProgressSection({
+	paymentProgress,
+}: {
+	paymentProgress: PayPageData["paymentProgress"];
+}) {
+	return (
+		<section className="space-y-2.5">
+			<div className="flex items-baseline justify-between gap-3">
+				<p className="font-medium text-muted-foreground text-sm">
+					<span className="tabular-nums">
+						{formatCurrency(paymentProgress.settledAmount)}
+					</span>{" "}
+					of{" "}
+					<span className="tabular-nums">
+						{formatCurrency(
+							paymentProgress.settledAmount + paymentProgress.remainingAmount,
+						)}
+					</span>{" "}
+					sorted
+				</p>
+				<p className="font-semibold text-foreground text-sm tabular-nums">
+					{paymentProgress.percentage}%
+				</p>
+			</div>
+			<Progress
+				value={paymentProgress.percentage}
+				aria-label="Payment progress"
+				className="h-2 bg-muted"
+			/>
+		</section>
+	);
+}
+
+function getPayBillSecondaryText(
+	item: PayPageItem,
+	scopeKind: PayPageData["scope"]["kind"],
+) {
+	const period = formatBillPeriod({
+		billPeriodStartIso: item.billPeriodStartIso,
+		billPeriodEndIso: item.billPeriodEndIso,
+		dueDateIso: item.dueDateIso,
+	});
+
+	return scopeKind === "all"
+		? period
+		: `${period} · ${formatDueUrgency(item.dueDateIso).label}`;
+}
+
+function PayBillListSection({
+	scope,
+	stackGroupLabel,
+	items,
+}: {
+	scope: PayPageData["scope"];
+	stackGroupLabel: string | null;
+	items: PayPageData["items"];
+}) {
+	if (scope.kind === "all" && items.length === 0) {
+		return null;
+	}
+
+	return (
+		<section>
+			<h2 className={`pb-3 ${SECTION_LABEL_CLASS}`}>
+				{scope.kind === "all" ? "Bills" : (stackGroupLabel ?? "Bills")}
+			</h2>
+			<ul className="divide-y divide-border/60">
+				{items.map((item) => (
+					<BillRow
+						key={item.billId}
+						primary={item.billerName || "Bill"}
+						secondary={getPayBillSecondaryText(item, scope.kind)}
+						amount={item.remainingAmount}
+						billPath={item.billPath}
+					/>
+				))}
+			</ul>
+		</section>
+	);
+}
+
+function PayFooterActions({
+	isAllSorted,
+	scope,
+	payVerb,
+	payId,
+	remainingAmount,
+}: {
+	isAllSorted: boolean;
+	scope: PayPageData["scope"];
+	payVerb: string;
+	payId: string | null;
+	remainingAmount: number;
+}) {
+	const canViewAllBills =
+		(scope.kind === "stack" || scope.kind === "bills") &&
+		Boolean(scope.allBillsPath);
+	if (isAllSorted && !canViewAllBills) {
+		return null;
+	}
+
+	return (
+		<div className="fixed inset-x-0 bottom-0 z-20 bg-background/95 px-5 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:z-auto sm:mt-auto sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0 sm:backdrop-blur-none">
+			<div className="mx-auto flex w-full max-w-md flex-col gap-2.5">
+				{canViewAllBills ? (
+					<Button asChild variant="outline" className="h-11 w-full font-medium">
+						<a href={scope.allBillsPath ?? ""}>View all bills</a>
+					</Button>
+				) : null}
+				{isAllSorted ? null : (
+					<PayNowDialog
+						triggerLabel={payVerb}
+						title={payVerb}
+						payId={payId}
+						amount={remainingAmount}
+						descriptionValue="Bills"
+					/>
+				)}
+			</div>
+		</div>
+	);
+}
+
 function PublicPayPage() {
 	const loaderData = Route.useLoaderData();
 
 	if (!loaderData) {
-		return (
-			<div className="flex min-h-screen items-center justify-center bg-background px-5 py-12">
-				<div className="mx-auto flex max-w-sm flex-col items-center gap-5 text-center">
-					<div
-						aria-hidden
-						className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted font-bold text-2xl text-muted-foreground"
-					>
-						?
-					</div>
-					<div className="space-y-2">
-						<h1 className="font-bold text-2xl tracking-tight">
-							Hmm, this payment page&apos;s gone walkabout
-						</h1>
-						<p className="text-[14px] text-muted-foreground leading-6">
-							The link might be old, or there are no unpaid bills left. Ask
-							whoever sent it for a fresh one.
-						</p>
-					</div>
-					<Button asChild variant="outline" className="h-11 font-medium">
-						<a href="/">Head home</a>
-					</Button>
-				</div>
-			</div>
-		);
+		return <ExpiredPayPage />;
 	}
 
-	const {
-		housemate,
-		scope,
-		items,
-		paymentProgress,
-		summary,
-		payId,
-		recentlySettled,
-	} = loaderData;
-	const isAllSorted = summary.billCount === 0;
+	const isAllSorted = loaderData.summary.billCount === 0;
 	const stackGroupLabel =
-		scope.kind === "stack" ? formatStackGroupLabel(scope.stackGroup) : null;
-	const isBillsScope = scope.kind === "bills";
-	const singleReminderItem =
-		!isAllSorted && isBillsScope && items.length === 1 ? items[0] : null;
-	const showProgress = !isAllSorted && paymentProgress.settledAmount > 0;
-	const housemateFirstName = getFirstName(housemate.name);
-	const statusBadge = isAllSorted
-		? {
-				label: "Nothing due",
-				tone: "success" as const,
-			}
-		: singleReminderItem
-			? {
-					label: singleReminderItem.isOverdue ? "Overdue reminder" : "Reminder",
-					tone: singleReminderItem.isOverdue
-						? ("danger" as const)
-						: ("warning" as const),
-				}
-			: summary.overdueCount > 0
-				? {
-						label: `${summary.overdueCount} overdue, ${summary.billCount} unpaid`,
-						tone: "danger" as const,
-					}
-				: {
-						label: `${summary.billCount} unpaid`,
-						tone: "warning" as const,
-					};
-	const payVerb =
-		scope.kind === "stack" && stackGroupLabel
-			? `Pay ${stackGroupLabel.toLowerCase()}`
-			: isBillsScope
-				? summary.billCount === 1
-					? "Pay this bill"
-					: "Pay these bills"
-				: "Pay all bills";
+		loaderData.scope.kind === "stack"
+			? formatStackGroupLabel(loaderData.scope.stackGroup)
+			: null;
+	const singleReminderItem = getSingleReminderItem(loaderData);
+	const payVerb = getPayVerb({
+		scope: loaderData.scope,
+		stackGroupLabel,
+		billCount: loaderData.summary.billCount,
+	});
 	const hasFooterActions =
 		!isAllSorted ||
-		((scope.kind === "stack" || isBillsScope) && Boolean(scope.allBillsPath));
+		((loaderData.scope.kind === "stack" || loaderData.scope.kind === "bills") &&
+			Boolean(loaderData.scope.allBillsPath));
 
 	return (
 		<div className="min-h-screen bg-background text-foreground">
 			<div
 				className={`mx-auto flex min-h-screen max-w-md flex-col gap-7 px-5 pt-5 ${hasFooterActions ? "pb-32 sm:pb-12" : "pb-6 sm:pb-12"} sm:min-h-0 sm:gap-8 sm:pt-8`}
 			>
-				<header className="flex flex-col gap-3">
-					<p className="truncate font-semibold text-[15px] tracking-tight">
-						{housemate.name}
-					</p>
-					<div className="flex flex-col gap-1">
-						<p className={SECTION_LABEL_CLASS}>
-							{isAllSorted ? "All sorted" : "You owe"}
-						</p>
-						<h1 className="font-bold text-[3.25rem] tabular-nums leading-[1.02] tracking-[-0.03em]">
-							{formatCurrency(paymentProgress.remainingAmount)}
-						</h1>
-					</div>
-					<div className="flex flex-wrap gap-2">
-						<PublicStatusBadge tone={statusBadge.tone}>
-							{statusBadge.label}
-						</PublicStatusBadge>
-						{scope.kind === "stack" && stackGroupLabel ? (
-							<PublicStatusBadge tone="neutral">
-								{stackGroupLabel}
-							</PublicStatusBadge>
-						) : isBillsScope && !singleReminderItem ? (
-							<PublicStatusBadge tone="neutral">Reminder</PublicStatusBadge>
-						) : null}
-					</div>
-				</header>
+				<PayHeader
+					data={loaderData}
+					isAllSorted={isAllSorted}
+					stackGroupLabel={stackGroupLabel}
+					singleReminderItem={singleReminderItem}
+				/>
 
 				{isAllSorted ? (
 					<AllSortedPanel
-						housemateFirstName={housemateFirstName}
-						recentlySettled={recentlySettled}
+						housemateFirstName={getFirstName(loaderData.housemate.name)}
+						recentlySettled={loaderData.recentlySettled}
 					/>
 				) : null}
 
-				{showProgress ? (
-					<section className="space-y-2.5">
-						<div className="flex items-baseline justify-between gap-3">
-							<p className="font-medium text-muted-foreground text-sm">
-								<span className="tabular-nums">
-									{formatCurrency(paymentProgress.settledAmount)}
-								</span>{" "}
-								of{" "}
-								<span className="tabular-nums">
-									{formatCurrency(
-										paymentProgress.settledAmount +
-											paymentProgress.remainingAmount,
-									)}
-								</span>{" "}
-								sorted
-							</p>
-							<p className="font-semibold text-foreground text-sm tabular-nums">
-								{paymentProgress.percentage}%
-							</p>
-						</div>
-						<Progress
-							value={paymentProgress.percentage}
-							aria-label="Payment progress"
-							className="h-2 bg-muted"
-						/>
-					</section>
+				{!isAllSorted && loaderData.paymentProgress.settledAmount > 0 ? (
+					<PaymentProgressSection
+						paymentProgress={loaderData.paymentProgress}
+					/>
 				) : null}
 
-				{scope.kind === "all" ? (
-					items.length > 0 ? (
-						<section>
-							<h2 className={`pb-3 ${SECTION_LABEL_CLASS}`}>Bills</h2>
-							<ul className="divide-y divide-border/60">
-								{items.map((item) => (
-									<BillRow
-										key={item.billId}
-										primary={item.billerName || "Bill"}
-										secondary={formatBillPeriod({
-											billPeriodStartIso: item.billPeriodStartIso,
-											billPeriodEndIso: item.billPeriodEndIso,
-											dueDateIso: item.dueDateIso,
-										})}
-										amount={item.remainingAmount}
-										billPath={item.billPath}
-									/>
-								))}
-							</ul>
-						</section>
-					) : null
-				) : (
-					<section>
-						<h2 className={`pb-3 ${SECTION_LABEL_CLASS}`}>
-							{stackGroupLabel ?? "Bills"}
-						</h2>
-						<ul className="divide-y divide-border/60">
-							{items.map((item) => {
-								const period = formatBillPeriod({
-									billPeriodStartIso: item.billPeriodStartIso,
-									billPeriodEndIso: item.billPeriodEndIso,
-									dueDateIso: item.dueDateIso,
-								});
-								const urgency = formatDueUrgency(item.dueDateIso).label;
-								return (
-									<BillRow
-										key={item.billId}
-										primary={item.billerName || "Bill"}
-										secondary={`${period} · ${urgency}`}
-										amount={item.remainingAmount}
-										billPath={item.billPath}
-									/>
-								);
-							})}
-						</ul>
-					</section>
-				)}
+				<PayBillListSection
+					scope={loaderData.scope}
+					stackGroupLabel={stackGroupLabel}
+					items={loaderData.items}
+				/>
 
-				{isAllSorted ? (
-					(scope.kind === "stack" || isBillsScope) && scope.allBillsPath ? (
-						<div className="fixed inset-x-0 bottom-0 z-20 bg-background/95 px-5 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:z-auto sm:mt-auto sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0 sm:backdrop-blur-none">
-							<div className="mx-auto flex w-full max-w-md flex-col gap-2.5">
-								<Button
-									asChild
-									variant="outline"
-									className="h-11 w-full font-medium"
-								>
-									<a href={scope.allBillsPath}>View all bills</a>
-								</Button>
-							</div>
-						</div>
-					) : null
-				) : (
-					<div className="fixed inset-x-0 bottom-0 z-20 bg-background/95 px-5 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:z-auto sm:mt-auto sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0 sm:backdrop-blur-none">
-						<div className="mx-auto flex w-full max-w-md flex-col gap-2.5">
-							{(scope.kind === "stack" || isBillsScope) &&
-							scope.allBillsPath ? (
-								<Button
-									asChild
-									variant="outline"
-									className="h-11 w-full font-medium"
-								>
-									<a href={scope.allBillsPath}>View all bills</a>
-								</Button>
-							) : null}
-							<PayNowDialog
-								triggerLabel={payVerb}
-								title={payVerb}
-								payId={payId}
-								amount={paymentProgress.remainingAmount}
-								descriptionValue="Bills"
-							/>
-						</div>
-					</div>
-				)}
+				<PayFooterActions
+					isAllSorted={isAllSorted}
+					scope={loaderData.scope}
+					payVerb={payVerb}
+					payId={loaderData.payId}
+					remainingAmount={loaderData.paymentProgress.remainingAmount}
+				/>
 			</div>
 		</div>
 	);

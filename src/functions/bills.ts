@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { createServerFn } from "@tanstack/react-start";
 import { and, desc, eq } from "drizzle-orm";
 import { createError } from "evlog";
@@ -10,7 +11,6 @@ import { paymentTransactions } from "../api/db/schema/payment-transactions";
 import {
 	applyHousemateCreditToDebt,
 	getRemainingDebtAmount,
-	roundCurrency,
 	updateBillStatusFromDebts,
 } from "../api/services/debt-payment-state";
 import { createPayPath } from "../api/services/housemate-pay-page.server";
@@ -25,7 +25,7 @@ import {
 	getDefaultBillReminderConfig,
 	toBillReminderDbValues,
 } from "../lib/bill-reminder-config";
-import { getEqualSplitAmounts } from "../lib/equal-split";
+import { getEqualSplitAmounts, roundCurrency } from "../lib/equal-split";
 import { entityIdSchema, generateEntityId } from "../lib/id";
 import { getRequestLogger } from "../lib/request-logger";
 

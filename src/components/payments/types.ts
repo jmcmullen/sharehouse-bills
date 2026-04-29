@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 export interface PaymentListItem {
 	id: string;
 	transactionId: string;

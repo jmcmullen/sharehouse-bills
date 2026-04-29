@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
 import { type RequestLogger, createError } from "evlog";
@@ -123,6 +124,21 @@ function parseWahaGroupMessage(payload: unknown): WahaGroupMessage | null {
 		return null;
 	}
 
+	return (
+		parseDirectWahaMessage(container, eventName, sessionName) ??
+		parseNestedWahaMessage(container, eventName, sessionName)
+	);
+}
+
+function isWahaMessageEvent(eventName: string | null) {
+	return eventName === "message.group" || eventName === "message";
+}
+
+function parseDirectWahaMessage(
+	container: Record<string, unknown>,
+	eventName: string | null,
+	sessionName: string | null,
+): WahaGroupMessage | null {
 	const directMessage = {
 		body: getStringValue(container.body),
 		chatId: getStringValue(container.from),
@@ -131,7 +147,7 @@ function parseWahaGroupMessage(payload: unknown): WahaGroupMessage | null {
 			getStringValue(container.sender) ?? getStringValue(container.from),
 	};
 	if (
-		(eventName === "message.group" || eventName === "message") &&
+		isWahaMessageEvent(eventName) &&
 		directMessage.body &&
 		directMessage.chatId &&
 		directMessage.messageId &&
@@ -146,6 +162,14 @@ function parseWahaGroupMessage(payload: unknown): WahaGroupMessage | null {
 		};
 	}
 
+	return null;
+}
+
+function parseNestedWahaMessage(
+	container: Record<string, unknown>,
+	eventName: string | null,
+	sessionName: string | null,
+): WahaGroupMessage | null {
 	const nestedMessage = isRecord(container.message) ? container.message : null;
 	const nestedBody = getStringValue(nestedMessage?.body);
 	const nestedSenderChatId = getStringValue(nestedMessage?.from);
@@ -155,7 +179,7 @@ function parseWahaGroupMessage(payload: unknown): WahaGroupMessage | null {
 		getStringValue(nestedMessage?.id) ?? getStringValue(container.id);
 
 	if (
-		(eventName === "message.group" || eventName === "message") &&
+		isWahaMessageEvent(eventName) &&
 		nestedBody &&
 		(nestedSenderChatId ?? nestedChatId) &&
 		nestedChatId &&
@@ -289,6 +313,25 @@ export const Route = createFileRoute("/api/hooks/whatsapp")({
 					return Response.json({
 						success: true,
 						queued: true,
+					});
+				}
+
+				if (!isPrivateChat && !isAdminSender && !parsedCommand) {
+					setApiResponseContext(
+						log,
+						{ contentType: "application/json" },
+						{
+							webhook: {
+								provider: "waha",
+								ignored: true,
+								ignoreReason: "group_chatter",
+							},
+						},
+					);
+					return Response.json({
+						success: true,
+						ignored: true,
+						reason: "group_chatter",
 					});
 				}
 

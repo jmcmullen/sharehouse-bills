@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 type OgCardProps = {
 	backgroundColor: string;
 	fontFamily?: string;

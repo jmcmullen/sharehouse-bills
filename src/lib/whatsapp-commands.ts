@@ -9,7 +9,7 @@ export type InboundCommandType =
 	| "pay"
 	| "not_allowed";
 
-export type ParsedInboundCommand = {
+type ParsedInboundCommand = {
 	commandType: InboundCommandType;
 	requestedFirstName: string | null;
 };

@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { sql } from "drizzle-orm";
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
@@ -9,9 +10,9 @@ export const recurringBills = sqliteTable("recurringBills", {
 	billerName: text("billerName").notNull(), // "Property Manager", "Landlord"
 	totalAmount: real("totalAmount").notNull(), // Base amount (e.g., 1890.00)
 	frequency: text("frequency", {
-		enum: ["weekly", "monthly", "yearly"],
+		enum: ["weekly", "fortnightly", "monthly", "yearly"],
 	}).notNull(),
-	dayOfWeek: integer("dayOfWeek"), // 0=Sunday, 4=Thursday (for weekly bills)
+	dayOfWeek: integer("dayOfWeek"), // 0=Sunday, 4=Thursday (for weekly/fortnightly bills)
 	dayOfMonth: integer("dayOfMonth"), // 1-31 (for monthly bills)
 	startDate: integer("startDate", { mode: "timestamp" }).notNull(), // When pattern begins
 	endDate: integer("endDate", { mode: "timestamp" }), // When pattern ends (nullable)

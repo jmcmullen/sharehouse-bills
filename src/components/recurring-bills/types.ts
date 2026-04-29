@@ -3,7 +3,7 @@ import type {
 	BillReminderOverdueCadence,
 } from "@/lib/bill-reminder-config";
 
-export interface RecurringBillListAssignment {
+interface RecurringBillListAssignment {
 	id: string;
 	recurringBillId: string;
 	housemateId: string;
@@ -14,12 +14,12 @@ export interface RecurringBillListAssignment {
 	housemateIsActive: boolean;
 }
 
-export interface RecurringBillTemplate {
+interface RecurringBillTemplate {
 	id: string;
 	templateName: string;
 	billerName: string;
 	totalAmount: number;
-	frequency: "weekly" | "monthly" | "yearly";
+	frequency: "weekly" | "fortnightly" | "monthly" | "yearly";
 	dayOfWeek: number | null;
 	dayOfMonth: number | null;
 	startDate: string | Date;
@@ -37,7 +37,7 @@ export interface RecurringBillTemplate {
 	updatedAt: string | Date;
 }
 
-export interface RecurringBillPreviewAssignment {
+interface RecurringBillPreviewAssignment {
 	housemateId: string;
 	name: string;
 	isOwner: boolean;
@@ -45,7 +45,7 @@ export interface RecurringBillPreviewAssignment {
 	amountOwed: number;
 }
 
-export interface RecurringBillPreview {
+interface RecurringBillPreview {
 	nextDueDate: string | Date | null;
 	assignments: RecurringBillPreviewAssignment[];
 	ownerShare: number;
@@ -68,7 +68,7 @@ export interface HousemateOption {
 	isOwner: boolean;
 }
 
-export interface RecurringBillAssignmentFormData {
+interface RecurringBillAssignmentFormData {
 	housemateId: string;
 	name: string;
 	isOwner: boolean;
@@ -81,7 +81,7 @@ export interface RecurringBillFormData {
 	templateName: string;
 	billerName: string;
 	totalAmount: string;
-	frequency: "weekly" | "monthly" | "yearly";
+	frequency: "weekly" | "fortnightly" | "monthly" | "yearly";
 	dayOfWeek: string;
 	dayOfMonth: string;
 	startDate: string;

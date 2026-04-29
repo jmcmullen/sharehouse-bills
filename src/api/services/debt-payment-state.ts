@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { roundCurrency } from "../../lib/equal-split";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
@@ -7,10 +8,6 @@ import {
 	enqueueBillPaidNotification,
 	enqueueDebtPaidNotification,
 } from "./whatsapp-notification-events";
-
-export function roundCurrency(amount: number) {
-	return Math.round((amount + Number.EPSILON) * 100) / 100;
-}
 
 export function getRemainingDebtAmount(debt: {
 	amountOwed: number;

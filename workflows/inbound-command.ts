@@ -28,6 +28,14 @@ export async function runDueCommandNotification(notificationId: string) {
 			return;
 		}
 
+		if (isGroupInboundContext(context) && !context.housemate) {
+			await markNotificationIgnored(
+				notificationId,
+				"unknown WhatsApp sender for group command",
+			);
+			return;
+		}
+
 		if (commandShouldReceiveReaction(context.commandType)) {
 			await reactToDueCommand(notificationId);
 		}
@@ -41,6 +49,12 @@ export async function runDueCommandNotification(notificationId: string) {
 
 function commandShouldReceiveReaction(commandType: InboundCommandType) {
 	return commandType !== "pay" && commandType !== "not_allowed";
+}
+
+function isGroupInboundContext(
+	context: NonNullable<Awaited<ReturnType<typeof loadDueCommandContext>>>,
+) {
+	return context.notification.inboundChatId?.endsWith("@g.us") ?? false;
 }
 
 async function loadDueCommandContext(notificationId: string) {
@@ -81,6 +95,31 @@ async function sendDueCommandSummary(notificationId: string) {
 	"use step";
 
 	const context = await requireDueCommandContext(notificationId);
+	const dependencies = await loadDueCommandSummaryDependencies();
+
+	if (context.commandType === "init") {
+		await sendInitCommandSummary({ notificationId, context, dependencies });
+		return;
+	}
+
+	if (context.commandType === "paylinks") {
+		await sendPayLinksCommandSummary({ notificationId, context, dependencies });
+		return;
+	}
+
+	if (context.commandType === "reminder") {
+		await sendReminderPreviewSummary({ notificationId, context, dependencies });
+		return;
+	}
+
+	await sendDefaultInboundCommandSummary({
+		notificationId,
+		context,
+		dependencies,
+	});
+}
+
+async function loadDueCommandSummaryDependencies() {
 	const {
 		buildBillPaidSummary,
 		buildBillReminderPreviewSummary,
@@ -111,153 +150,218 @@ async function sendDueCommandSummary(notificationId: string) {
 		getRandomDebtPaidPreviewContext,
 	} = await import("../src/api/services/whatsapp-notifications");
 	const { getRandomBillReminderPreview: getRandomReminderPreview } =
-		await import("../src/api/services/bill-reminder");
+		await import("../src/api/services/bill-reminder-preview");
 	const { sendWhatsappTextMessage } = await import("../src/api/services/waha");
 	const previewDate = BillPdfStorageService.getMessageCacheDate();
 	const housematePaymentNames = await getActiveHousematePaymentNames();
 
-	if (context.commandType === "init") {
-		const groupChatId = context.notification.inboundChatId;
-		if (!groupChatId) {
-			throw new FatalError("Unable to resolve a group chat for /init");
-		}
+	return {
+		buildAdminPayLinksSummary,
+		buildBillPaidSummary,
+		buildBillReminderPreviewSummary,
+		buildBillReminderSummary,
+		buildDueCommandNotFoundSummary,
+		buildInitBillsSummary,
+		buildInitIntroSummary,
+		buildNotAllowedSummary,
+		buildPayLinkSummary,
+		buildUnknownHousematePaySummary,
+		createAbsoluteDebtReceiptUrl,
+		createAbsolutePayUrl,
+		getAbsoluteViewerUrl: BillPdfStorageService.getAbsoluteViewerUrl.bind(
+			BillPdfStorageService,
+		),
+		getCurrentUnpaidBillSummaries,
+		getHousematePayLinkBatch,
+		getRandomBillPaidPreviewContext,
+		getRandomBillPreviewContext,
+		getRandomDebtPaidPreviewContext,
+		getRandomReminderPreview,
+		housematePaymentNames,
+		previewDate,
+		sendWhatsappTextMessage,
+	};
+}
 
-		const currentBills = await getCurrentUnpaidBillSummaries();
+type DueCommandContext = NonNullable<
+	Awaited<ReturnType<typeof loadDueCommandContext>>
+>;
+type DueCommandSummaryDependencies = Awaited<
+	ReturnType<typeof loadDueCommandSummaryDependencies>
+>;
+
+type SendDueCommandBranchArgs = {
+	notificationId: string;
+	context: DueCommandContext;
+	dependencies: DueCommandSummaryDependencies;
+};
+
+async function sendInitCommandSummary({
+	notificationId,
+	context,
+	dependencies,
+}: SendDueCommandBranchArgs) {
+	const groupChatId = context.notification.inboundChatId;
+	if (!groupChatId) {
+		throw new FatalError("Unable to resolve a group chat for /init");
+	}
+
+	const currentBills = await dependencies.getCurrentUnpaidBillSummaries();
+	await performTrackedWhatsappDelivery({
+		notificationId,
+		deliveryKey: "init_intro",
+		operation: "/init intro WhatsApp message",
+		deliver: async () =>
+			await dependencies.sendWhatsappTextMessage(
+				groupChatId,
+				dependencies.buildInitIntroSummary(),
+			),
+	});
+	await performTrackedWhatsappDelivery({
+		notificationId,
+		deliveryKey: "init_bill_snapshot",
+		operation: "/init bill snapshot WhatsApp message",
+		deliver: async () =>
+			await dependencies.sendWhatsappTextMessage(
+				groupChatId,
+				dependencies.buildInitBillsSummary({
+					asOf: new Date(),
+					totalOutstanding: currentBills.totalOutstanding,
+					bills: currentBills.bills,
+				}),
+			),
+	});
+}
+
+async function sendPayLinksCommandSummary({
+	notificationId,
+	context,
+	dependencies,
+}: SendDueCommandBranchArgs) {
+	const chatId = context.replyChatId;
+	if (!chatId) {
+		throw new FatalError("Unable to resolve an admin chat for /paylinks");
+	}
+
+	const payLinkBatch = await dependencies.getHousematePayLinkBatch(
+		dependencies.previewDate,
+	);
+	const sentHousemateNames: string[] = [];
+
+	for (const target of payLinkBatch.deliverableTargets) {
+		if (!target.chatId || !target.payUrl) {
+			continue;
+		}
+		const targetChatId = target.chatId;
+		const targetPayUrl = target.payUrl;
+
 		await performTrackedWhatsappDelivery({
 			notificationId,
-			deliveryKey: "init_intro",
-			operation: "/init intro WhatsApp message",
+			deliveryKey: `paylinks_${target.housemateId}`,
+			operation: `/paylinks DM for ${target.housemateName}`,
 			deliver: async () =>
-				await sendWhatsappTextMessage(groupChatId, buildInitIntroSummary()),
-		});
-		await performTrackedWhatsappDelivery({
-			notificationId,
-			deliveryKey: "init_bill_snapshot",
-			operation: "/init bill snapshot WhatsApp message",
-			deliver: async () =>
-				await sendWhatsappTextMessage(
-					groupChatId,
-					buildInitBillsSummary({
-						asOf: new Date(),
-						totalOutstanding: currentBills.totalOutstanding,
-						bills: currentBills.bills,
+				await dependencies.sendWhatsappTextMessage(
+					targetChatId,
+					dependencies.buildPayLinkSummary({
+						payUrl: targetPayUrl,
+						housemateName: target.housemateName,
+						housemateFirstNames: dependencies.housematePaymentNames,
 					}),
 				),
 		});
-		return;
+		sentHousemateNames.push(target.housemateName);
 	}
 
-	if (context.commandType === "paylinks") {
-		const chatId = context.replyChatId;
-		if (!chatId) {
-			throw new FatalError("Unable to resolve an admin chat for /paylinks");
-		}
+	await performTrackedWhatsappDelivery({
+		notificationId,
+		deliveryKey: "paylinks_summary",
+		operation: "/paylinks admin WhatsApp summary",
+		deliver: async () =>
+			await dependencies.sendWhatsappTextMessage(
+				chatId,
+				dependencies.buildAdminPayLinksSummary({
+					sentHousemateNames,
+					skippedRecipients: payLinkBatch.skippedTargets.map((target) => ({
+						housemateName: target.housemateName,
+						reason: target.reason,
+					})),
+				}),
+			),
+	});
+}
 
-		const payLinkBatch = await getHousematePayLinkBatch(previewDate);
-		const sentHousemateNames: string[] = [];
+async function sendReminderPreviewSummary({
+	notificationId,
+	context,
+	dependencies,
+}: SendDueCommandBranchArgs) {
+	const reminderPreview = await dependencies.getRandomReminderPreview(
+		new Date(),
+	);
 
-		for (const target of payLinkBatch.deliverableTargets) {
-			if (!target.chatId || !target.payUrl) {
-				continue;
-			}
-			const targetChatId = target.chatId;
-			const targetPayUrl = target.payUrl;
-
-			await performTrackedWhatsappDelivery({
-				notificationId,
-				deliveryKey: `paylinks_${target.housemateId}`,
-				operation: `/paylinks DM for ${target.housemateName}`,
-				deliver: async () =>
-					await sendWhatsappTextMessage(
-						targetChatId,
-						buildPayLinkSummary({
-							payUrl: targetPayUrl,
-							housemateName: target.housemateName,
-							housemateFirstNames: housematePaymentNames,
-						}),
-					),
-			});
-			sentHousemateNames.push(target.housemateName);
-		}
-
+	if (!reminderPreview) {
 		await performTrackedWhatsappDelivery({
 			notificationId,
-			deliveryKey: "paylinks_summary",
-			operation: "/paylinks admin WhatsApp summary",
-			deliver: async () =>
-				await sendWhatsappTextMessage(
-					chatId,
-					buildAdminPayLinksSummary({
-						sentHousemateNames,
-						skippedRecipients: payLinkBatch.skippedTargets.map((target) => ({
-							housemateName: target.housemateName,
-							reason: target.reason,
-						})),
-					}),
-				),
-		});
-		return;
-	}
-
-	if (context.commandType === "reminder") {
-		const reminderPreview = await getRandomReminderPreview(new Date());
-
-		if (!reminderPreview) {
-			await performTrackedWhatsappDelivery({
-				notificationId,
-				deliveryKey: "reminder_preview_empty",
-				operation: "/reminder admin WhatsApp summary",
-				deliver: async () =>
-					await sendWhatsappTextMessage(
-						context.replyChatId,
-						"*No reminders would be sent if cron ran today.*",
-					),
-			});
-			return;
-		}
-
-		const reminderMessages = reminderPreview.reminders.map((reminder) => {
-			const payUrl = createAbsolutePayUrl(
-				{
-					housemateId: reminderPreview.housemate.id,
-					billIds: [reminder.debt.billId],
-				},
-				previewDate,
-			);
-			if (!payUrl) {
-				throw new FatalError("Unable to build a pay link for reminder preview");
-			}
-
-			return buildBillReminderSummary({ payUrl });
-		});
-
-		await performTrackedWhatsappDelivery({
-			notificationId,
-			deliveryKey: "reminder_preview_summary",
+			deliveryKey: "reminder_preview_empty",
 			operation: "/reminder admin WhatsApp summary",
 			deliver: async () =>
-				await sendWhatsappTextMessage(
+				await dependencies.sendWhatsappTextMessage(
 					context.replyChatId,
-					buildBillReminderPreviewSummary({
-						asOf: reminderPreview.scheduledForDate,
-						housemateName: reminderPreview.housemate.name,
-						reminders: reminderPreview.reminders,
-					}),
+					"*No reminders would be sent if cron ran today.*",
 				),
 		});
-
-		for (const [index, message] of reminderMessages.entries()) {
-			await performTrackedWhatsappDelivery({
-				notificationId,
-				deliveryKey: `reminder_preview_message_${index + 1}`,
-				operation: `/reminder WhatsApp preview ${index + 1}`,
-				deliver: async () =>
-					await sendWhatsappTextMessage(context.replyChatId, message),
-			});
-		}
 		return;
 	}
 
+	const reminderMessages = reminderPreview.reminders.map((reminder) => {
+		const payUrl = dependencies.createAbsolutePayUrl(
+			{
+				housemateId: reminderPreview.housemate.id,
+				billIds: [reminder.debt.billId],
+			},
+			dependencies.previewDate,
+		);
+		if (!payUrl) {
+			throw new FatalError("Unable to build a pay link for reminder preview");
+		}
+
+		return dependencies.buildBillReminderSummary({ payUrl });
+	});
+
+	await performTrackedWhatsappDelivery({
+		notificationId,
+		deliveryKey: "reminder_preview_summary",
+		operation: "/reminder admin WhatsApp summary",
+		deliver: async () =>
+			await dependencies.sendWhatsappTextMessage(
+				context.replyChatId,
+				dependencies.buildBillReminderPreviewSummary({
+					asOf: reminderPreview.scheduledForDate,
+					housemateName: reminderPreview.housemate.name,
+					reminders: reminderPreview.reminders,
+				}),
+			),
+	});
+
+	for (const [index, message] of reminderMessages.entries()) {
+		await performTrackedWhatsappDelivery({
+			notificationId,
+			deliveryKey: `reminder_preview_message_${index + 1}`,
+			operation: `/reminder WhatsApp preview ${index + 1}`,
+			deliver: async () =>
+				await dependencies.sendWhatsappTextMessage(
+					context.replyChatId,
+					message,
+				),
+		});
+	}
+}
+
+async function sendDefaultInboundCommandSummary({
+	notificationId,
+	context,
+	dependencies,
+}: SendDueCommandBranchArgs) {
 	const chatId = context.replyChatId;
 	if (!chatId) {
 		throw new FatalError(
@@ -270,26 +374,29 @@ async function sendDueCommandSummary(notificationId: string) {
 		deliveryKey: "due_command_summary",
 		operation: "inbound command WhatsApp summary",
 		deliver: async () =>
-			await sendWhatsappTextMessage(
+			await dependencies.sendWhatsappTextMessage(
 				chatId,
 				await buildInboundCommandResponse({
 					commandType: context.commandType,
 					context,
-					buildBillPaidSummary,
-					buildDueCommandNotFoundSummary,
-					buildNotAllowedSummary,
-					buildPayLinkSummary,
-					buildUnknownHousematePaySummary,
-					createAbsoluteDebtReceiptUrl,
-					getAbsoluteViewerUrl: BillPdfStorageService.getAbsoluteViewerUrl.bind(
-						BillPdfStorageService,
-					),
-					getRandomBillPreviewContext,
-					getRandomBillPaidPreviewContext,
-					getRandomDebtPaidPreviewContext,
-					createAbsolutePayUrl,
-					previewDate,
-					housematePaymentNames,
+					buildBillPaidSummary: dependencies.buildBillPaidSummary,
+					buildDueCommandNotFoundSummary:
+						dependencies.buildDueCommandNotFoundSummary,
+					buildNotAllowedSummary: dependencies.buildNotAllowedSummary,
+					buildPayLinkSummary: dependencies.buildPayLinkSummary,
+					buildUnknownHousematePaySummary:
+						dependencies.buildUnknownHousematePaySummary,
+					createAbsoluteDebtReceiptUrl:
+						dependencies.createAbsoluteDebtReceiptUrl,
+					getAbsoluteViewerUrl: dependencies.getAbsoluteViewerUrl,
+					getRandomBillPreviewContext: dependencies.getRandomBillPreviewContext,
+					getRandomBillPaidPreviewContext:
+						dependencies.getRandomBillPaidPreviewContext,
+					getRandomDebtPaidPreviewContext:
+						dependencies.getRandomDebtPaidPreviewContext,
+					createAbsolutePayUrl: dependencies.createAbsolutePayUrl,
+					previewDate: dependencies.previewDate,
+					housematePaymentNames: dependencies.housematePaymentNames,
 				}),
 			),
 	});

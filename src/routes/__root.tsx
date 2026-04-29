@@ -15,7 +15,7 @@ import { createMiddleware } from "@tanstack/react-start";
 import { Suspense } from "react";
 import appCss from "../index.css?url";
 
-export interface RouterAppContext {
+interface RouterAppContext {
 	session?: Session;
 }
 

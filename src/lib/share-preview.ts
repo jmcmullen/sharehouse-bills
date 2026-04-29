@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 export function formatCurrency(amount: number) {
 	return new Intl.NumberFormat("en-AU", {
 		style: "currency",
@@ -20,7 +21,7 @@ function startOfLocalDay(date: Date) {
 	return copy;
 }
 
-export function formatBillDueDate(date: Date | string) {
+function formatBillDueDate(date: Date | string) {
 	return new Intl.DateTimeFormat("en-AU", {
 		weekday: "short",
 		day: "numeric",
@@ -84,7 +85,62 @@ export function getBillDueStatus(
 	};
 }
 
-export function escapeXml(value: string) {
+export function formatBillPageTitle(input: {
+	billerName: string;
+	totalAmount: number;
+	isAllSorted: boolean;
+	dueStatus: BillDueStatus;
+}) {
+	if (input.isAllSorted) {
+		return `${input.billerName} paid in full`;
+	}
+
+	if (input.dueStatus.tone === "overdue") {
+		return `${input.billerName} bill is overdue`;
+	}
+
+	if (input.dueStatus.tone === "today") {
+		return `${input.billerName} bill is due today`;
+	}
+
+	return `Bill from ${input.billerName} for ${formatCurrency(input.totalAmount)}`;
+}
+
+function formatBillShareDescription(input: {
+	hasEvenShares: boolean;
+	amountEach: number | null;
+	participantCount: number;
+}) {
+	return input.hasEvenShares && input.amountEach !== null
+		? `${formatCurrency(input.amountEach)} each.`
+		: `Split across ${input.participantCount} ${input.participantCount === 1 ? "housemate" : "housemates"}.`;
+}
+
+export function formatBillPageDescription(input: {
+	hasEvenShares: boolean;
+	amountEach: number | null;
+	participantCount: number;
+	isAllSorted: boolean;
+	dueStatus: BillDueStatus;
+}) {
+	if (input.isAllSorted) {
+		return "Thanks everyone for settling up.";
+	}
+
+	const shareDescription = formatBillShareDescription(input);
+
+	if (input.dueStatus.tone === "overdue") {
+		return `${input.dueStatus.label}. ${shareDescription}`;
+	}
+
+	if (input.dueStatus.tone === "today") {
+		return `Due today. ${shareDescription}`;
+	}
+
+	return `Due ${input.dueStatus.dueLabel}. ${shareDescription}`;
+}
+
+function escapeXml(value: string) {
 	return value
 		.replaceAll("&", "&amp;")
 		.replaceAll("<", "&lt;")

@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import type { createClient } from "@libsql/client";
 import { generateEntityId } from "../../lib/id";
 

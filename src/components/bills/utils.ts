@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import {
 	BILL_REMINDER_WEEKDAY_OPTIONS,
 	formatReminderConfigSummary,

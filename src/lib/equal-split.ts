@@ -2,7 +2,7 @@ export function roundCurrency(amount: number) {
 	return Math.round((amount + Number.EPSILON) * 100) / 100;
 }
 
-export function roundCurrencyUp(amount: number) {
+function roundCurrencyUp(amount: number) {
 	return Math.ceil((amount - Number.EPSILON) * 100) / 100;
 }
 

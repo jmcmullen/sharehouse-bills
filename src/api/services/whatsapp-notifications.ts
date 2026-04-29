@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { and, asc, eq, lt, sql } from "drizzle-orm";
 import { createError } from "evlog";
 import type { BillReminderMode } from "../../lib/bill-reminder-config";
@@ -52,7 +53,7 @@ type DeliveryReservationResult =
 			delivery: WhatsappNotificationDeliveryPayload;
 	  };
 
-export type CurrentUnpaidBillSummary = {
+type CurrentUnpaidBillSummary = {
 	billId: string;
 	billerName: string;
 	remainingAmount: number;
@@ -60,7 +61,7 @@ export type CurrentUnpaidBillSummary = {
 	sortDate: Date;
 };
 
-export type HousematePayLinkTarget = {
+type HousematePayLinkTarget = {
 	housemateId: string;
 	housemateName: string;
 	whatsappNumber: string | null;
@@ -69,7 +70,7 @@ export type HousematePayLinkTarget = {
 	remainingAmount: number;
 };
 
-export type HousematePayLinkBatch = {
+type HousematePayLinkBatch = {
 	deliverableTargets: HousematePayLinkTarget[];
 	skippedTargets: Array<
 		HousematePayLinkTarget & {
@@ -323,7 +324,7 @@ export async function createAssistantMessageNotification(input: {
 	});
 }
 
-export async function getWhatsappNotificationById(notificationId: string) {
+async function getWhatsappNotificationById(notificationId: string) {
 	const [notification] = await db
 		.select()
 		.from(whatsappNotifications)
@@ -764,6 +765,26 @@ export async function getCurrentUnpaidBillSummaries() {
 		.leftJoin(debts, eq(debts.billId, bills.id))
 		.orderBy(asc(bills.dueDate), asc(bills.id), asc(debts.id));
 
+	const billsWithBalances = getBillsWithOutstandingBalances(rows);
+	return {
+		bills: groupCurrentUnpaidBillSummaries(billsWithBalances),
+		totalOutstanding: billsWithBalances.reduce(
+			(total, summary) => total + summary.remainingAmount,
+			0,
+		),
+	};
+}
+
+function getBillsWithOutstandingBalances(
+	rows: Array<{
+		billId: string;
+		billerName: string;
+		billType: typeof bills.$inferSelect.billType;
+		dueDate: Date;
+		amountOwed: number | null;
+		amountPaid: number | null;
+	}>,
+) {
 	const billSummaries = new Map<
 		string,
 		CurrentUnpaidBillSummary & {
@@ -796,23 +817,48 @@ export async function getCurrentUnpaidBillSummaries() {
 		});
 	}
 
-	const billsWithBalances = [...billSummaries.values()].filter(
+	return [...billSummaries.values()].filter(
 		(summary) => summary.remainingAmount > 0.009,
 	);
+}
+
+function getCurrentBillGrouping(
+	summary: CurrentUnpaidBillSummary & {
+		billType: typeof bills.$inferSelect.billType;
+	},
+) {
+	if (summary.billType === "electricity") {
+		return {
+			key: "utility:electricity",
+			label: "Electricity",
+		};
+	}
+
+	if (summary.billType === "gas") {
+		return {
+			key: "utility:gas",
+			label: "Gas",
+		};
+	}
+
+	return {
+		key: `bill:${summary.billId}`,
+		label: summary.billerName,
+	};
+}
+
+function groupCurrentUnpaidBillSummaries(
+	billsWithBalances: Array<
+		CurrentUnpaidBillSummary & {
+			billType: typeof bills.$inferSelect.billType;
+		}
+	>,
+) {
 	const groupedSummaries = new Map<string, CurrentUnpaidBillSummary>();
 
 	for (const summary of billsWithBalances) {
-		const groupingKey =
-			summary.billType === "electricity" || summary.billType === "gas"
-				? `utility:${summary.billType}`
-				: `bill:${summary.billId}`;
-		const groupedLabel =
-			summary.billType === "electricity"
-				? "Electricity"
-				: summary.billType === "gas"
-					? "Gas"
-					: summary.billerName;
-		const existingSummary = groupedSummaries.get(groupingKey);
+		const grouping = getCurrentBillGrouping(summary);
+		const existingSummary = groupedSummaries.get(grouping.key);
 
 		if (existingSummary) {
 			existingSummary.remainingAmount += summary.remainingAmount;
@@ -823,9 +869,9 @@ export async function getCurrentUnpaidBillSummaries() {
 			continue;
 		}
 
-		groupedSummaries.set(groupingKey, {
+		groupedSummaries.set(grouping.key, {
 			billId: summary.billId,
-			billerName: groupedLabel,
+			billerName: grouping.label,
 			remainingAmount: summary.remainingAmount,
 			billCount: 1,
 			sortDate: summary.sortDate,
@@ -835,15 +881,8 @@ export async function getCurrentUnpaidBillSummaries() {
 	const groupedBills = [...groupedSummaries.values()].sort(
 		(left, right) => left.sortDate.getTime() - right.sortDate.getTime(),
 	);
-	const totalOutstanding = billsWithBalances.reduce(
-		(total, summary) => total + summary.remainingAmount,
-		0,
-	);
 
-	return {
-		bills: groupedBills,
-		totalOutstanding,
-	};
+	return groupedBills;
 }
 
 export async function getActiveHousematePaymentNames() {

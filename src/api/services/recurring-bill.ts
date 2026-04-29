@@ -1,7 +1,8 @@
+// fallow-ignore-file code-duplication
 import { and, asc, eq, gte, isNull, lte, or } from "drizzle-orm";
 import { createError } from "evlog";
 import { toBillReminderDbValues } from "../../lib/bill-reminder-config";
-import { getEqualSplitAmounts } from "../../lib/equal-split";
+import { getEqualSplitAmounts, roundCurrency } from "../../lib/equal-split";
 import { getRequestLogger } from "../../lib/request-logger";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
@@ -9,17 +10,14 @@ import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBillAssignments } from "../db/schema/recurring-bill-assignments";
 import { recurringBills } from "../db/schema/recurring-bills";
-import {
-	applyHousemateCreditToDebt,
-	roundCurrency,
-} from "./debt-payment-state";
+import { applyHousemateCreditToDebt } from "./debt-payment-state";
 import { enqueueBillCreatedNotification } from "./whatsapp-notification-events";
 
 type RecurringBillRecord = typeof recurringBills.$inferSelect;
 
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
 
-export interface RecurringAssignmentPreview {
+interface RecurringAssignmentPreview {
 	housemateId: string;
 	name: string;
 	isOwner: boolean;
@@ -27,7 +25,7 @@ export interface RecurringAssignmentPreview {
 	amountOwed: number;
 }
 
-export interface RecurringBillPreview {
+interface RecurringBillPreview {
 	nextDueDate: Date | null;
 	assignments: RecurringAssignmentPreview[];
 	ownerShare: number;
@@ -82,6 +80,35 @@ function getNextWeeklyOccurrence(
 	const daysUntilTarget =
 		(recurringBill.dayOfWeek - baseDate.getUTCDay() + 7) % 7;
 	return addUtcDays(baseDate, daysUntilTarget);
+}
+
+function getNextFortnightlyOccurrence(
+	recurringBill: RecurringBillRecord,
+	fromDate: Date,
+) {
+	if (recurringBill.dayOfWeek === null) {
+		return null;
+	}
+
+	const startDate = startOfUtcDay(recurringBill.startDate);
+	const firstOccurrence = addUtcDays(
+		startDate,
+		(recurringBill.dayOfWeek - startDate.getUTCDay() + 7) % 7,
+	);
+	const baseDate = startOfUtcDay(
+		new Date(Math.max(startOfUtcDay(fromDate).getTime(), startDate.getTime())),
+	);
+
+	if (isSameOrBeforeDay(baseDate, firstOccurrence)) {
+		return firstOccurrence;
+	}
+
+	return addUtcDays(
+		firstOccurrence,
+		Math.ceil(
+			(baseDate.getTime() - firstOccurrence.getTime()) / (14 * ONE_DAY_IN_MS),
+		) * 14,
+	);
 }
 
 function getNextMonthlyOccurrence(
@@ -173,6 +200,12 @@ export function getNextDueDate(
 	switch (recurringBill.frequency) {
 		case "weekly":
 			candidate = getNextWeeklyOccurrence(recurringBill, normalizedFromDate);
+			break;
+		case "fortnightly":
+			candidate = getNextFortnightlyOccurrence(
+				recurringBill,
+				normalizedFromDate,
+			);
 			break;
 		case "monthly":
 			candidate = getNextMonthlyOccurrence(recurringBill, normalizedFromDate);

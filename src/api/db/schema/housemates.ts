@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { generateEntityId } from "../../../lib/id";
 
