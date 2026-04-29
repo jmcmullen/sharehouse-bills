@@ -56,80 +56,87 @@ function buildUtcDate(year: number, monthIndex: number, dayOfMonth: number) {
 	return new Date(Date.UTC(year, monthIndex, dayOfMonth));
 }
 
-function getNextDueDateForForm(formData: RecurringBillFormData) {
-	const startDate = toDate(formData.startDate);
-	if (!startDate) {
+function getBaseDueDate(startDate: Date) {
+	const today = startOfUtcDay(new Date());
+	return startOfUtcDay(
+		new Date(Math.max(startOfUtcDay(startDate).getTime(), today.getTime())),
+	);
+}
+
+function getNextWeeklyDueDate(baseDate: Date, dayOfWeek: number) {
+	return addDays(baseDate, (dayOfWeek - baseDate.getUTCDay() + 7) % 7);
+}
+
+function getNextFortnightlyDueDate(
+	startDate: Date,
+	baseDate: Date,
+	dayOfWeek: number,
+) {
+	const normalizedStartDate = startOfUtcDay(startDate);
+	const firstOccurrence = addDays(
+		normalizedStartDate,
+		(dayOfWeek - normalizedStartDate.getUTCDay() + 7) % 7,
+	);
+
+	if (firstOccurrence.getTime() >= baseDate.getTime()) {
+		return firstOccurrence;
+	}
+
+	return addDays(
+		firstOccurrence,
+		Math.ceil(
+			(baseDate.getTime() - firstOccurrence.getTime()) / (14 * ONE_DAY_IN_MS),
+		) * 14,
+	);
+}
+
+function getNextWeekdayDueDate(
+	formData: RecurringBillFormData,
+	startDate: Date,
+	baseDate: Date,
+) {
+	const dayOfWeek = Number.parseInt(formData.dayOfWeek, 10);
+	if (Number.isNaN(dayOfWeek)) {
 		return null;
 	}
 
-	const today = startOfUtcDay(new Date());
-	const baseDate = startOfUtcDay(
-		new Date(Math.max(startOfUtcDay(startDate).getTime(), today.getTime())),
-	);
-
-	if (formData.frequency === "weekly" || formData.frequency === "fortnightly") {
-		const dayOfWeek = Number.parseInt(formData.dayOfWeek, 10);
-		if (Number.isNaN(dayOfWeek)) {
-			return null;
-		}
-
-		if (formData.frequency === "fortnightly") {
-			const normalizedStartDate = startOfUtcDay(startDate);
-			const firstOccurrence = addDays(
-				normalizedStartDate,
-				(dayOfWeek - normalizedStartDate.getUTCDay() + 7) % 7,
-			);
-
-			if (firstOccurrence.getTime() >= baseDate.getTime()) {
-				return firstOccurrence;
-			}
-
-			return addDays(
-				firstOccurrence,
-				Math.ceil(
-					(baseDate.getTime() - firstOccurrence.getTime()) /
-						(14 * ONE_DAY_IN_MS),
-				) * 14,
-			);
-		}
-
-		return addDays(baseDate, (dayOfWeek - baseDate.getUTCDay() + 7) % 7);
+	if (formData.frequency === "fortnightly") {
+		return getNextFortnightlyDueDate(startDate, baseDate, dayOfWeek);
 	}
 
-	if (formData.frequency === "monthly") {
-		const dayOfMonth = Number.parseInt(formData.dayOfMonth, 10);
-		if (Number.isNaN(dayOfMonth)) {
-			return null;
-		}
+	return getNextWeeklyDueDate(baseDate, dayOfWeek);
+}
 
-		const thisMonthDate = buildUtcDate(
+function getNextMonthlyDueDate(baseDate: Date, dayOfMonth: number) {
+	const thisMonthDate = buildUtcDate(
+		baseDate.getUTCFullYear(),
+		baseDate.getUTCMonth(),
+		clampDayOfMonth(
 			baseDate.getUTCFullYear(),
 			baseDate.getUTCMonth(),
-			clampDayOfMonth(
-				baseDate.getUTCFullYear(),
-				baseDate.getUTCMonth(),
-				dayOfMonth,
-			),
-		);
+			dayOfMonth,
+		),
+	);
 
-		if (thisMonthDate.getTime() >= baseDate.getTime()) {
-			return thisMonthDate;
-		}
-
-		const nextMonthIndex =
-			baseDate.getUTCMonth() === 11 ? 0 : baseDate.getUTCMonth() + 1;
-		const nextMonthYear =
-			baseDate.getUTCMonth() === 11
-				? baseDate.getUTCFullYear() + 1
-				: baseDate.getUTCFullYear();
-
-		return buildUtcDate(
-			nextMonthYear,
-			nextMonthIndex,
-			clampDayOfMonth(nextMonthYear, nextMonthIndex, dayOfMonth),
-		);
+	if (thisMonthDate.getTime() >= baseDate.getTime()) {
+		return thisMonthDate;
 	}
 
+	const nextMonthIndex =
+		baseDate.getUTCMonth() === 11 ? 0 : baseDate.getUTCMonth() + 1;
+	const nextMonthYear =
+		baseDate.getUTCMonth() === 11
+			? baseDate.getUTCFullYear() + 1
+			: baseDate.getUTCFullYear();
+
+	return buildUtcDate(
+		nextMonthYear,
+		nextMonthIndex,
+		clampDayOfMonth(nextMonthYear, nextMonthIndex, dayOfMonth),
+	);
+}
+
+function getNextYearlyDueDate(startDate: Date, baseDate: Date) {
 	const anniversaryMonth = startDate.getUTCMonth();
 	const anniversaryDay = startDate.getUTCDate();
 	const thisYearDate = buildUtcDate(
@@ -152,6 +159,30 @@ function getNextDueDateForForm(formData: RecurringBillFormData) {
 		anniversaryMonth,
 		clampDayOfMonth(nextYear, anniversaryMonth, anniversaryDay),
 	);
+}
+
+function getNextDueDateForForm(formData: RecurringBillFormData) {
+	const startDate = toDate(formData.startDate);
+	if (!startDate) {
+		return null;
+	}
+
+	const baseDate = getBaseDueDate(startDate);
+
+	if (formData.frequency === "weekly" || formData.frequency === "fortnightly") {
+		return getNextWeekdayDueDate(formData, startDate, baseDate);
+	}
+
+	if (formData.frequency === "monthly") {
+		const dayOfMonth = Number.parseInt(formData.dayOfMonth, 10);
+		if (Number.isNaN(dayOfMonth)) {
+			return null;
+		}
+
+		return getNextMonthlyDueDate(baseDate, dayOfMonth);
+	}
+
+	return getNextYearlyDueDate(startDate, baseDate);
 }
 
 export function formatCurrency(amount: number) {
