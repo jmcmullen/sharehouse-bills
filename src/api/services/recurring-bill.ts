@@ -1,5 +1,5 @@
 // fallow-ignore-file code-duplication
-import { and, asc, eq, gte, isNull, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lte, or } from "drizzle-orm";
 import { createError } from "evlog";
 import { toBillReminderDbValues } from "../../lib/bill-reminder-config";
 import { getEqualSplitAmounts, roundCurrency } from "../../lib/equal-split";
@@ -10,12 +10,40 @@ import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBillAssignments } from "../db/schema/recurring-bill-assignments";
 import { recurringBills } from "../db/schema/recurring-bills";
-import { applyHousemateCreditToDebt } from "./debt-payment-state";
-import { enqueueBillCreatedNotification } from "./whatsapp-notification-events";
+import { getRemainingDebtAmount } from "./debt-payment-state";
+import {
+	enqueueBillCreatedNotification,
+	enqueueBillPaidNotification,
+	enqueueDebtPaidNotification,
+} from "./whatsapp-notification-events";
 
 type RecurringBillRecord = typeof recurringBills.$inferSelect;
+type RecurringBillGenerationClient = Pick<
+	typeof db,
+	"insert" | "select" | "update"
+>;
+type ActiveRecurringAssignments = Awaited<
+	ReturnType<typeof getActiveAssignments>
+>;
+type RecurringDebtEntry = {
+	housemateId: string;
+	amountOwed: number;
+};
+type GeneratedBillResult = {
+	status: "generated";
+	billId: string;
+	debtRecordCount: number;
+	paidDebtIds: string[];
+	billPaid: boolean;
+};
+type DuplicateBillResult = {
+	status: "duplicate";
+	billId: string | null;
+};
 
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_GENERATION_LEAD_DAYS = 6;
+const MAX_GENERATION_LEAD_DAYS = 31;
 
 interface RecurringAssignmentPreview {
 	housemateId: string;
@@ -35,6 +63,20 @@ function startOfUtcDay(date: Date) {
 	return new Date(
 		Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
 	);
+}
+
+function getRecurringBillGenerationLeadDays() {
+	const configuredValue = process.env.RECURRING_BILL_GENERATION_LEAD_DAYS;
+	if (!configuredValue) {
+		return DEFAULT_GENERATION_LEAD_DAYS;
+	}
+
+	const parsedValue = Number.parseInt(configuredValue, 10);
+	if (!Number.isFinite(parsedValue)) {
+		return DEFAULT_GENERATION_LEAD_DAYS;
+	}
+
+	return Math.max(0, Math.min(MAX_GENERATION_LEAD_DAYS, parsedValue));
 }
 
 function addUtcDays(date: Date, days: number) {
@@ -231,19 +273,23 @@ export function getNextDueDate(
 	return candidate;
 }
 
-function getNextDueDateAfterLastGenerated(recurringBill: RecurringBillRecord) {
-	const referenceDate = recurringBill.lastGeneratedDate
-		? addUtcDays(recurringBill.lastGeneratedDate, 1)
+function getNextDueDateAfterGeneratedDate(
+	recurringBill: RecurringBillRecord,
+	generatedDate: Date | null,
+) {
+	const referenceDate = generatedDate
+		? addUtcDays(generatedDate, 1)
 		: recurringBill.startDate;
 
 	return getNextDueDate(recurringBill, referenceDate);
 }
 
 async function getExistingBillForDueDate(
+	client: RecurringBillGenerationClient,
 	recurringBillId: string,
 	dueDate: Date,
 ) {
-	const [existingBill] = await db
+	const [existingBill] = await client
 		.select({ id: bills.id })
 		.from(bills)
 		.where(
@@ -257,8 +303,59 @@ async function getExistingBillForDueDate(
 	return existingBill ?? null;
 }
 
-async function getActiveAssignments(recurringBillId: string) {
-	return await db
+async function getLatestGeneratedBillDueDate(
+	client: RecurringBillGenerationClient,
+	recurringBillId: string,
+) {
+	const [latestBill] = await client
+		.select({ dueDate: bills.dueDate })
+		.from(bills)
+		.where(eq(bills.recurringBillId, recurringBillId))
+		.orderBy(desc(bills.dueDate))
+		.limit(1);
+
+	return latestBill?.dueDate ?? null;
+}
+
+async function getLatestGenerationDate(
+	client: RecurringBillGenerationClient,
+	recurringBill: RecurringBillRecord,
+) {
+	return (
+		(await getLatestGeneratedBillDueDate(client, recurringBill.id)) ??
+		recurringBill.lastGeneratedDate
+	);
+}
+
+async function getNextDueDateAfterLatestGeneration(
+	client: RecurringBillGenerationClient,
+	recurringBill: RecurringBillRecord,
+) {
+	return getNextDueDateAfterGeneratedDate(
+		recurringBill,
+		await getLatestGenerationDate(client, recurringBill),
+	);
+}
+
+async function updateRecurringBillLastGeneratedDate(
+	client: RecurringBillGenerationClient,
+	recurringBillId: string,
+	dueDate: Date,
+) {
+	await client
+		.update(recurringBills)
+		.set({
+			lastGeneratedDate: startOfUtcDay(dueDate),
+			updatedAt: new Date(),
+		})
+		.where(eq(recurringBills.id, recurringBillId));
+}
+
+async function getActiveAssignments(
+	client: RecurringBillGenerationClient,
+	recurringBillId: string,
+) {
+	return await client
 		.select({
 			housemateId: recurringBillAssignments.housemateId,
 			customAmount: recurringBillAssignments.customAmount,
@@ -334,8 +431,11 @@ function validateCustomAssignments(
 export async function previewRecurringBill(
 	recurringBill: RecurringBillRecord,
 ): Promise<RecurringBillPreview> {
-	const nextDueDate = getNextDueDateAfterLastGenerated(recurringBill);
-	const assignments = await getActiveAssignments(recurringBill.id);
+	const nextDueDate = await getNextDueDateAfterLatestGeneration(
+		db,
+		recurringBill,
+	);
+	const assignments = await getActiveAssignments(db, recurringBill.id);
 
 	if (assignments.length === 0) {
 		return {
@@ -390,118 +490,291 @@ export async function previewRecurringBill(
 	};
 }
 
+function buildRecurringDebtEntries(
+	recurringBill: RecurringBillRecord,
+	activeAssignments: ActiveRecurringAssignments,
+): RecurringDebtEntry[] {
+	if (activeAssignments.length === 0) {
+		throw createError({
+			message: "No active assignments found for recurring bill",
+			status: 500,
+			why: `No active assignments exist for ${recurringBill.templateName}.`,
+			fix: "Add at least one active assignment before generating this recurring bill.",
+		});
+	}
+
+	const nonOwnerAssignments = activeAssignments.filter(
+		(assignment) => !assignment.isOwner,
+	);
+	if (nonOwnerAssignments.length === 0) {
+		throw createError({
+			message: "No active non-owner assignments found for recurring bill",
+			status: 500,
+			why: `${recurringBill.templateName} only creates debts for non-owner assignments, but none are active.`,
+			fix: "Add at least one active non-owner assignment before generating this recurring bill.",
+		});
+	}
+
+	if (recurringBill.splitStrategy === "equal") {
+		const { amountPerDebtor } = getEqualSplitAmounts({
+			totalAmount: recurringBill.totalAmount,
+			participantCount: activeAssignments.length,
+			ownerCount: activeAssignments.length - nonOwnerAssignments.length,
+		});
+		return nonOwnerAssignments.map((assignment) => ({
+			housemateId: assignment.housemateId,
+			amountOwed: amountPerDebtor,
+		}));
+	}
+
+	validateCustomAssignments(recurringBill, activeAssignments);
+	return nonOwnerAssignments.map((assignment) => ({
+		housemateId: assignment.housemateId,
+		amountOwed: roundCurrency(assignment.customAmount ?? 0),
+	}));
+}
+
+async function applyHousemateCreditToDebtInTransaction(
+	client: RecurringBillGenerationClient,
+	housemateId: string,
+	debtId: string,
+) {
+	const [housemate] = await client
+		.select({
+			creditBalance: housemates.creditBalance,
+		})
+		.from(housemates)
+		.where(eq(housemates.id, housemateId))
+		.limit(1);
+
+	if (!housemate || housemate.creditBalance <= 0.009) {
+		return { appliedAmount: 0, fullyPaid: false };
+	}
+
+	const [debt] = await client
+		.select({
+			id: debts.id,
+			housemateId: debts.housemateId,
+			amountOwed: debts.amountOwed,
+			amountPaid: debts.amountPaid,
+		})
+		.from(debts)
+		.where(eq(debts.id, debtId))
+		.limit(1);
+
+	if (!debt || debt.housemateId !== housemateId) {
+		return { appliedAmount: 0, fullyPaid: false };
+	}
+
+	const remainingAmount = getRemainingDebtAmount(debt);
+	if (remainingAmount <= 0.009) {
+		return { appliedAmount: 0, fullyPaid: false };
+	}
+
+	const appliedAmount = Math.min(housemate.creditBalance, remainingAmount);
+	const nextAmountPaid = roundCurrency(debt.amountPaid + appliedAmount);
+	const fullyPaid =
+		getRemainingDebtAmount({
+			amountOwed: debt.amountOwed,
+			amountPaid: nextAmountPaid,
+		}) <= 0.009;
+	const now = new Date();
+
+	await client
+		.update(debts)
+		.set({
+			amountPaid: fullyPaid ? debt.amountOwed : nextAmountPaid,
+			isPaid: fullyPaid,
+			paidAt: fullyPaid ? now : null,
+			updatedAt: now,
+		})
+		.where(eq(debts.id, debt.id));
+
+	await client
+		.update(housemates)
+		.set({
+			creditBalance: roundCurrency(housemate.creditBalance - appliedAmount),
+			updatedAt: now,
+		})
+		.where(eq(housemates.id, housemateId));
+
+	return { appliedAmount: roundCurrency(appliedAmount), fullyPaid };
+}
+
+async function updateGeneratedBillStatusInTransaction(
+	client: RecurringBillGenerationClient,
+	billId: string,
+) {
+	const [existingBill] = await client
+		.select({
+			status: bills.status,
+		})
+		.from(bills)
+		.where(eq(bills.id, billId))
+		.limit(1);
+
+	if (!existingBill) {
+		return { transitionedToPaid: false };
+	}
+
+	const billDebts = await client
+		.select({
+			amountOwed: debts.amountOwed,
+			amountPaid: debts.amountPaid,
+		})
+		.from(debts)
+		.where(eq(debts.billId, billId));
+	const totalRemaining = billDebts.reduce(
+		(sum, debt) => sum + getRemainingDebtAmount(debt),
+		0,
+	);
+	const totalPaidAmount = billDebts.reduce(
+		(sum, debt) => sum + roundCurrency(debt.amountPaid),
+		0,
+	);
+	const status =
+		totalRemaining <= 0.009
+			? "paid"
+			: totalPaidAmount > 0.009
+				? "partially_paid"
+				: "pending";
+
+	if (status !== existingBill.status) {
+		await client
+			.update(bills)
+			.set({
+				status,
+				updatedAt: new Date(),
+			})
+			.where(eq(bills.id, billId));
+	}
+
+	return {
+		transitionedToPaid: existingBill.status !== "paid" && status === "paid",
+	};
+}
+
 async function generateBillFromTemplate(
 	recurringBill: RecurringBillRecord,
 	dueDate: Date,
-): Promise<string | null> {
+): Promise<GeneratedBillResult | DuplicateBillResult | null> {
 	const log = getRequestLogger();
 	try {
-		const activeAssignments = await getActiveAssignments(recurringBill.id);
-		if (activeAssignments.length === 0) {
-			throw createError({
-				message: "No active assignments found for recurring bill",
-				status: 500,
-				why: `No active assignments exist for ${recurringBill.templateName}.`,
-				fix: "Add at least one active assignment before generating this recurring bill.",
-			});
-		}
+		const result = await db.transaction(async (tx) => {
+			const activeAssignments = await getActiveAssignments(
+				tx,
+				recurringBill.id,
+			);
+			const debtEntries = buildRecurringDebtEntries(
+				recurringBill,
+				activeAssignments,
+			);
+			const insertedBills = await tx
+				.insert(bills)
+				.values({
+					billerName: recurringBill.billerName,
+					totalAmount: recurringBill.totalAmount,
+					dueDate: startOfUtcDay(dueDate),
+					recurringBillId: recurringBill.id,
+					pdfUrl: null,
+					sourceFilename: recurringBill.templateName,
+					...toBillReminderDbValues({
+						remindersEnabled: recurringBill.remindersEnabled,
+						reminderMode: recurringBill.reminderMode,
+						stackGroup: recurringBill.stackGroup,
+						preDueOffsetsDays: recurringBill.preDueOffsetsDays,
+						overdueCadence: recurringBill.overdueCadence,
+						overdueWeekday: recurringBill.overdueWeekday,
+					}),
+				})
+				.onConflictDoNothing({
+					target: [bills.recurringBillId, bills.dueDate],
+				})
+				.returning({ id: bills.id });
+			const newBill = insertedBills[0];
 
-		const [newBill] = await db
-			.insert(bills)
-			.values({
-				billerName: recurringBill.billerName,
-				totalAmount: recurringBill.totalAmount,
-				dueDate: startOfUtcDay(dueDate),
-				recurringBillId: recurringBill.id,
-				pdfUrl: null,
-				sourceFilename: recurringBill.templateName,
-				...toBillReminderDbValues({
-					remindersEnabled: recurringBill.remindersEnabled,
-					reminderMode: recurringBill.reminderMode,
-					stackGroup: recurringBill.stackGroup,
-					preDueOffsetsDays: recurringBill.preDueOffsetsDays,
-					overdueCadence: recurringBill.overdueCadence,
-					overdueWeekday: recurringBill.overdueWeekday,
-				}),
-			})
-			.returning({ id: bills.id });
+			if (!newBill) {
+				const existingBill = await getExistingBillForDueDate(
+					tx,
+					recurringBill.id,
+					dueDate,
+				);
+				await updateRecurringBillLastGeneratedDate(
+					tx,
+					recurringBill.id,
+					dueDate,
+				);
+				return {
+					status: "duplicate",
+					billId: existingBill?.id ?? null,
+				} satisfies DuplicateBillResult;
+			}
 
-		const nonOwnerAssignments = activeAssignments.filter(
-			(assignment) => !assignment.isOwner,
-		);
-		if (nonOwnerAssignments.length === 0) {
-			throw createError({
-				message: "No active non-owner assignments found for recurring bill",
-				status: 500,
-				why: `${recurringBill.templateName} only creates debts for non-owner assignments, but none are active.`,
-				fix: "Add at least one active non-owner assignment before generating this recurring bill.",
-			});
-		}
-		let debtEntries: Array<{
-			billId: string;
-			housemateId: string;
-			amountOwed: number;
-			amountPaid: number;
-			isPaid: boolean;
-		}> = [];
-
-		if (recurringBill.splitStrategy === "equal") {
-			const { amountPerDebtor } = getEqualSplitAmounts({
-				totalAmount: recurringBill.totalAmount,
-				participantCount: activeAssignments.length,
-				ownerCount: activeAssignments.length - nonOwnerAssignments.length,
-			});
-			debtEntries = nonOwnerAssignments.map((assignment) => ({
-				billId: newBill.id,
-				housemateId: assignment.housemateId,
-				amountOwed: amountPerDebtor,
-				amountPaid: 0,
-				isPaid: false,
-			}));
-		} else {
-			validateCustomAssignments(recurringBill, activeAssignments);
-			debtEntries = nonOwnerAssignments.map((assignment) => ({
-				billId: newBill.id,
-				housemateId: assignment.housemateId,
-				amountOwed: roundCurrency(assignment.customAmount ?? 0),
-				amountPaid: 0,
-				isPaid: false,
-			}));
-		}
-
-		if (debtEntries.length > 0) {
-			const insertedDebts = await db
+			const insertedDebts = await tx
 				.insert(debts)
-				.values(debtEntries)
+				.values(
+					debtEntries.map((debtEntry) => ({
+						billId: newBill.id,
+						housemateId: debtEntry.housemateId,
+						amountOwed: debtEntry.amountOwed,
+						amountPaid: 0,
+						isPaid: false,
+					})),
+				)
 				.returning({
 					id: debts.id,
 					housemateId: debts.housemateId,
 				});
+			const paidDebtIds: string[] = [];
 			for (const debtRecord of insertedDebts) {
-				await applyHousemateCreditToDebt(debtRecord.housemateId, debtRecord.id);
+				const creditResult = await applyHousemateCreditToDebtInTransaction(
+					tx,
+					debtRecord.housemateId,
+					debtRecord.id,
+				);
+				if (creditResult.fullyPaid) {
+					paidDebtIds.push(debtRecord.id);
+				}
 			}
-		}
+			const billStatus = await updateGeneratedBillStatusInTransaction(
+				tx,
+				newBill.id,
+			);
+
+			await updateRecurringBillLastGeneratedDate(tx, recurringBill.id, dueDate);
+
+			return {
+				status: "generated",
+				billId: newBill.id,
+				debtRecordCount: debtEntries.length,
+				paidDebtIds,
+				billPaid: billStatus.transitionedToPaid,
+			} satisfies GeneratedBillResult;
+		});
+
 		log?.set({
 			recurringBillGeneration: {
 				recurringBillId: recurringBill.id,
 				templateName: recurringBill.templateName,
-				billId: newBill.id,
-				debtRecordCount: debtEntries.length,
+				billId: result.billId,
+				debtRecordCount:
+					result.status === "generated" ? result.debtRecordCount : 0,
 				splitStrategy: recurringBill.splitStrategy,
 				dueDate: startOfUtcDay(dueDate).toISOString(),
+				duplicate: result.status === "duplicate",
 			},
 		});
-		await enqueueBillCreatedNotification(newBill.id, "recurring");
+		if (result.status === "generated") {
+			await enqueueBillCreatedNotification(result.billId, "recurring");
+			for (const debtId of result.paidDebtIds) {
+				await enqueueDebtPaidNotification(debtId, "credit");
+			}
+			if (result.billPaid) {
+				await enqueueBillPaidNotification(result.billId, "status_transition");
+			}
+		}
 
-		await db
-			.update(recurringBills)
-			.set({
-				lastGeneratedDate: startOfUtcDay(dueDate),
-				updatedAt: new Date(),
-			})
-			.where(eq(recurringBills.id, recurringBill.id));
-
-		return newBill.id;
+		return result;
 	} catch (error) {
 		log?.error(error instanceof Error ? error : String(error), {
 			recurringBillGeneration: {
@@ -544,7 +817,10 @@ export async function generateRecurringBillById(recurringBillId: string) {
 		});
 	}
 
-	const nextDueDate = getNextDueDateAfterLastGenerated(recurringBill);
+	const nextDueDate = await getNextDueDateAfterLatestGeneration(
+		db,
+		recurringBill,
+	);
 	if (!nextDueDate) {
 		throw createError({
 			message: "Recurring bill has no upcoming due date",
@@ -562,10 +838,16 @@ export async function generateRecurringBillById(recurringBillId: string) {
 	});
 
 	const existingBill = await getExistingBillForDueDate(
+		db,
 		recurringBill.id,
 		nextDueDate,
 	);
 	if (existingBill) {
+		await updateRecurringBillLastGeneratedDate(
+			db,
+			recurringBill.id,
+			nextDueDate,
+		);
 		log?.set({
 			recurringBillGeneration: {
 				recurringBillId,
@@ -576,8 +858,8 @@ export async function generateRecurringBillById(recurringBillId: string) {
 		return { billId: existingBill.id, dueDate: nextDueDate, duplicate: true };
 	}
 
-	const billId = await generateBillFromTemplate(recurringBill, nextDueDate);
-	if (!billId) {
+	const result = await generateBillFromTemplate(recurringBill, nextDueDate);
+	if (!result) {
 		throw createError({
 			message: "Failed to generate recurring bill",
 			status: 500,
@@ -585,8 +867,11 @@ export async function generateRecurringBillById(recurringBillId: string) {
 			fix: "Inspect recurring bill assignments and prior wide-event context for the failing generation step.",
 		});
 	}
+	if (result.status === "duplicate") {
+		return { billId: result.billId, dueDate: nextDueDate, duplicate: true };
+	}
 
-	return { billId, dueDate: nextDueDate, duplicate: false };
+	return { billId: result.billId, dueDate: nextDueDate, duplicate: false };
 }
 
 export async function generateDueBills(targetDate: Date = new Date()): Promise<{
@@ -594,9 +879,13 @@ export async function generateDueBills(targetDate: Date = new Date()): Promise<{
 	bills: Array<{ recurringBillId: string; billId: string }>;
 }> {
 	const log = getRequestLogger();
+	const generationLeadDays = getRecurringBillGenerationLeadDays();
+	const generationCutoffDate = addUtcDays(targetDate, generationLeadDays);
 	log?.set({
 		recurringBills: {
 			targetDate: startOfUtcDay(targetDate).toISOString(),
+			generationCutoffDate: generationCutoffDate.toISOString(),
+			generationLeadDays,
 		},
 	});
 	const activeRecurringBills = await db
@@ -605,7 +894,7 @@ export async function generateDueBills(targetDate: Date = new Date()): Promise<{
 		.where(
 			and(
 				eq(recurringBills.isActive, true),
-				lte(recurringBills.startDate, startOfUtcDay(targetDate)),
+				lte(recurringBills.startDate, startOfUtcDay(generationCutoffDate)),
 				or(
 					isNull(recurringBills.endDate),
 					gte(recurringBills.endDate, startOfUtcDay(targetDate)),
@@ -615,6 +904,8 @@ export async function generateDueBills(targetDate: Date = new Date()): Promise<{
 	log?.set({
 		recurringBills: {
 			targetDate: startOfUtcDay(targetDate).toISOString(),
+			generationCutoffDate: generationCutoffDate.toISOString(),
+			generationLeadDays,
 			activeTemplateCount: activeRecurringBills.length,
 		},
 	});
@@ -622,30 +913,45 @@ export async function generateDueBills(targetDate: Date = new Date()): Promise<{
 	const generatedBills: Array<{ recurringBillId: string; billId: string }> = [];
 
 	for (const recurringBill of activeRecurringBills) {
-		const nextDueDate = getNextDueDateAfterLastGenerated(recurringBill);
+		const nextDueDate = await getNextDueDateAfterLatestGeneration(
+			db,
+			recurringBill,
+		);
 		if (
 			!nextDueDate ||
-			startOfUtcDay(nextDueDate).getTime() > startOfUtcDay(targetDate).getTime()
+			startOfUtcDay(nextDueDate).getTime() >
+				startOfUtcDay(generationCutoffDate).getTime()
 		) {
 			continue;
 		}
 
 		const existingBill = await getExistingBillForDueDate(
+			db,
 			recurringBill.id,
 			nextDueDate,
 		);
 		if (existingBill) {
+			await updateRecurringBillLastGeneratedDate(
+				db,
+				recurringBill.id,
+				nextDueDate,
+			);
 			continue;
 		}
 
-		const billId = await generateBillFromTemplate(recurringBill, nextDueDate);
-		if (billId) {
-			generatedBills.push({ recurringBillId: recurringBill.id, billId });
+		const result = await generateBillFromTemplate(recurringBill, nextDueDate);
+		if (result?.status === "generated") {
+			generatedBills.push({
+				recurringBillId: recurringBill.id,
+				billId: result.billId,
+			});
 		}
 	}
 	log?.set({
 		recurringBills: {
 			targetDate: startOfUtcDay(targetDate).toISOString(),
+			generationCutoffDate: generationCutoffDate.toISOString(),
+			generationLeadDays,
 			generatedCount: generatedBills.length,
 		},
 	});

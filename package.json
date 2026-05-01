@@ -15,6 +15,7 @@
 		"db:studio": "drizzle-kit studio",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "bun run src/api/scripts/migrate.ts",
+		"db:repair-recurring": "bun run src/api/scripts/repair-recurring-last-generated-date.ts",
 		"db:seed": "bun run src/api/scripts/test-seed.ts"
 	},
 	"dependencies": {

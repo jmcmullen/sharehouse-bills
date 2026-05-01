@@ -157,6 +157,9 @@ async function bootstrapExistingDatabase(
 	await client.execute(
 		"CREATE UNIQUE INDEX IF NOT EXISTS bills_source_fingerprint_idx ON bills (source_fingerprint)",
 	);
+	await client.execute(
+		"CREATE UNIQUE INDEX IF NOT EXISTS bills_recurring_bill_due_date_idx ON bills (recurring_bill_id, due_date)",
+	);
 
 	const existingRecurringBillColumns = await getExistingColumns(
 		client,

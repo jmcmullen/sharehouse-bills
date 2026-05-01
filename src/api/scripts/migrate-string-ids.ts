@@ -164,6 +164,7 @@ const CREATE_INDEX_STATEMENTS = [
 	"CREATE UNIQUE INDEX housemates_email_unique ON housemates (email)",
 	"CREATE UNIQUE INDEX housemates_whatsapp_number_unique ON housemates (whatsapp_number)",
 	"CREATE INDEX bills_pdf_sha256_idx ON bills (pdf_sha256)",
+	"CREATE UNIQUE INDEX bills_recurring_bill_due_date_idx ON bills (recurring_bill_id, due_date)",
 	"CREATE UNIQUE INDEX bills_source_fingerprint_idx ON bills (source_fingerprint)",
 	"CREATE UNIQUE INDEX payment_transactions_transaction_id_idx ON payment_transactions (transaction_id)",
 	"CREATE UNIQUE INDEX whatsapp_notifications_event_key_idx ON whatsapp_notifications (event_key)",

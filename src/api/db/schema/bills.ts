@@ -71,6 +71,9 @@ export const bills = sqliteTable(
 	},
 	(table) => ({
 		pdfSha256Idx: index("bills_pdf_sha256_idx").on(table.pdfSha256),
+		recurringBillDueDateIdx: uniqueIndex(
+			"bills_recurring_bill_due_date_idx",
+		).on(table.recurringBillId, table.dueDate),
 		sourceFingerprintIdx: uniqueIndex("bills_source_fingerprint_idx").on(
 			table.sourceFingerprint,
 		),
