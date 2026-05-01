@@ -174,6 +174,7 @@ export function buildBillReminderPreviewSummary(input: {
 	const lines = [
 		`*Random reminder preview for ${input.housemateName}*`,
 		`Cron date: ${new Intl.DateTimeFormat("en-AU", {
+			weekday: "long",
 			day: "numeric",
 			month: "short",
 			year: "numeric",

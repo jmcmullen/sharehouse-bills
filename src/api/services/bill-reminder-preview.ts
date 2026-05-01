@@ -15,6 +15,9 @@ import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
 
+const NEXT_REMINDER_PREVIEW_LOOKAHEAD_DAYS = 31;
+const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
+
 type ReminderDebtPreview = {
 	billId: string;
 	billerName: string;
@@ -171,14 +174,35 @@ function collectReminderPreviewByHousemate(
 	);
 }
 
-export async function getRandomBillReminderPreview(targetDate: Date) {
-	const previews = collectReminderPreviewByHousemate(
-		await getReminderCandidateRows(),
-		targetDate,
-	);
+function getRandomPreview(previews: RandomBillReminderPreview[]) {
 	if (previews.length === 0) {
 		return null;
 	}
 
 	return previews[Math.floor(Math.random() * previews.length)] ?? null;
+}
+
+function addUtcDays(date: Date, days: number) {
+	return new Date(
+		getReminderScheduledForDate(date).getTime() + days * ONE_DAY_IN_MS,
+	);
+}
+
+export async function getNextBillReminderPreview(targetDate: Date) {
+	const rows = await getReminderCandidateRows();
+
+	for (
+		let offset = 0;
+		offset <= NEXT_REMINDER_PREVIEW_LOOKAHEAD_DAYS;
+		offset += 1
+	) {
+		const preview = getRandomPreview(
+			collectReminderPreviewByHousemate(rows, addUtcDays(targetDate, offset)),
+		);
+		if (preview) {
+			return preview;
+		}
+	}
+
+	return null;
 }

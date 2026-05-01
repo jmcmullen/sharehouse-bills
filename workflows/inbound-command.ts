@@ -149,8 +149,9 @@ async function loadDueCommandSummaryDependencies() {
 		getRandomBillPreviewContext,
 		getRandomDebtPaidPreviewContext,
 	} = await import("../src/api/services/whatsapp-notifications");
-	const { getRandomBillReminderPreview: getRandomReminderPreview } =
-		await import("../src/api/services/bill-reminder-preview");
+	const { getNextBillReminderPreview: getNextReminderPreview } = await import(
+		"../src/api/services/bill-reminder-preview"
+	);
 	const { sendWhatsappTextMessage } = await import("../src/api/services/waha");
 	const previewDate = BillPdfStorageService.getMessageCacheDate();
 	const housematePaymentNames = await getActiveHousematePaymentNames();
@@ -176,7 +177,7 @@ async function loadDueCommandSummaryDependencies() {
 		getRandomBillPaidPreviewContext,
 		getRandomBillPreviewContext,
 		getRandomDebtPaidPreviewContext,
-		getRandomReminderPreview,
+		getNextReminderPreview,
 		housematePaymentNames,
 		previewDate,
 		sendWhatsappTextMessage,
@@ -295,9 +296,7 @@ async function sendReminderPreviewSummary({
 	context,
 	dependencies,
 }: SendDueCommandBranchArgs) {
-	const reminderPreview = await dependencies.getRandomReminderPreview(
-		new Date(),
-	);
+	const reminderPreview = await dependencies.getNextReminderPreview(new Date());
 
 	if (!reminderPreview) {
 		await performTrackedWhatsappDelivery({
@@ -307,7 +306,7 @@ async function sendReminderPreviewSummary({
 			deliver: async () =>
 				await dependencies.sendWhatsappTextMessage(
 					context.replyChatId,
-					"*No reminders would be sent if cron ran today.*",
+					"*No reminders are scheduled in the next 31 days.*",
 				),
 		});
 		return;
