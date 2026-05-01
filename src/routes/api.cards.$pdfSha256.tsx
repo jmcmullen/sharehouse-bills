@@ -58,7 +58,7 @@ function getBillOgCardProps(input: {
 			secondaryColor: "#b9e4c9",
 			secondaryValue: "Thanks everyone",
 			tertiaryColor: "#8fc6a5",
-			tertiaryValue: "Settled and squared away",
+			tertiaryValue: input.tertiaryValue,
 			titleColor: "#f0fbf4",
 		};
 	}
@@ -133,7 +133,7 @@ export const Route = createFileRoute("/api/cards/$pdfSha256")({
 						bill.shareSummary.amountEach !== null
 							? totalValue
 							: null,
-					tertiaryValue: splitValue,
+					tertiaryValue: isAllSorted ? totalValue : splitValue,
 				});
 
 				const getOg = createOgRouteHandler({
