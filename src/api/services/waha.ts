@@ -348,6 +348,14 @@ async function resolveMessageLinkPreview(text: string) {
 	return null;
 }
 
+function isUnsupportedCustomLinkPreviewError(error: unknown) {
+	return (
+		error instanceof WahaRequestError &&
+		error.status === 501 &&
+		error.responseText?.includes("Not Implemented")
+	);
+}
+
 async function wahaRequest<TResponse>(
 	path: string,
 	options: {
@@ -532,19 +540,33 @@ export async function resolveWhatsappChatIdToNumber(
 export async function sendWhatsappTextMessage(chatId: string, text: string) {
 	const preview = await resolveMessageLinkPreview(text);
 	if (preview) {
-		return await wahaRequest<WahaSuccessResponse>(
-			"/api/send/link-custom-preview",
-			{
+		try {
+			return await wahaRequest<WahaSuccessResponse>(
+				"/api/send/link-custom-preview",
+				{
+					method: "POST",
+					body: {
+						chatId,
+						text,
+						linkPreview: true,
+						linkPreviewHighQuality: true,
+						preview,
+					},
+				},
+			);
+		} catch (error) {
+			if (!isUnsupportedCustomLinkPreviewError(error)) {
+				throw error;
+			}
+
+			return await wahaRequest<WahaSuccessResponse>("/api/sendText", {
 				method: "POST",
 				body: {
 					chatId,
 					text,
-					linkPreview: true,
-					linkPreviewHighQuality: true,
-					preview,
 				},
-			},
-		);
+			});
+		}
 	}
 
 	return await wahaRequest<WahaSuccessResponse>("/api/sendText", {
