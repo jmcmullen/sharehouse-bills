@@ -338,22 +338,31 @@ async function resolveMessageLinkPreview(text: string) {
 		.filter(isCustomPreviewUrl)
 		.slice(0, MAX_LINK_PREVIEW_CANDIDATES);
 
-	for (const url of previewUrls) {
-		const preview = await fetchLinkPreview(url);
-		if (preview) {
-			return preview;
-		}
+	if (previewUrls.length === 0) {
+		return null;
 	}
 
-	return null;
-}
+	if (previewUrls.length > 1) {
+		throw createError({
+			message:
+				"Unable to send one WhatsApp custom preview for multiple app URLs",
+			status: 500,
+			why: "WAHA custom link previews accept a single preview object, so each app URL must be sent in its own WhatsApp message.",
+			fix: "Split the outgoing WhatsApp response so each message contains only one public app URL.",
+		});
+	}
 
-function isUnsupportedCustomLinkPreviewError(error: unknown) {
-	return (
-		error instanceof WahaRequestError &&
-		error.status === 501 &&
-		error.responseText?.includes("Not Implemented")
-	);
+	const preview = await fetchLinkPreview(previewUrls[0]);
+	if (!preview) {
+		throw createError({
+			message: "Unable to build WAHA custom link preview metadata",
+			status: 500,
+			why: "The public app URL did not return complete Open Graph metadata for title, description, and image.",
+			fix: "Ensure the page exposes og:title, og:description, and og:image meta tags before sending it through WhatsApp.",
+		});
+	}
+
+	return preview;
 }
 
 async function wahaRequest<TResponse>(
@@ -540,33 +549,18 @@ export async function resolveWhatsappChatIdToNumber(
 export async function sendWhatsappTextMessage(chatId: string, text: string) {
 	const preview = await resolveMessageLinkPreview(text);
 	if (preview) {
-		try {
-			return await wahaRequest<WahaSuccessResponse>(
-				"/api/send/link-custom-preview",
-				{
-					method: "POST",
-					body: {
-						chatId,
-						text,
-						linkPreview: true,
-						linkPreviewHighQuality: true,
-						preview,
-					},
-				},
-			);
-		} catch (error) {
-			if (!isUnsupportedCustomLinkPreviewError(error)) {
-				throw error;
-			}
-
-			return await wahaRequest<WahaSuccessResponse>("/api/sendText", {
+		return await wahaRequest<WahaSuccessResponse>(
+			"/api/send/link-custom-preview",
+			{
 				method: "POST",
 				body: {
 					chatId,
 					text,
+					linkPreviewHighQuality: true,
+					preview,
 				},
-			});
-		}
+			},
+		);
 	}
 
 	return await wahaRequest<WahaSuccessResponse>("/api/sendText", {

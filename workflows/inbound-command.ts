@@ -369,37 +369,46 @@ async function sendDefaultInboundCommandSummary({
 		);
 	}
 
-	await performTrackedWhatsappDelivery({
-		notificationId,
-		deliveryKey: "due_command_summary",
-		operation: "inbound command WhatsApp summary",
-		deliver: async () =>
-			await dependencies.sendWhatsappTextMessage(
-				chatId,
-				await buildInboundCommandResponse({
-					commandType: context.commandType,
-					context,
-					buildBillPaidSummary: dependencies.buildBillPaidSummary,
-					buildDueCommandNotFoundSummary:
-						dependencies.buildDueCommandNotFoundSummary,
-					buildNotAllowedSummary: dependencies.buildNotAllowedSummary,
-					buildPayLinkSummary: dependencies.buildPayLinkSummary,
-					buildUnknownHousematePaySummary:
-						dependencies.buildUnknownHousematePaySummary,
-					createAbsoluteDebtReceiptUrl:
-						dependencies.createAbsoluteDebtReceiptUrl,
-					getAbsoluteViewerUrl: dependencies.getAbsoluteViewerUrl,
-					getRandomBillPreviewContext: dependencies.getRandomBillPreviewContext,
-					getRandomBillPaidPreviewContext:
-						dependencies.getRandomBillPaidPreviewContext,
-					getRandomDebtPaidPreviewContext:
-						dependencies.getRandomDebtPaidPreviewContext,
-					createAbsolutePayUrl: dependencies.createAbsolutePayUrl,
-					previewDate: dependencies.previewDate,
-					housematePaymentNames: dependencies.housematePaymentNames,
-				}),
-			),
-	});
+	const messages = toWhatsappMessages(
+		await buildInboundCommandResponse({
+			commandType: context.commandType,
+			context,
+			buildBillPaidSummary: dependencies.buildBillPaidSummary,
+			buildDueCommandNotFoundSummary:
+				dependencies.buildDueCommandNotFoundSummary,
+			buildNotAllowedSummary: dependencies.buildNotAllowedSummary,
+			buildPayLinkSummary: dependencies.buildPayLinkSummary,
+			buildUnknownHousematePaySummary:
+				dependencies.buildUnknownHousematePaySummary,
+			createAbsoluteDebtReceiptUrl: dependencies.createAbsoluteDebtReceiptUrl,
+			getAbsoluteViewerUrl: dependencies.getAbsoluteViewerUrl,
+			getRandomBillPreviewContext: dependencies.getRandomBillPreviewContext,
+			getRandomBillPaidPreviewContext:
+				dependencies.getRandomBillPaidPreviewContext,
+			getRandomDebtPaidPreviewContext:
+				dependencies.getRandomDebtPaidPreviewContext,
+			createAbsolutePayUrl: dependencies.createAbsolutePayUrl,
+			previewDate: dependencies.previewDate,
+			housematePaymentNames: dependencies.housematePaymentNames,
+		}),
+	);
+
+	for (const [index, message] of messages.entries()) {
+		const deliveryKey =
+			messages.length === 1
+				? "due_command_summary"
+				: `due_command_summary_${index + 1}`;
+		await performTrackedWhatsappDelivery({
+			notificationId,
+			deliveryKey,
+			operation:
+				messages.length === 1
+					? "inbound command WhatsApp summary"
+					: `inbound command WhatsApp summary ${index + 1}`,
+			deliver: async () =>
+				await dependencies.sendWhatsappTextMessage(chatId, message),
+		});
+	}
 }
 
 sendDueCommandSummary.maxRetries = 2;
@@ -546,6 +555,10 @@ type BuildInboundCommandResponseArgs = {
 	housematePaymentNames: string[];
 };
 
+function toWhatsappMessages(message: string | string[]) {
+	return Array.isArray(message) ? message : [message];
+}
+
 function buildDueCommandReply(args: DueCommandReplyArgs) {
 	const payUrl = args.createAbsolutePayUrl(
 		{
@@ -638,7 +651,7 @@ async function buildPaidCommandResponse(args: BuildInboundCommandResponseArgs) {
 		sections.push(args.buildBillPaidSummary({ billUrl }));
 	}
 
-	return sections.join("\n\n");
+	return sections;
 }
 
 async function buildBillPaidCommandResponse(
