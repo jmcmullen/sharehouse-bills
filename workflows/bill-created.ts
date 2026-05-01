@@ -54,7 +54,6 @@ async function sendBillSummary(notificationId: string) {
 			fix: "Set VITE_BASE_URL so the workflow can build absolute public links.",
 		});
 	}
-	await assertBillPreviewReady(billUrl);
 
 	await performTrackedWhatsappDelivery({
 		notificationId,
@@ -69,63 +68,6 @@ async function sendBillSummary(notificationId: string) {
 }
 
 sendBillSummary.maxRetries = 2;
-
-async function assertBillPreviewReady(billUrl: string) {
-	const response = await fetch(billUrl, {
-		headers: {
-			"User-Agent": "WhatsApp/2.24.0",
-		},
-	});
-	if (!response.ok) {
-		throw createError({
-			message: "Bill preview page is not ready",
-			status: 502,
-			why: `The public bill page returned ${response.status} before WhatsApp delivery.`,
-			fix: "Retry the workflow after the public bill page is reachable.",
-		});
-	}
-
-	const html = await response.text();
-	const ogImageUrl = getMetaContent(html, "og:image");
-	if (!getMetaContent(html, "og:title") || !ogImageUrl) {
-		throw createError({
-			message: "Bill preview metadata is not ready",
-			status: 502,
-			why: "The public bill page was reachable but did not include the expected Open Graph title and image metadata.",
-			fix: "Retry the workflow after the public bill page renders bill metadata.",
-		});
-	}
-
-	const imageResponse = await fetch(new URL(ogImageUrl, billUrl), {
-		headers: {
-			"User-Agent": "WhatsApp/2.24.0",
-		},
-	});
-	if (
-		!imageResponse.ok ||
-		!imageResponse.headers.get("content-type")?.startsWith("image/")
-	) {
-		throw createError({
-			message: "Bill preview image is not ready",
-			status: 502,
-			why: `The public bill card image returned ${imageResponse.status} with content type ${imageResponse.headers.get("content-type") ?? "unknown"}.`,
-			fix: "Retry the workflow after the public bill card image is reachable.",
-		});
-	}
-	await imageResponse.arrayBuffer();
-}
-
-function getMetaContent(html: string, property: string) {
-	const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const match = html.match(
-		new RegExp(
-			`<meta[^>]+(?:property|name)=["']${escapedProperty}["'][^>]+content=["']([^"']+)["'][^>]*>`,
-			"i",
-		),
-	);
-
-	return match?.[1] ?? null;
-}
 
 async function markNotificationCompleted(notificationId: string) {
 	"use step";
