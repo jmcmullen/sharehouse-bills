@@ -17,6 +17,15 @@ type WahaLidMappingResponse = {
 	pn?: string | null;
 };
 
+type WhatsappLinkPreview = {
+	url: string;
+	title: string;
+	description: string;
+	image: {
+		url: string;
+	};
+};
+
 type WhatsappUrlButton = {
 	type: "url";
 	text: string;
@@ -70,6 +79,10 @@ class WahaRequestError extends Error {
 }
 
 const WAHA_REQUEST_TIMEOUT_MS = 60_000;
+const LINK_PREVIEW_REQUEST_TIMEOUT_MS = 15_000;
+const MAX_LINK_PREVIEW_CANDIDATES = 5;
+const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
+const TRAILING_URL_PUNCTUATION_PATTERN = /[),.;:!?]+$/;
 
 function getWahaBaseUrl() {
 	const baseUrl = process.env.WAHA_BASE_URL?.trim();
@@ -101,6 +114,19 @@ function getWahaApiKey() {
 
 function getWahaSessionName() {
 	return process.env.WAHA_SESSION_NAME?.trim() || "default";
+}
+
+function getConfiguredAppOrigin() {
+	const baseUrl = process.env.VITE_BASE_URL?.trim();
+	if (!baseUrl) {
+		return null;
+	}
+
+	try {
+		return new URL(baseUrl).origin;
+	} catch {
+		return null;
+	}
 }
 
 export function getConfiguredWhatsappGroupChatId() {
@@ -139,6 +165,187 @@ export function getWahaChatIdForPhoneNumber(
 	phoneNumber: string | null | undefined,
 ) {
 	return whatsappNumberToChatId(phoneNumber);
+}
+
+function normalizeTextUrl(rawUrl: string) {
+	const cleanedUrl = rawUrl.replace(TRAILING_URL_PUNCTUATION_PATTERN, "");
+
+	try {
+		const url = new URL(cleanedUrl);
+		return url.protocol === "http:" || url.protocol === "https:"
+			? url.toString()
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+function getTextUrls(text: string) {
+	const matches = text.match(HTTP_URL_PATTERN) ?? [];
+	const urls = matches
+		.map(normalizeTextUrl)
+		.filter((url): url is string => Boolean(url));
+
+	return [...new Set(urls)];
+}
+
+function isCustomPreviewUrl(url: string) {
+	const appOrigin = getConfiguredAppOrigin();
+	if (!appOrigin) {
+		return false;
+	}
+
+	try {
+		return new URL(url).origin === appOrigin;
+	} catch {
+		return false;
+	}
+}
+
+function decodeHtmlEntities(value: string) {
+	const namedEntities: Record<string, string> = {
+		"#39": "'",
+		amp: "&",
+		apos: "'",
+		gt: ">",
+		lt: "<",
+		quot: '"',
+	};
+
+	return value.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (entity, name) => {
+		const normalizedName = String(name).toLowerCase();
+		if (normalizedName.startsWith("#x")) {
+			return String.fromCodePoint(Number.parseInt(normalizedName.slice(2), 16));
+		}
+
+		if (normalizedName.startsWith("#")) {
+			return String.fromCodePoint(Number.parseInt(normalizedName.slice(1), 10));
+		}
+
+		return namedEntities[normalizedName] ?? entity;
+	});
+}
+
+function getHtmlAttribute(tag: string, attributeName: string) {
+	const attributePattern = new RegExp(
+		`\\s${attributeName}\\s*=\\s*(["'])(.*?)\\1`,
+		"i",
+	);
+	const match = tag.match(attributePattern);
+	return match?.[2] ? decodeHtmlEntities(match[2].trim()) : null;
+}
+
+function getMetaContent(html: string, keys: string[]) {
+	const keySet = new Set(keys.map((key) => key.toLowerCase()));
+	const metaTags = html.match(/<meta\b[^>]*>/gi) ?? [];
+
+	for (const tag of metaTags) {
+		const key =
+			getHtmlAttribute(tag, "property") ?? getHtmlAttribute(tag, "name");
+		const content = getHtmlAttribute(tag, "content");
+		if (key && content && keySet.has(key.toLowerCase())) {
+			return content;
+		}
+	}
+
+	return null;
+}
+
+function getHtmlTitle(html: string) {
+	const match = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+	return match?.[1] ? decodeHtmlEntities(match[1].trim()) : null;
+}
+
+function getAbsolutePreviewImageUrl(imageUrl: string | null, pageUrl: string) {
+	if (!imageUrl) {
+		return null;
+	}
+
+	try {
+		return new URL(imageUrl, pageUrl).toString();
+	} catch {
+		return null;
+	}
+}
+
+function extractLinkPreview(
+	html: string,
+	url: string,
+): WhatsappLinkPreview | null {
+	const title =
+		getMetaContent(html, ["og:title", "twitter:title"]) ?? getHtmlTitle(html);
+	const description = getMetaContent(html, [
+		"og:description",
+		"twitter:description",
+		"description",
+	]);
+	const imageUrl = getAbsolutePreviewImageUrl(
+		getMetaContent(html, ["og:image", "twitter:image"]),
+		url,
+	);
+
+	if (!title || !description || !imageUrl) {
+		return null;
+	}
+
+	return {
+		url,
+		title,
+		description,
+		image: {
+			url: imageUrl,
+		},
+	};
+}
+
+async function fetchLinkPreview(url: string) {
+	const abortController = new AbortController();
+	const timeoutId = setTimeout(() => {
+		abortController.abort(
+			new Error(
+				`Link preview metadata request timed out after ${LINK_PREVIEW_REQUEST_TIMEOUT_MS}ms`,
+			),
+		);
+	}, LINK_PREVIEW_REQUEST_TIMEOUT_MS);
+
+	try {
+		const response = await fetch(url, {
+			headers: {
+				Accept: "text/html,application/xhtml+xml",
+				"User-Agent": "sharehouse-bills-whatsapp-preview/1.0",
+			},
+			signal: abortController.signal,
+		});
+		if (!response.ok) {
+			return null;
+		}
+
+		const contentType = response.headers.get("content-type") ?? "";
+		if (contentType && !contentType.toLowerCase().includes("text/html")) {
+			return null;
+		}
+
+		return extractLinkPreview(await response.text(), url);
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
+
+async function resolveMessageLinkPreview(text: string) {
+	const previewUrls = getTextUrls(text)
+		.filter(isCustomPreviewUrl)
+		.slice(0, MAX_LINK_PREVIEW_CANDIDATES);
+
+	for (const url of previewUrls) {
+		const preview = await fetchLinkPreview(url);
+		if (preview) {
+			return preview;
+		}
+	}
+
+	return null;
 }
 
 async function wahaRequest<TResponse>(
@@ -323,6 +530,23 @@ export async function resolveWhatsappChatIdToNumber(
 }
 
 export async function sendWhatsappTextMessage(chatId: string, text: string) {
+	const preview = await resolveMessageLinkPreview(text);
+	if (preview) {
+		return await wahaRequest<WahaSuccessResponse>(
+			"/api/send/link-custom-preview",
+			{
+				method: "POST",
+				body: {
+					chatId,
+					text,
+					linkPreview: true,
+					linkPreviewHighQuality: true,
+					preview,
+				},
+			},
+		);
+	}
+
 	return await wahaRequest<WahaSuccessResponse>("/api/sendText", {
 		method: "POST",
 		body: {
