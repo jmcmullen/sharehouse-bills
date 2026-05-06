@@ -313,6 +313,23 @@ function prioritizeDebtCandidatesByAmountMatch(
 	debtCandidates: DebtCandidate[],
 	amountInDollars: number,
 ) {
+	const exactPlan = getExactAmountDebtPlan(debtCandidates, amountInDollars);
+	if (!exactPlan) {
+		return debtCandidates;
+	}
+
+	const exactPlanIds = new Set(exactPlan.map((candidate) => candidate.id));
+
+	return [
+		...debtCandidates.filter((candidate) => exactPlanIds.has(candidate.id)),
+		...debtCandidates.filter((candidate) => !exactPlanIds.has(candidate.id)),
+	];
+}
+
+function getExactAmountDebtPlan(
+	debtCandidates: DebtCandidate[],
+	amountInDollars: number,
+) {
 	const allocationCandidates = debtCandidates
 		.map((candidate) => {
 			const remainingAmount = getRemainingDebtAmount(candidate);
@@ -329,20 +346,10 @@ function prioritizeDebtCandidatesByAmountMatch(
 		})
 		.filter((candidate) => candidate !== null);
 
-	const exactPlan = findExactAmountDebtPlan(
+	return findExactAmountDebtPlan(
 		allocationCandidates,
 		toCents(amountInDollars),
 	);
-	if (!exactPlan) {
-		return debtCandidates;
-	}
-
-	const exactPlanIds = new Set(exactPlan.map((candidate) => candidate.id));
-
-	return [
-		...debtCandidates.filter((candidate) => exactPlanIds.has(candidate.id)),
-		...debtCandidates.filter((candidate) => !exactPlanIds.has(candidate.id)),
-	];
 }
 
 function getExplicitBeneficiaryMatches(
@@ -693,8 +700,29 @@ async function reconcileMatchedPaymentInTransaction(input: {
 	amountInDollars: number;
 	now: Date;
 }) {
+	const openDebtCandidates = await getOpenDebtCandidatesForHousemate(
+		input.tx,
+		input.housemateId,
+	);
+	if (!getExactAmountDebtPlan(openDebtCandidates, input.amountInDollars)) {
+		await recordUnreconciledMatchedPaymentInTransaction(input);
+
+		return {
+			result: {
+				success: false,
+				type: "no_match",
+				reason:
+					"Payment did not exactly match any open debt amount or combination",
+				housemateId: input.housemateId,
+				amountProcessed: input.amountInDollars,
+			} satisfies ReconciliationResult,
+			matchedDebtIds: [],
+			affectedBillIds: new Set<string>(),
+		};
+	}
+
 	const debtCandidates = prioritizeDebtCandidatesByAmountMatch(
-		await getOpenDebtCandidatesForHousemate(input.tx, input.housemateId),
+		openDebtCandidates,
 		input.amountInDollars,
 	);
 	const allocation = await allocatePaymentAcrossDebts({
@@ -747,6 +775,39 @@ async function reconcileMatchedPaymentInTransaction(input: {
 		matchedDebtIds: allocation.matchedDebtIds,
 		affectedBillIds: allocation.affectedBillIds,
 	};
+}
+
+async function recordUnreconciledMatchedPaymentInTransaction(input: {
+	tx: PaymentReconciliationClient;
+	transaction: UpBankTransaction;
+	housemateId: string;
+	amountInDollars: number;
+	now: Date;
+}) {
+	await input.tx.insert(unreconciledTransactions).values({
+		transactionId: input.transaction.id,
+		description: input.transaction.attributes.description,
+		amount: input.amountInDollars,
+		reason: "no_match",
+		rawData: input.transaction,
+		createdAt: input.now,
+	});
+
+	await input.tx.insert(paymentTransactions).values({
+		transactionId: input.transaction.id,
+		description: input.transaction.attributes.description,
+		amount: input.amountInDollars,
+		housemateId: input.housemateId,
+		status: "unreconciled",
+		source: "up_bank",
+		matchType: "no_match",
+		rawData: input.transaction,
+		creditAmount: 0,
+		settledAt: parseTimestamp(input.transaction.attributes.settledAt),
+		upCreatedAt: parseTimestamp(input.transaction.attributes.createdAt),
+		createdAt: input.now,
+		updatedAt: input.now,
+	});
 }
 
 async function getOpenDebtCandidatesForHousemate(
