@@ -33,7 +33,7 @@ export const bills = sqliteTable(
 		referenceNumber: text("reference_number"),
 		sourceFilename: text("source_filename"),
 		parseMethod: text("parse_method", {
-			enum: ["agl_regex", "hudson_mchugh_regex", "ai"],
+			enum: ["agl_regex", "hudson_mchugh_regex", "neptune_regex", "ai"],
 		}),
 		parseConfidence: real("parse_confidence"),
 		sourceFingerprint: text("source_fingerprint"),

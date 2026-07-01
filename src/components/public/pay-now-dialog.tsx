@@ -9,11 +9,12 @@ import {
 	DialogTrigger,
 } from "@/components/ui/dialog";
 import { Check, Copy } from "lucide-react";
-import { useState } from "react";
+import { type ComponentProps, useState } from "react";
 import { toast } from "sonner";
 
 type PayNowDialogProps = {
 	triggerLabel: string;
+	triggerVariant?: ComponentProps<typeof Button>["variant"];
 	title: string;
 	payId: string | null;
 	amount: number;
@@ -109,7 +110,10 @@ export function PayNowDialog(input: PayNowDialogProps) {
 	return (
 		<Dialog>
 			<DialogTrigger asChild>
-				<Button className="h-11 w-full font-medium">
+				<Button
+					variant={input.triggerVariant}
+					className="h-11 w-full font-medium"
+				>
 					{input.triggerLabel}
 				</Button>
 			</DialogTrigger>

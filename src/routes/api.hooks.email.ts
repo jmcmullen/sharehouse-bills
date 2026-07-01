@@ -178,6 +178,27 @@ function isHudsonMcHughEmail(content: ReceivedEmailContent) {
 	);
 }
 
+function isNeptuneInternetEmail(content: ReceivedEmailContent) {
+	const normalizedSubject = decodeQuotedPrintableContent(content.subject);
+	const normalizedHtml = decodeQuotedPrintableContent(content.html);
+	const normalizedText = decodeQuotedPrintableContent(content.text);
+	const neptuneMarkerPattern =
+		/invoice\+statements@neptune\.net\.au|neptune\s+internet/i;
+
+	return (
+		neptuneMarkerPattern.test(content.from) ||
+		neptuneMarkerPattern.test(normalizedSubject) ||
+		neptuneMarkerPattern.test(normalizedHtml) ||
+		neptuneMarkerPattern.test(normalizedText)
+	);
+}
+
+function isNeptuneInvoiceAttachment(filename: string | null | undefined) {
+	return filename
+		? /^Invoice-[A-Za-z0-9]+-\d+\.pdf$/i.test(filename.trim())
+		: false;
+}
+
 function selectPdfAttachmentsForEmail(
 	attachments: ResendAttachmentSummary[],
 	emailContent: ReceivedEmailContent,
@@ -185,6 +206,12 @@ function selectPdfAttachmentsForEmail(
 	const pdfAttachments = attachments.filter((attachment) =>
 		isPdfAttachment(attachment.filename, attachment.content_type),
 	);
+
+	if (isNeptuneInternetEmail(emailContent)) {
+		return pdfAttachments.filter((attachment) =>
+			isNeptuneInvoiceAttachment(attachment.filename),
+		);
+	}
 
 	if (!isHudsonMcHughEmail(emailContent)) {
 		return pdfAttachments;

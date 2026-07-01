@@ -25,6 +25,17 @@ const HUDSON_MCHUGH_ISSUED_ON_REGEX = /Issued On:\s+(\d{1,2}\/\d{1,2}\/\d{4})/i;
 const HUDSON_MCHUGH_TENANCY_REFERENCE_REGEX = /Tenancy Reference.*?:\s*(\d+)/i;
 const HUDSON_MCHUGH_PROPERTY_REGEX =
 	/Property:\s+(.+?)(?:\s+Item\s+#|\s+--\s+\d+\s+of\s+\d+\s+--|$)/i;
+const NEPTUNE_INTERNET_MARKER_REGEX =
+	/\bNeptune Internet\b|support@neptune\.net\.au|NEPTUNE INTERNET RECLOUD PTY LTD/i;
+const NEPTUNE_RECEIPT_REGEX = /\bReceipt\b.*\bReceipt number\b/i;
+const NEPTUNE_INVOICE_HEADER_REGEX = /\bInvoice\s+Invoice number\b/i;
+const NEPTUNE_INVOICE_NUMBER_REGEX = /Invoice number\s+([A-Z0-9]+)[\s-]+(\d+)/i;
+const NEPTUNE_ISSUE_DATE_REGEX = /Date of issue\s+([A-Za-z]+ \d{1,2}, \d{4})/i;
+const NEPTUNE_DUE_DATE_REGEX = /Date due\s+([A-Za-z]+ \d{1,2}, \d{4})/i;
+const NEPTUNE_AMOUNT_DUE_REGEX = /Amount due\s+A?\$([\d,]+\.\d{2})/i;
+const NEPTUNE_ACCOUNT_NUMBER_REGEX = /\bAVC\s+(AVC\d+)/i;
+const NEPTUNE_BILL_PERIOD_REGEX =
+	/\b(\d{1,2})\s+([A-Za-z]{3})[–-]\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\b/i;
 
 export interface ExtractedBillData {
 	billerName: string;
@@ -38,7 +49,7 @@ export interface ExtractedBillData {
 	billPeriodEnd?: Date;
 	accountNumber?: string;
 	referenceNumber?: string;
-	parseMethod: "agl_regex" | "hudson_mchugh_regex" | "ai";
+	parseMethod: "agl_regex" | "hudson_mchugh_regex" | "neptune_regex" | "ai";
 	parseConfidence: number;
 	pdfSha256: string;
 	sourceFingerprint: string;
@@ -112,6 +123,15 @@ export class PdfBillExtractorService {
 		);
 		if (hudsonMcHughBills) {
 			return hudsonMcHughBills;
+		}
+
+		const neptuneBill = this.parseNeptuneInternetBill(
+			extractedPdf.text,
+			filename,
+			extractedPdf.pdfSha256,
+		);
+		if (neptuneBill) {
+			return [neptuneBill];
 		}
 
 		const aiBill = await this.aiParser.parsePdfFromBuffer(
@@ -378,6 +398,116 @@ export class PdfBillExtractorService {
 		return bills;
 	}
 
+	private parseNeptuneInternetBill(
+		text: string,
+		filename: string,
+		pdfSha256: string,
+	): ExtractedBillData | null {
+		if (!NEPTUNE_INTERNET_MARKER_REGEX.test(text)) {
+			return null;
+		}
+
+		if (NEPTUNE_RECEIPT_REGEX.test(text)) {
+			throw new UnsupportedBillFormatError(
+				`Neptune receipt is not a bill invoice in ${filename}`,
+			);
+		}
+
+		if (!NEPTUNE_INVOICE_HEADER_REGEX.test(text)) {
+			throw new UnsupportedBillFormatError(
+				`Neptune invoice header not found in ${filename}`,
+			);
+		}
+
+		const referenceNumber = this.extractNeptuneInvoiceNumber(text);
+		const totalAmount = this.extractMoney(text, NEPTUNE_AMOUNT_DUE_REGEX);
+		const dueDate = this.extractLongDate(text, NEPTUNE_DUE_DATE_REGEX);
+		const statementDate = this.extractLongDate(text, NEPTUNE_ISSUE_DATE_REGEX);
+		const accountNumber = this.extractText(text, NEPTUNE_ACCOUNT_NUMBER_REGEX);
+		const billPeriod = this.extractNeptuneBillPeriod(text);
+
+		if (!referenceNumber || totalAmount === undefined || !dueDate) {
+			throw new UnsupportedBillFormatError(
+				`Neptune invoice is missing required fields in ${filename}`,
+			);
+		}
+
+		return {
+			billerName: "Neptune Internet",
+			provider: "Neptune Internet",
+			billType: "internet",
+			totalAmount,
+			dueDate,
+			statementDate,
+			chargeDueDate: dueDate,
+			billPeriodStart: billPeriod?.billPeriodStart,
+			billPeriodEnd: billPeriod?.billPeriodEnd,
+			accountNumber,
+			referenceNumber,
+			parseMethod: "neptune_regex",
+			parseConfidence: billPeriod ? 1 : 0.95,
+			pdfSha256,
+			sourceFingerprint: this.buildFingerprint([
+				"neptune",
+				accountNumber ?? "",
+				referenceNumber,
+				billPeriod?.billPeriodStart.toISOString() ?? "",
+				billPeriod?.billPeriodEnd.toISOString() ?? "",
+				totalAmount.toFixed(2),
+			]),
+			sourceFilename: filename,
+		};
+	}
+
+	private extractNeptuneInvoiceNumber(text: string): string | undefined {
+		const match = text.match(NEPTUNE_INVOICE_NUMBER_REGEX);
+		return match?.[1] && match[2] ? `${match[1]}-${match[2]}` : undefined;
+	}
+
+	private extractNeptuneBillPeriod(text: string) {
+		const match = text.match(NEPTUNE_BILL_PERIOD_REGEX);
+		const startDayValue = match?.[1];
+		const startMonthValue = match?.[2];
+		const endDayValue = match?.[3];
+		const endMonthValue = match?.[4];
+		const endYearValue = match?.[5];
+
+		if (
+			!startDayValue ||
+			!startMonthValue ||
+			!endDayValue ||
+			!endMonthValue ||
+			!endYearValue
+		) {
+			return undefined;
+		}
+
+		const startMonthIndex = this.getMonthIndex(startMonthValue);
+		const endMonthIndex = this.getMonthIndex(endMonthValue);
+		const endYear = Number.parseInt(endYearValue, 10);
+		const startYear = startMonthIndex > endMonthIndex ? endYear - 1 : endYear;
+		const billPeriodStart = new Date(
+			Date.UTC(startYear, startMonthIndex, Number.parseInt(startDayValue, 10)),
+		);
+		const billPeriodEnd = new Date(
+			Date.UTC(endYear, endMonthIndex, Number.parseInt(endDayValue, 10)),
+		);
+
+		if (
+			Number.isNaN(billPeriodStart.getTime()) ||
+			Number.isNaN(billPeriodEnd.getTime())
+		) {
+			throw new UnsupportedBillFormatError(
+				`Invalid Neptune bill period: ${match[0]}`,
+			);
+		}
+
+		return {
+			billPeriodStart,
+			billPeriodEnd,
+		};
+	}
+
 	private extractMoney(text: string, pattern: RegExp): number | undefined {
 		const match = text.match(pattern);
 		return match?.[1] ? this.parseMoney(match[1]) : undefined;
@@ -391,6 +521,11 @@ export class PdfBillExtractorService {
 	private extractSlashDate(text: string, pattern: RegExp): Date | undefined {
 		const match = text.match(pattern);
 		return match?.[1] ? this.parseSlashDate(match[1]) : undefined;
+	}
+
+	private extractLongDate(text: string, pattern: RegExp): Date | undefined {
+		const match = text.match(pattern);
+		return match?.[1] ? this.parseLongDate(match[1]) : undefined;
 	}
 
 	private extractNumericString(
@@ -422,6 +557,28 @@ export class PdfBillExtractorService {
 			Date.UTC(
 				Number.parseInt(yearValue, 10),
 				monthIndex,
+				Number.parseInt(dayValue, 10),
+			),
+		);
+
+		if (Number.isNaN(parsedDate.getTime())) {
+			throw new UnsupportedBillFormatError(`Invalid date: ${value}`);
+		}
+
+		return parsedDate;
+	}
+
+	private parseLongDate(value: string): Date {
+		const match = value.match(/^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})$/);
+		if (!match) {
+			throw new UnsupportedBillFormatError(`Invalid date: ${value}`);
+		}
+
+		const [, monthValue, dayValue, yearValue] = match;
+		const parsedDate = new Date(
+			Date.UTC(
+				Number.parseInt(yearValue, 10),
+				this.getMonthIndex(monthValue),
 				Number.parseInt(dayValue, 10),
 			),
 		);
@@ -465,7 +622,7 @@ export class PdfBillExtractorService {
 	}
 
 	private normalizeWhitespace(value: string): string {
-		return value.replace(/\s+/g, " ").trim();
+		return value.replaceAll("\u0000", " ").replace(/\s+/g, " ").trim();
 	}
 
 	private normalizeHudsonMcHughDescription(value: string): string {
@@ -493,7 +650,7 @@ export class PdfBillExtractorService {
 			nov: 10,
 			dec: 11,
 		};
-		const monthIndex = monthLookup[month.toLowerCase()];
+		const monthIndex = monthLookup[month.slice(0, 3).toLowerCase()];
 		if (monthIndex === undefined) {
 			throw new UnsupportedBillFormatError(`Invalid month: ${month}`);
 		}

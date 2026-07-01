@@ -10,7 +10,7 @@ import {
 	formatReminderBillLabel,
 	formatReminderMetaDescription,
 } from "@/lib/reminder-preview";
-import { buildOpenGraphMeta } from "@/lib/share-preview";
+import { buildOpenGraphMeta, getBillDueStatus } from "@/lib/share-preview";
 import { createFileRoute } from "@tanstack/react-router";
 import confetti from "canvas-confetti";
 import { ExternalLink } from "lucide-react";
@@ -36,54 +36,6 @@ function formatCompactDate(dateIso: string) {
 		day: "numeric",
 		month: "short",
 	}).format(new Date(dateIso));
-}
-
-function startOfDay(date: Date) {
-	const copy = new Date(date);
-	copy.setHours(0, 0, 0, 0);
-	return copy;
-}
-
-function formatDueUrgency(dateIso: string): {
-	label: string;
-	tone: "overdue" | "today" | "soon" | "later";
-} {
-	const today = startOfDay(new Date());
-	const due = startOfDay(new Date(dateIso));
-	const days = Math.round(
-		(due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-	);
-
-	if (days < 0) {
-		const count = Math.abs(days);
-		return {
-			label: `Overdue by ${count} ${count === 1 ? "day" : "days"}`,
-			tone: "overdue",
-		};
-	}
-	if (days === 0) {
-		return {
-			label: "Due today",
-			tone: "today",
-		};
-	}
-	if (days === 1) {
-		return {
-			label: "Due tomorrow",
-			tone: "soon",
-		};
-	}
-	if (days <= 7) {
-		return {
-			label: `Due in ${days} days`,
-			tone: "soon",
-		};
-	}
-
-	return {
-		label: `Due ${formatDate(dateIso)}`,
-		tone: "later",
-	};
 }
 
 function formatBillPeriod(input: {
@@ -489,6 +441,14 @@ type PayPageData = Omit<
 	}>;
 };
 
+function getItemsTotal(items: PayPageItem[]) {
+	return items.reduce((total, item) => total + item.remainingAmount, 0);
+}
+
+function formatBillCount(count: number) {
+	return `${count} ${count === 1 ? "bill" : "bills"}`;
+}
+
 function ExpiredPayPage() {
 	return (
 		<div className="flex min-h-screen items-center justify-center bg-background px-5 py-12">
@@ -652,50 +612,93 @@ function PaymentProgressSection({
 	);
 }
 
-function getPayBillSecondaryText(
-	item: PayPageItem,
-	scopeKind: PayPageData["scope"]["kind"],
-) {
+function getPayBillSecondaryText(item: PayPageItem) {
 	const period = formatBillPeriod({
 		billPeriodStartIso: item.billPeriodStartIso,
 		billPeriodEndIso: item.billPeriodEndIso,
 		dueDateIso: item.dueDateIso,
 	});
+	const urgency = getBillDueStatus(item.dueDateIso).label;
 
-	return scopeKind === "all"
-		? period
-		: `${period} · ${formatDueUrgency(item.dueDateIso).label}`;
+	return period === `Due ${formatDate(item.dueDateIso)}`
+		? urgency
+		: `${period} · ${urgency}`;
+}
+
+function getDueNowGroupLabel(items: PayPageItem[]) {
+	const hasOverdue = items.some(
+		(item) => getBillDueStatus(item.dueDateIso).daysUntilDue < 0,
+	);
+	const hasDueToday = items.some(
+		(item) => getBillDueStatus(item.dueDateIso).daysUntilDue === 0,
+	);
+
+	if (hasOverdue && hasDueToday) {
+		return "Overdue and due today";
+	}
+
+	return hasOverdue ? "Overdue" : "Due today";
+}
+
+function getBillListGroups(items: PayPageItem[]) {
+	const dueNowItems = items.filter(
+		(item) => getBillDueStatus(item.dueDateIso).daysUntilDue <= 0,
+	);
+	const upcomingItems = items.filter(
+		(item) => getBillDueStatus(item.dueDateIso).daysUntilDue > 0,
+	);
+
+	return [
+		dueNowItems.length > 0
+			? {
+					key: "due-now",
+					label: getDueNowGroupLabel(dueNowItems),
+					items: dueNowItems,
+				}
+			: null,
+		upcomingItems.length > 0
+			? {
+					key: "upcoming",
+					label: "Not yet due",
+					items: upcomingItems,
+				}
+			: null,
+	].filter((group) => group !== null);
 }
 
 function PayBillListSection({
-	scope,
-	stackGroupLabel,
 	items,
 }: {
-	scope: PayPageData["scope"];
-	stackGroupLabel: string | null;
 	items: PayPageData["items"];
 }) {
-	if (scope.kind === "all" && items.length === 0) {
+	if (items.length === 0) {
 		return null;
 	}
 
 	return (
-		<section>
-			<h2 className={`pb-3 ${SECTION_LABEL_CLASS}`}>
-				{scope.kind === "all" ? "Bills" : (stackGroupLabel ?? "Bills")}
-			</h2>
-			<ul className="divide-y divide-border/60">
-				{items.map((item) => (
-					<BillRow
-						key={item.billId}
-						primary={item.billerName || "Bill"}
-						secondary={getPayBillSecondaryText(item, scope.kind)}
-						amount={item.remainingAmount}
-						billPath={item.billPath}
-					/>
-				))}
-			</ul>
+		<section className="space-y-6">
+			{getBillListGroups(items).map((group) => (
+				<section key={group.key}>
+					<header className="flex items-center justify-between gap-3 pb-3">
+						<h2 className={SECTION_LABEL_CLASS}>{group.label}</h2>
+						<p className="shrink-0 font-medium text-[12px] text-muted-foreground tabular-nums">
+							{formatCurrency(getItemsTotal(group.items))} ·{" "}
+							{formatBillCount(group.items.length)}
+						</p>
+					</header>
+					<ul className="divide-y divide-border/60">
+						{group.items.map((item) => (
+							<BillRow
+								key={item.billId}
+								primary={item.billerName || "Bill"}
+								secondary={getPayBillSecondaryText(item)}
+								amount={item.remainingAmount}
+								billPath={item.billPath}
+							/>
+						))}
+					</ul>
+				</section>
+			))}
 		</section>
 	);
 }
@@ -706,16 +709,20 @@ function PayFooterActions({
 	payVerb,
 	payId,
 	remainingAmount,
+	overdueAmount,
 }: {
 	isAllSorted: boolean;
 	scope: PayPageData["scope"];
 	payVerb: string;
 	payId: string | null;
 	remainingAmount: number;
+	overdueAmount: number;
 }) {
 	const canViewAllBills =
 		(scope.kind === "stack" || scope.kind === "bills") &&
 		Boolean(scope.allBillsPath);
+	const canPayOverdueOnly =
+		overdueAmount > 0.009 && remainingAmount - overdueAmount > 0.009;
 	if (isAllSorted && !canViewAllBills) {
 		return null;
 	}
@@ -727,6 +734,16 @@ function PayFooterActions({
 					<Button asChild variant="outline" className="h-11 w-full font-medium">
 						<a href={scope.allBillsPath ?? ""}>View all bills</a>
 					</Button>
+				) : null}
+				{canPayOverdueOnly ? (
+					<PayNowDialog
+						triggerLabel="Pay overdue only"
+						triggerVariant="outline"
+						title="Pay overdue only"
+						payId={payId}
+						amount={overdueAmount}
+						descriptionValue="Bills"
+					/>
 				) : null}
 				{isAllSorted ? null : (
 					<PayNowDialog
@@ -764,6 +781,11 @@ function PublicPayPage() {
 		!isAllSorted ||
 		((loaderData.scope.kind === "stack" || loaderData.scope.kind === "bills") &&
 			Boolean(loaderData.scope.allBillsPath));
+	const overdueAmount = getItemsTotal(
+		loaderData.items.filter(
+			(item) => getBillDueStatus(item.dueDateIso).daysUntilDue < 0,
+		),
+	);
 
 	return (
 		<div className="min-h-screen bg-background text-foreground">
@@ -790,11 +812,7 @@ function PublicPayPage() {
 					/>
 				) : null}
 
-				<PayBillListSection
-					scope={loaderData.scope}
-					stackGroupLabel={stackGroupLabel}
-					items={loaderData.items}
-				/>
+				<PayBillListSection items={loaderData.items} />
 
 				<PayFooterActions
 					isAllSorted={isAllSorted}
@@ -802,6 +820,7 @@ function PublicPayPage() {
 					payVerb={payVerb}
 					payId={loaderData.payId}
 					remainingAmount={loaderData.paymentProgress.remainingAmount}
+					overdueAmount={overdueAmount}
 				/>
 			</div>
 		</div>
