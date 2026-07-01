@@ -1,6 +1,13 @@
 // fallow-ignore-file code-duplication
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
 	Table,
@@ -10,17 +17,25 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
 	IconBell,
+	IconBellOff,
 	IconCalendar,
 	IconChevronLeft,
 	IconChevronRight,
+	IconDotsVertical,
 	IconEye,
 	IconFileText,
 	IconLink,
 	IconPlus,
 	IconReceipt,
+	IconTrash,
 } from "@tabler/icons-react";
 import { DebtTooltip } from "./debt-tooltip";
 import { StatusBadge } from "./status-badge";
@@ -128,10 +143,10 @@ export function BillsTable({
 								<TableRow>
 									<TableHead>Biller</TableHead>
 									<TableHead>Status</TableHead>
-									<TableHead>Total Amount</TableHead>
-									<TableHead>Per Person</TableHead>
-									<TableHead>Paid</TableHead>
-									<TableHead>Owed</TableHead>
+									<TableHead className="text-right">Total Amount</TableHead>
+									<TableHead className="text-right">Per Person</TableHead>
+									<TableHead className="text-right">Paid</TableHead>
+									<TableHead className="text-right">Owed</TableHead>
 									<TableHead>Due Date</TableHead>
 									<TableHead className="text-right">Actions</TableHead>
 								</TableRow>
@@ -140,37 +155,59 @@ export function BillsTable({
 								{paginatedBills.map(({ bill, debts }) => {
 									const debtSummary = getDebtSummary(debts);
 									return (
-										<TableRow key={bill.id}>
+										<TableRow
+											key={bill.id}
+											className="transition-colors hover:bg-primary/5"
+										>
 											<TableCell className="whitespace-normal font-medium">
 												<div className="flex min-w-0 items-center gap-2">
 													<IconReceipt className="h-4 w-4 shrink-0 text-muted-foreground" />
-													<div className="min-w-0">
-														<div className="[overflow-wrap:anywhere]">
+													<div className="flex min-w-0 items-center gap-2">
+														<span
+															className="min-w-0 max-w-[40ch] truncate"
+															title={bill.billerName}
+														>
 															{bill.billerName}
-														</div>
-														<p className="text-muted-foreground text-xs">
-															{getReminderSummaryLabel(bill)}
-														</p>
+														</span>
+														<Tooltip>
+															<TooltipTrigger asChild>
+																<span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground text-xs">
+																	{bill.remindersEnabled ? (
+																		<>
+																			<IconBell className="h-3 w-3" />
+																			{bill.preDueOffsetsDays.length}
+																		</>
+																	) : (
+																		<IconBellOff className="h-3 w-3" />
+																	)}
+																</span>
+															</TooltipTrigger>
+															<TooltipContent>
+																{bill.remindersEnabled
+																	? getReminderSummaryLabel(bill)
+																	: "Reminders off"}
+															</TooltipContent>
+														</Tooltip>
 													</div>
 												</div>
 											</TableCell>
 											<TableCell>
 												<StatusBadge status={bill.status} />
 											</TableCell>
-											<TableCell className="font-mono">
+											<TableCell className="text-right font-mono">
 												{formatCurrency(bill.totalAmount)}
 											</TableCell>
-											<TableCell className="font-mono">
+											<TableCell className="text-right font-mono">
 												{formatCurrency(getAmountPerPerson(debts))}
 											</TableCell>
-											<TableCell>
+											<TableCell className="text-right">
 												<DebtTooltip debtSummary={debtSummary} type="paid">
 													<span className="font-medium font-mono text-green-600">
 														{formatCurrency(debtSummary.paidAmount)}
 													</span>
 												</DebtTooltip>
 											</TableCell>
-											<TableCell>
+											<TableCell className="text-right">
 												<DebtTooltip debtSummary={debtSummary} type="owed">
 													<span className="font-medium font-mono text-orange-600">
 														{formatCurrency(debtSummary.owedAmount)}
@@ -184,54 +221,65 @@ export function BillsTable({
 												</div>
 											</TableCell>
 											<TableCell className="text-right">
-												<div className="flex flex-wrap items-center justify-end gap-2">
-													<Button variant="outline" size="sm" asChild>
-														<a href={bill.publicPath ?? `/bill/${bill.id}`}>
-															<IconLink className="h-4 w-4" />
-															View Bill
-														</a>
-													</Button>
-													{bill.pdfUrl && bill.pdfSha256 ? (
-														<Button
-															variant="outline"
-															size="sm"
-															onClick={() => onViewPdf({ bill, debts })}
-														>
-															<IconEye className="h-4 w-4" />
-															View PDF
-														</Button>
-													) : null}
-													{bill.status !== "paid" && (
-														<Button
-															variant="default"
-															size="sm"
-															className="bg-green-600 hover:bg-green-700"
-															disabled={processingPayments}
-															onClick={() => onMarkPaid({ bill, debts })}
-														>
-															{processingPayments
-																? "Processing..."
-																: "Mark Paid"}
-														</Button>
-													)}
-													<Button
-														variant="outline"
-														size="sm"
-														onClick={() => onEditReminders({ bill, debts })}
-													>
-														<IconBell className="h-4 w-4" />
-														Reminders
-													</Button>
-													<Button
-														variant="destructive"
-														size="sm"
-														disabled={deletingBill && billToDelete === bill.id}
-														onClick={() => onDeleteBill(bill.id)}
-													>
-														{deletingBill && billToDelete === bill.id
-															? "Deleting..."
-															: "Delete"}
-													</Button>
+												<div className="flex items-center justify-end gap-1">
+													{bill.status !== "paid" &&
+														debtSummary.owedAmount > 0 && (
+															<Button
+																variant="default"
+																size="sm"
+																disabled={processingPayments}
+																onClick={() => onMarkPaid({ bill, debts })}
+															>
+																{processingPayments
+																	? "Processing..."
+																	: "Mark Paid"}
+															</Button>
+														)}
+													<DropdownMenu>
+														<DropdownMenuTrigger asChild>
+															<Button
+																variant="ghost"
+																size="icon"
+																className="h-8 w-8"
+															>
+																<IconDotsVertical className="h-4 w-4" />
+																<span className="sr-only">More actions</span>
+															</Button>
+														</DropdownMenuTrigger>
+														<DropdownMenuContent align="end">
+															<DropdownMenuItem asChild>
+																<a href={bill.publicPath ?? `/bill/${bill.id}`}>
+																	<IconLink className="h-4 w-4" />
+																	View bill
+																</a>
+															</DropdownMenuItem>
+															{bill.pdfUrl && bill.pdfSha256 ? (
+																<DropdownMenuItem
+																	onClick={() => onViewPdf({ bill, debts })}
+																>
+																	<IconEye className="h-4 w-4" />
+																	View PDF
+																</DropdownMenuItem>
+															) : null}
+															<DropdownMenuItem
+																onClick={() => onEditReminders({ bill, debts })}
+															>
+																<IconBell className="h-4 w-4" />
+																Reminders
+															</DropdownMenuItem>
+															<DropdownMenuSeparator />
+															<DropdownMenuItem
+																variant="destructive"
+																disabled={
+																	deletingBill && billToDelete === bill.id
+																}
+																onClick={() => onDeleteBill(bill.id)}
+															>
+																<IconTrash className="h-4 w-4" />
+																Delete
+															</DropdownMenuItem>
+														</DropdownMenuContent>
+													</DropdownMenu>
 												</div>
 											</TableCell>
 										</TableRow>
