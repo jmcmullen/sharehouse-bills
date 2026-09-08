@@ -48,7 +48,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 				icon: IconUsers,
 			},
 			{
-				title: "Payments",
+				title: "Accounts",
+				url: "/ledger",
+				icon: IconReceiptDollar,
+			},
+			{
+				title: "Payment review",
+				url: "/payment-review",
+				icon: IconReceiptDollar,
+			},
+			{
+				title: "Legacy payments",
 				url: "/payments",
 				icon: IconReceiptDollar,
 			},

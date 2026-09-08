@@ -1,6 +1,10 @@
 import { createHmac } from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
 import { EvlogError, type RequestLogger, createError } from "evlog";
+import {
+	recordLedgerBankEvent,
+	removeLedgerBankTransaction,
+} from "../api/services/ledger/client.server";
 import { processTransaction } from "../api/services/payment-reconciliation";
 import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";
 import { getRequestLogger } from "../lib/request-logger";
@@ -377,7 +381,11 @@ async function handleUpBankWebhook(request: Request) {
 		const eventType = payload.data.attributes.eventType;
 		const transactionId = logUpBankWebhookPayload(log, payload);
 
-		if (eventType !== "TRANSACTION_CREATED") {
+		const ledgerEnabled = process.env.LEDGER_ENABLED === "true";
+		const ledgerEvent =
+			ledgerEnabled &&
+			["TRANSACTION_SETTLED", "TRANSACTION_DELETED"].includes(eventType);
+		if (eventType !== "TRANSACTION_CREATED" && !ledgerEvent) {
 			log?.info("Ignoring unsupported Up Bank webhook event", {
 				webhook: {
 					provider: "up-bank",
@@ -403,8 +411,21 @@ async function handleUpBankWebhook(request: Request) {
 			});
 		}
 
+		if (eventType === "TRANSACTION_DELETED" && ledgerEnabled) {
+			await removeLedgerBankTransaction(transactionId);
+			return Response.json({
+				success: true,
+				ledger: "bank_transaction_removed",
+			});
+		}
+
 		const transaction = await fetchUpBankTransaction(transactionId, log);
 		logUpBankTransaction(log, transaction);
+		if (ledgerEnabled) {
+			await recordLedgerBankEvent(transaction);
+			if (eventType === "TRANSACTION_SETTLED")
+				return Response.json({ success: true, ledger: "settled" });
+		}
 
 		const amountInCents = transaction.attributes.amount.valueInBaseUnits;
 		if (amountInCents <= 0) {

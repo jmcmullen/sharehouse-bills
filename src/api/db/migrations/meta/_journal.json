@@ -64,6 +64,20 @@
 			"when": 1777649698173,
 			"tag": "0008_milky_the_professor",
 			"breakpoints": true
+		},
+		{
+			"idx": 9,
+			"version": "6",
+			"when": 1788840202973,
+			"tag": "0009_housemate_ledger",
+			"breakpoints": true
+		},
+		{
+			"idx": 10,
+			"version": "6",
+			"when": 1788843262529,
+			"tag": "0010_ledger_statement_links",
+			"breakpoints": true
 		}
 	]
 }

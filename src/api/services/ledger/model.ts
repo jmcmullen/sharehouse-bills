@@ -1,0 +1,186 @@
+import { z } from "zod";
+
+export const bankTransactionSchema = z
+	.object({
+		id: z.string().min(1),
+		attributes: z
+			.object({
+				status: z.enum(["HELD", "SETTLED"]),
+				description: z.string(),
+				rawText: z.string().nullable().optional(),
+				message: z.string().nullable().optional(),
+				createdAt: z.iso.datetime({ offset: true }),
+				settledAt: z.iso.datetime({ offset: true }).nullable().optional(),
+				amount: z.object({
+					currencyCode: z.string(),
+					valueInBaseUnits: z.number().int().safe(),
+				}),
+			})
+			.passthrough(),
+		relationships: z
+			.object({
+				account: z.object({ data: z.object({ id: z.string() }) }),
+				transferAccount: z.object({ data: z.unknown().nullable() }).optional(),
+			})
+			.optional(),
+	})
+	.passthrough();
+export type BankTransaction = z.infer<typeof bankTransactionSchema>;
+
+export const sourceSchema = z.object({
+	housemateId: z.string().min(1),
+	amountCents: z.number().int().safe(),
+	kind: z.enum(["charge", "payment", "adjustment", "refund"]),
+	description: z.string(),
+	billId: z.string().nullable(),
+	effectiveAt: z.number().int(),
+	dueAt: z.number().int().nullable(),
+});
+export type LedgerSource = z.infer<typeof sourceSchema>;
+export interface LedgerHousemate {
+	id: string;
+	name: string;
+	bankAlias: string | null;
+	isOwner: boolean;
+}
+
+export function toCents(amount: number): number {
+	const result = Math.round((amount + Number.EPSILON) * 100);
+	if (!Number.isSafeInteger(result)) throw new Error("Invalid money amount");
+	return result;
+}
+
+function normalized(text: string): string {
+	return text
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, " ")
+		.trim();
+}
+
+export function identifyHousemate(
+	transaction: BankTransaction,
+	housemates: LedgerHousemate[],
+): LedgerHousemate | null {
+	const sender = normalized(
+		`${transaction.attributes.description} ${transaction.attributes.rawText ?? ""}`,
+	);
+	const message = normalized(transaction.attributes.message ?? "");
+	const matches = (text: string): LedgerHousemate[] =>
+		housemates.filter((housemate) => {
+			if (housemate.isOwner) return false;
+			const names = [
+				housemate.name,
+				...(housemate.bankAlias?.split(/[,;|\n/]/) ?? []),
+			].map(normalized);
+			const tokens = new Set(text.split(" "));
+			return names.some(
+				(name) =>
+					name.length > 2 &&
+					name.split(" ").every((token) => tokens.has(token)),
+			);
+		});
+	const explicit = matches(message);
+	if (explicit.length === 1) return explicit[0];
+	if (explicit.length > 1) return null;
+	const beneficiaries = housemates.filter(
+		(housemate) =>
+			!housemate.isOwner &&
+			` ${message} `.includes(` ${normalized(housemate.name).split(" ")[0]} `),
+	);
+	if (beneficiaries.length === 1) return beneficiaries[0];
+	if (beneficiaries.length > 1) return null;
+	const senders = matches(sender);
+	if (senders.length === 1) return senders[0];
+	if (senders.length > 1) return null;
+	return null;
+}
+
+export function hasHouseholdReference(transaction: BankTransaction): boolean {
+	return /\b(bills|rent)\b/i.test(
+		`${transaction.attributes.message ?? ""} ${transaction.attributes.description}`,
+	);
+}
+
+export interface StatementEntry extends LedgerSource {
+	id: string;
+	sourceKey: string;
+	recordedAt: number;
+	reversesEntryId: string | null;
+}
+export interface StatementRow extends StatementEntry {
+	runningBalanceCents: number;
+}
+export interface AccountStatement {
+	entries: StatementRow[];
+	balanceCents: number;
+	dueNowCents: number;
+	upcomingCents: number;
+	creditCents: number;
+}
+
+export function currentStatement(
+	statement: AccountStatement,
+	now: number,
+): AccountStatement {
+	const reversed = new Set(
+		statement.entries.flatMap((entry) =>
+			entry.reversesEntryId ? [entry.reversesEntryId] : [],
+		),
+	);
+	return calculateStatement(
+		statement.entries.filter(
+			(entry) => !entry.reversesEntryId && !reversed.has(entry.id),
+		),
+		now,
+	);
+}
+
+function dayInSydney(seconds: number): string {
+	return new Intl.DateTimeFormat("en-CA", {
+		timeZone: "Australia/Sydney",
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+	}).format(new Date(seconds * 1000));
+}
+
+export function calculateStatement(
+	entries: StatementEntry[],
+	now: number,
+): AccountStatement {
+	const ordered = [...entries]
+		.filter((entry) => entry.effectiveAt <= now)
+		.sort(
+			(a, b) =>
+				a.effectiveAt - b.effectiveAt ||
+				a.recordedAt - b.recordedAt ||
+				a.id.localeCompare(b.id),
+		);
+	const rows = ordered.reduce<StatementRow[]>((result, entry) => {
+		result.push({
+			...entry,
+			runningBalanceCents:
+				(result.at(-1)?.runningBalanceCents ?? 0) + entry.amountCents,
+		});
+		return result;
+	}, []);
+	const balanceCents = rows.at(-1)?.runningBalanceCents ?? 0;
+	const scheduled = ordered.reduce(
+		(sum, entry) =>
+			sum +
+			(entry.kind === "charge" &&
+			entry.dueAt !== null &&
+			dayInSydney(entry.dueAt) > dayInSydney(now)
+				? entry.amountCents
+				: 0),
+		0,
+	);
+	const dueNowCents = Math.max(0, balanceCents - scheduled);
+	return {
+		entries: rows,
+		balanceCents,
+		dueNowCents,
+		upcomingCents: Math.max(0, balanceCents - dueNowCents),
+		creditCents: Math.max(0, -balanceCents),
+	};
+}

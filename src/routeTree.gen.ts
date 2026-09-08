@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as StatementTokenRouteImport } from './routes/statement.$token'
 import { Route as ReceiptTokenRouteImport } from './routes/receipt.$token'
 import { Route as PayTokenRouteImport } from './routes/pay.$token'
 import { Route as BillPdfSha256RouteImport } from './routes/bill.$pdfSha256'
@@ -20,6 +21,8 @@ import { Route as ApiAiRouteImport } from './routes/api.ai'
 import { Route as ApiSplatRouteImport } from './routes/api.$'
 import { Route as AppRecurringBillsRouteImport } from './routes/_app.recurring-bills'
 import { Route as AppPaymentsRouteImport } from './routes/_app.payments'
+import { Route as AppPaymentReviewRouteImport } from './routes/_app.payment-review'
+import { Route as AppLedgerRouteImport } from './routes/_app.ledger'
 import { Route as AppHousematesRouteImport } from './routes/_app.housemates'
 import { Route as AppBillsRouteImport } from './routes/_app.bills'
 import { Route as AppAiRouteImport } from './routes/_app.ai'
@@ -44,6 +47,11 @@ const AppRoute = AppRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StatementTokenRoute = StatementTokenRouteImport.update({
+  id: '/statement/$token',
+  path: '/statement/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReceiptTokenRoute = ReceiptTokenRouteImport.update({
@@ -84,6 +92,16 @@ const AppRecurringBillsRoute = AppRecurringBillsRouteImport.update({
 const AppPaymentsRoute = AppPaymentsRouteImport.update({
   id: '/payments',
   path: '/payments',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPaymentReviewRoute = AppPaymentReviewRouteImport.update({
+  id: '/payment-review',
+  path: '/payment-review',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLedgerRoute = AppLedgerRouteImport.update({
+  id: '/ledger',
+  path: '/ledger',
   getParentRoute: () => AppRoute,
 } as any)
 const AppHousematesRoute = AppHousematesRouteImport.update({
@@ -148,6 +166,8 @@ export interface FileRoutesByFullPath {
   '/ai': typeof AppAiRoute
   '/bills': typeof AppBillsRoute
   '/housemates': typeof AppHousematesRoute
+  '/ledger': typeof AppLedgerRoute
+  '/payment-review': typeof AppPaymentReviewRoute
   '/payments': typeof AppPaymentsRoute
   '/recurring-bills': typeof AppRecurringBillsRoute
   '/api/$': typeof ApiSplatRoute
@@ -156,6 +176,7 @@ export interface FileRoutesByFullPath {
   '/bill/$pdfSha256': typeof BillPdfSha256Route
   '/pay/$token': typeof PayTokenRoute
   '/receipt/$token': typeof ReceiptTokenRoute
+  '/statement/$token': typeof StatementTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cards/$pdfSha256': typeof ApiCardsPdfSha256Route
   '/api/hooks/email': typeof ApiHooksEmailRoute
@@ -171,6 +192,8 @@ export interface FileRoutesByTo {
   '/ai': typeof AppAiRoute
   '/bills': typeof AppBillsRoute
   '/housemates': typeof AppHousematesRoute
+  '/ledger': typeof AppLedgerRoute
+  '/payment-review': typeof AppPaymentReviewRoute
   '/payments': typeof AppPaymentsRoute
   '/recurring-bills': typeof AppRecurringBillsRoute
   '/api/$': typeof ApiSplatRoute
@@ -179,6 +202,7 @@ export interface FileRoutesByTo {
   '/bill/$pdfSha256': typeof BillPdfSha256Route
   '/pay/$token': typeof PayTokenRoute
   '/receipt/$token': typeof ReceiptTokenRoute
+  '/statement/$token': typeof StatementTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cards/$pdfSha256': typeof ApiCardsPdfSha256Route
   '/api/hooks/email': typeof ApiHooksEmailRoute
@@ -196,6 +220,8 @@ export interface FileRoutesById {
   '/_app/ai': typeof AppAiRoute
   '/_app/bills': typeof AppBillsRoute
   '/_app/housemates': typeof AppHousematesRoute
+  '/_app/ledger': typeof AppLedgerRoute
+  '/_app/payment-review': typeof AppPaymentReviewRoute
   '/_app/payments': typeof AppPaymentsRoute
   '/_app/recurring-bills': typeof AppRecurringBillsRoute
   '/api/$': typeof ApiSplatRoute
@@ -204,6 +230,7 @@ export interface FileRoutesById {
   '/bill/$pdfSha256': typeof BillPdfSha256Route
   '/pay/$token': typeof PayTokenRoute
   '/receipt/$token': typeof ReceiptTokenRoute
+  '/statement/$token': typeof StatementTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cards/$pdfSha256': typeof ApiCardsPdfSha256Route
   '/api/hooks/email': typeof ApiHooksEmailRoute
@@ -221,6 +248,8 @@ export interface FileRouteTypes {
     | '/ai'
     | '/bills'
     | '/housemates'
+    | '/ledger'
+    | '/payment-review'
     | '/payments'
     | '/recurring-bills'
     | '/api/$'
@@ -229,6 +258,7 @@ export interface FileRouteTypes {
     | '/bill/$pdfSha256'
     | '/pay/$token'
     | '/receipt/$token'
+    | '/statement/$token'
     | '/api/auth/$'
     | '/api/cards/$pdfSha256'
     | '/api/hooks/email'
@@ -244,6 +274,8 @@ export interface FileRouteTypes {
     | '/ai'
     | '/bills'
     | '/housemates'
+    | '/ledger'
+    | '/payment-review'
     | '/payments'
     | '/recurring-bills'
     | '/api/$'
@@ -252,6 +284,7 @@ export interface FileRouteTypes {
     | '/bill/$pdfSha256'
     | '/pay/$token'
     | '/receipt/$token'
+    | '/statement/$token'
     | '/api/auth/$'
     | '/api/cards/$pdfSha256'
     | '/api/hooks/email'
@@ -268,6 +301,8 @@ export interface FileRouteTypes {
     | '/_app/ai'
     | '/_app/bills'
     | '/_app/housemates'
+    | '/_app/ledger'
+    | '/_app/payment-review'
     | '/_app/payments'
     | '/_app/recurring-bills'
     | '/api/$'
@@ -276,6 +311,7 @@ export interface FileRouteTypes {
     | '/bill/$pdfSha256'
     | '/pay/$token'
     | '/receipt/$token'
+    | '/statement/$token'
     | '/api/auth/$'
     | '/api/cards/$pdfSha256'
     | '/api/hooks/email'
@@ -296,6 +332,7 @@ export interface RootRouteChildren {
   BillPdfSha256Route: typeof BillPdfSha256Route
   PayTokenRoute: typeof PayTokenRoute
   ReceiptTokenRoute: typeof ReceiptTokenRoute
+  StatementTokenRoute: typeof StatementTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCardsPdfSha256Route: typeof ApiCardsPdfSha256Route
   ApiHooksEmailRoute: typeof ApiHooksEmailRoute
@@ -327,6 +364,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/statement/$token': {
+      id: '/statement/$token'
+      path: '/statement/$token'
+      fullPath: '/statement/$token'
+      preLoaderRoute: typeof StatementTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/receipt/$token': {
@@ -383,6 +427,20 @@ declare module '@tanstack/react-router' {
       path: '/payments'
       fullPath: '/payments'
       preLoaderRoute: typeof AppPaymentsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/payment-review': {
+      id: '/_app/payment-review'
+      path: '/payment-review'
+      fullPath: '/payment-review'
+      preLoaderRoute: typeof AppPaymentReviewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/ledger': {
+      id: '/_app/ledger'
+      path: '/ledger'
+      fullPath: '/ledger'
+      preLoaderRoute: typeof AppLedgerRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/housemates': {
@@ -469,6 +527,8 @@ interface AppRouteChildren {
   AppAiRoute: typeof AppAiRoute
   AppBillsRoute: typeof AppBillsRoute
   AppHousematesRoute: typeof AppHousematesRoute
+  AppLedgerRoute: typeof AppLedgerRoute
+  AppPaymentReviewRoute: typeof AppPaymentReviewRoute
   AppPaymentsRoute: typeof AppPaymentsRoute
   AppRecurringBillsRoute: typeof AppRecurringBillsRoute
 }
@@ -477,6 +537,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppAiRoute: AppAiRoute,
   AppBillsRoute: AppBillsRoute,
   AppHousematesRoute: AppHousematesRoute,
+  AppLedgerRoute: AppLedgerRoute,
+  AppPaymentReviewRoute: AppPaymentReviewRoute,
   AppPaymentsRoute: AppPaymentsRoute,
   AppRecurringBillsRoute: AppRecurringBillsRoute,
 }
@@ -493,6 +555,7 @@ const rootRouteChildren: RootRouteChildren = {
   BillPdfSha256Route: BillPdfSha256Route,
   PayTokenRoute: PayTokenRoute,
   ReceiptTokenRoute: ReceiptTokenRoute,
+  StatementTokenRoute: StatementTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCardsPdfSha256Route: ApiCardsPdfSha256Route,
   ApiHooksEmailRoute: ApiHooksEmailRoute,

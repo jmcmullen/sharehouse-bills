@@ -51,6 +51,12 @@ function shouldKeepWideEvent(input: {
 
 export default definePlugin((nitroApp) => {
 	nitroApp.hooks.hook("evlog:enrich", (ctx) => {
+		if (
+			typeof ctx.event.path === "string" &&
+			ctx.event.path.startsWith("/statement/")
+		) {
+			ctx.event.path = "/statement/[private]";
+		}
 		enrichWithGeo(ctx);
 		enrichWithRequestSize(ctx);
 		enrichWithTraceContext(ctx);

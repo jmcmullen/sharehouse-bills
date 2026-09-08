@@ -104,7 +104,7 @@ type ParsedPaymentIntent =
 			matchedBy: "explicit_beneficiary" | "sender_fallback";
 	  };
 
-const BILLING_INTENT_TOKENS = new Set(["rent", "bill", "bills"]);
+const BILLING_INTENT_TOKENS = new Set(["rent", "bills"]);
 
 function toCents(amount: number) {
 	return Math.round(amount * 100);

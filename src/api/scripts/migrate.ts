@@ -14,6 +14,8 @@ import {
 type DatabaseClient = ReturnType<typeof createClient>;
 
 const MIGRATIONS_TABLE = "__drizzle_migrations";
+// Freeze the bootstrap baseline so new migrations still execute.
+const PROVISIONED_MIGRATION_COUNT = 9;
 const REQUIRED_EXISTING_TABLES = [
 	"account",
 	"session",
@@ -182,7 +184,7 @@ async function bootstrapExistingDatabase(
 		existingPaymentTransactionColumns.has("source") &&
 		existingPaymentTransactionColumns.has("credit_amount");
 	const journalEntriesToMark = latestSchemaPresent
-		? journal.entries
+		? journal.entries.slice(0, PROVISIONED_MIGRATION_COUNT)
 		: [baselineEntry];
 
 	await markMigrationEntriesApplied(
@@ -259,9 +261,20 @@ async function initializeEmptyDatabase(
 		)
 	`);
 	await provisionLatestAppTables(client);
+	const paymentMigration = fs.readFileSync(
+		path.join(migrationsFolder, "0007_calm_hobgoblin.sql"),
+		"utf8",
+	);
+	for (const statement of paymentMigration.split("--> statement-breakpoint")) {
+		if (statement.trim()) await client.execute(statement);
+	}
 
 	const journal = readJournal(migrationsFolder);
-	await markMigrationEntriesApplied(client, migrationsFolder, journal.entries);
+	await markMigrationEntriesApplied(
+		client,
+		migrationsFolder,
+		journal.entries.slice(0, PROVISIONED_MIGRATION_COUNT),
+	);
 	console.log("Initialized empty database with the latest schema.");
 }
 
@@ -285,6 +298,7 @@ async function main() {
 	if (migrationCount === 0) {
 		if (tableNames.length === 0) {
 			await initializeEmptyDatabase(client, migrationsFolder);
+			await migrate(db, { migrationsFolder });
 		} else {
 			await bootstrapExistingDatabase(client, migrationsFolder);
 			await migrate(db, { migrationsFolder });
