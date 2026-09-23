@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import type { Client } from "@libsql/client";
-import { type LedgerSource, sourceSchema, utilityPattern } from "./model";
-import { type Suggestion, suggestAllocations } from "./suggestions";
+import { type LedgerSource, isRentReference, sourceSchema } from "./model";
+import {
+	type OpenShare,
+	type Suggestion,
+	suggestAllocations,
+} from "./suggestions";
 
 type Executor = Pick<Client, "execute">;
 export interface BillPaymentView {
@@ -124,15 +128,7 @@ export async function getAccountPayments(
 		.sort(
 			(a, b) => (b.dueAt ?? 0) - (a.dueAt ?? 0) || a.id.localeCompare(b.id),
 		);
-	const shares = bills
-		.filter((bill) => bill.remainingCents > 0)
-		.map((bill) => ({
-			debtId: bill.id,
-			billName: bill.name,
-			category: bill.category,
-			dueAt: bill.dueAt,
-			remainingCents: bill.remainingCents,
-		}));
+	const shares = openShares(bills);
 	const receipts = drafts.map((receipt) => ({
 		...receipt,
 		suggestion:
@@ -157,6 +153,32 @@ export async function getAccountPayments(
 		),
 		unpaidCents: bills.reduce((sum, bill) => sum + bill.remainingCents, 0),
 	};
+}
+
+function openShares(bills: BillPaymentView[]): OpenShare[] {
+	return bills
+		.filter((bill) => bill.remainingCents > 0)
+		.map((bill) => ({
+			debtId: bill.id,
+			billName: bill.name,
+			category: bill.category,
+			dueAt: bill.dueAt,
+			remainingCents: bill.remainingCents,
+		}));
+}
+
+// The proposal for a bank receipt that is not credited yet, so the whole
+// transfer is available to allocate.
+export function suggestBankReceipt(
+	account: AccountPayments,
+	bank: { amountCents: number; receivedAt: number; message: string },
+): Suggestion | null {
+	return suggestAllocations({
+		amountCents: bank.amountCents,
+		receivedAt: bank.receivedAt,
+		rentOnly: isRentReference(bank.message),
+		shares: openShares(account.bills),
+	});
 }
 
 function buildReceipts(
@@ -215,8 +237,7 @@ function buildReceipts(
 					: first.recordedAt,
 				bankMatched: Boolean(match) || first.key.startsWith("bank:"),
 				manual,
-				rentOnly:
-					/\brent\b/i.test(description) && !utilityPattern.test(description),
+				rentOnly: isRentReference(description),
 				allocations: billAllocations,
 				unallocatedCents:
 					amountCents -

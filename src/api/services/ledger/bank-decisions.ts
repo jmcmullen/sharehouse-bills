@@ -1,5 +1,5 @@
 import type { BankTransaction, LedgerSource } from "./model";
-import { type ReviewGroup, reviewGroupFor } from "./review-policy";
+import { reviewGroupFor } from "./review-policy";
 import { type Executor, applySource, nowSeconds } from "./sources";
 
 interface BankDecision {
@@ -8,7 +8,6 @@ interface BankDecision {
 	origin: "automatic" | "review";
 	reason: string;
 	link?: string | null;
-	duplicate?: boolean;
 }
 
 export function bankSource(
@@ -55,9 +54,8 @@ export async function setBankDecision(
 	transaction: BankTransaction,
 	input: BankDecision,
 ): Promise<void> {
-	const group: ReviewGroup = reviewGroupFor({
+	const group = reviewGroupFor({
 		amountCents: transaction.attributes.amount.valueInBaseUnits,
-		duplicate: input.duplicate ?? false,
 		housemateId: input.housemateId,
 	});
 	await tx.execute({

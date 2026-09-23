@@ -1,4 +1,4 @@
-import type { Client, Transaction } from "@libsql/client";
+import type { Client } from "@libsql/client";
 import { z } from "zod";
 import { type AccountPayments, getAccountPayments } from "./account-payments";
 import {
@@ -11,9 +11,9 @@ import {
 	enqueuePaymentReceipt,
 	paymentReceiptKind,
 } from "./receipt-notifications";
-import { applySource, withWriteTransaction } from "./sources";
+import { type Executor, applySource, withWriteTransaction } from "./sources";
 
-const allocationsSchema = z
+export const billAllocationsSchema = z
 	.array(
 		z.object({
 			debtId: z.string().min(1),
@@ -24,7 +24,7 @@ const allocationsSchema = z
 export const allocateReceiptSchema = z.object({
 	housemateId: z.string().min(1),
 	receiptId: z.string().min(1),
-	allocations: allocationsSchema,
+	allocations: billAllocationsSchema,
 	expectedRevision: z.string(),
 });
 export const recordReceiptSchema = z.object({
@@ -45,7 +45,7 @@ export async function allocateReceipt(
 		const account = await getAccountPayments(tx, data.housemateId);
 		if (account.revision !== data.expectedRevision)
 			throw new Error("Payments or bills changed. Refresh before saving.");
-		await writeAllocations(tx, account, data);
+		await writeAllocations(tx, account, data.receiptId, data.allocations);
 		await enqueuePaymentReceipt(
 			tx,
 			data.housemateId,
@@ -55,12 +55,17 @@ export async function allocateReceipt(
 	});
 }
 
-async function writeAllocations(
-	tx: Transaction,
+type BillAllocations = z.infer<typeof billAllocationsSchema>;
+
+// Replaces the receipt's allocations with the admin's decision and records the
+// review, even when the decision is to allocate nothing.
+export async function writeAllocations(
+	tx: Executor,
 	account: AccountPayments,
-	data: z.infer<typeof allocateReceiptSchema>,
+	receiptId: string,
+	allocations: BillAllocations,
 ): Promise<void> {
-	const receipt = validateAllocations(account, data);
+	const receipt = validateAllocations(account, receiptId, allocations);
 	const sources = (
 		await tx.execute({
 			sql: `SELECT source_key,snapshot FROM ledger_sources WHERE source_key IN (${receipt.sourceKeys.map(() => "?").join(",")}) ORDER BY source_key`,
@@ -79,7 +84,7 @@ async function writeAllocations(
 			args: [source.key],
 		});
 	}
-	for (const write of planAllocationWrites(sources, data.allocations))
+	for (const write of planAllocationWrites(sources, allocations))
 		await writeBillAllocation(
 			tx,
 			write.key,
@@ -101,7 +106,7 @@ interface AllocationWrite {
 
 function planAllocationWrites(
 	sources: SourceBalance[],
-	allocations: z.infer<typeof allocationsSchema>,
+	allocations: BillAllocations,
 ): AllocationWrite[] {
 	const debts = spans(allocations.map((item) => item.amountCents));
 	const funds = spans(sources.map((item) => Math.max(0, item.remaining)));
@@ -127,22 +132,22 @@ function spans(amounts: number[]): Array<{ start: number; end: number }> {
 
 function validateAllocations(
 	account: AccountPayments,
-	data: z.infer<typeof allocateReceiptSchema>,
+	receiptId: string,
+	allocations: BillAllocations,
 ) {
-	const receipt = account.receipts.find((item) => item.id === data.receiptId);
+	const receipt = account.receipts.find((item) => item.id === receiptId);
 	if (!receipt || receipt.amountCents <= 0)
 		throw new Error("Select a received payment");
 	if (
-		new Set(data.allocations.map((item) => item.debtId)).size !==
-		data.allocations.length
+		new Set(allocations.map((item) => item.debtId)).size !== allocations.length
 	)
 		throw new Error("Each bill can appear only once");
 	if (
-		data.allocations.reduce((sum, item) => sum + item.amountCents, 0) >
+		allocations.reduce((sum, item) => sum + item.amountCents, 0) >
 		receipt.amountCents
 	)
 		throw new Error("Bill allocations exceed the payment received");
-	for (const allocation of data.allocations) {
+	for (const allocation of allocations) {
 		const bill = account.bills.find((item) => item.id === allocation.debtId);
 		if (!bill) throw new Error("Select a bill for this housemate");
 		const previous =

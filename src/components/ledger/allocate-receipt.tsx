@@ -14,8 +14,14 @@ import {
 	DialogTitle,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
+import {
+	type Amounts,
+	BillAllocationFields,
+	allocationsFrom,
+	amountsFrom,
+} from "./allocation-fields";
 import { AllocationIssue } from "./bill-payments";
-import { ledgerDate, ledgerMoney, ledgerTime } from "./statement";
+import { ledgerMoney, ledgerTime } from "./statement";
 
 export function AllocateReceipt(props: {
 	housemateId: string;
@@ -27,22 +33,12 @@ export function AllocateReceipt(props: {
 	const receipt = props.billing.receipts.find(
 		(item) => item.id === props.receiptId,
 	);
-	const [amounts, setAmounts] = useState<Record<string, string>>(() =>
-		Object.fromEntries(
-			(receipt?.allocations ?? []).map((item) => [
-				item.debtId,
-				String(item.amountCents / 100),
-			]),
-		),
+	const [amounts, setAmounts] = useState<Amounts>(() =>
+		amountsFrom(receipt?.allocations ?? []),
 	);
 	const [busy, setBusy] = useState(false);
 	if (!receipt) return null;
-	const allocations = Object.entries(amounts)
-		.filter(([, amount]) => Number(amount) > 0)
-		.map(([debtId, amount]) => ({
-			debtId,
-			amountCents: Math.round(Number(amount) * 100),
-		}));
+	const allocations = allocationsFrom(amounts);
 	const remaining =
 		receipt.amountCents -
 		allocations.reduce((sum, allocation) => sum + allocation.amountCents, 0);
@@ -105,43 +101,14 @@ export function AllocateReceipt(props: {
 						void save();
 					}}
 				>
-					{props.billing.bills
-						.filter(
-							(bill) =>
-								(!receipt.rentOnly || /rent/i.test(bill.category)) &&
-								(bill.remainingCents > 0 ||
-									receipt.allocations.some((item) => item.debtId === bill.id)),
-						)
-						.map((bill) => (
-							<label
-								htmlFor={`allocation-${bill.id}`}
-								key={bill.id}
-								className="flex items-center justify-between gap-4 border-b pb-3"
-							>
-								<span className="text-sm">
-									{bill.name}
-									<span className="mt-1 block text-muted-foreground text-xs">
-										{bill.dueAt ? ledgerDate(bill.dueAt) : "No due date"} ·
-										Share {ledgerMoney(bill.amountCents)}
-									</span>
-								</span>
-								<Input
-									id={`allocation-${bill.id}`}
-									className="w-28"
-									type="number"
-									min="0"
-									step="0.01"
-									max={bill.amountCents / 100}
-									aria-label={`Allocate to ${bill.name} ${bill.dueAt ? ledgerDate(bill.dueAt) : bill.id}`}
-									value={amounts[bill.id] ?? ""}
-									placeholder="0.00"
-									disabled={busy}
-									onChange={(event) =>
-										setAmounts({ ...amounts, [bill.id]: event.target.value })
-									}
-								/>
-							</label>
-						))}
+					<BillAllocationFields
+						bills={props.billing.bills}
+						rentOnly={receipt.rentOnly}
+						kept={receipt.allocations.map((item) => item.debtId)}
+						amounts={amounts}
+						busy={busy}
+						onChange={setAmounts}
+					/>
 					<p className={remaining < 0 ? "text-destructive" : "text-sm"}>
 						Unallocated after saving: {ledgerMoney(remaining)}
 					</p>

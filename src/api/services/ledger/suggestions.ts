@@ -1,4 +1,4 @@
-interface OpenShare {
+export interface OpenShare {
 	debtId: string;
 	billName: string;
 	category: string;

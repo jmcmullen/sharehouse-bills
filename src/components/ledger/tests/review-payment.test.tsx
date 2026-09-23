@@ -2,7 +2,11 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
-import type { decideLedgerTransaction } from "../../../functions/ledger";
+import type { AccountPayments } from "../../../api/services/ledger/account-payments";
+import type {
+	confirmLedgerReceipt,
+	decideLedgerTransaction,
+} from "../../../functions/ledger";
 import type {
 	Payment,
 	ReviewPayment as ReviewPaymentComponent,
@@ -10,6 +14,7 @@ import type {
 
 type Ready = Parameters<typeof ReviewPaymentComponent>[0]["data"];
 type Decision = Parameters<typeof decideLedgerTransaction>[0];
+type Confirmation = Parameters<typeof confirmLedgerReceipt>[0];
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
 	url: "http://localhost",
@@ -39,8 +44,10 @@ Object.assign(globalThis, {
 });
 
 const decide = mock(async (_input: Decision): Promise<void> => {});
+const confirm = mock(async (_input: Confirmation): Promise<void> => {});
 mock.module("../../../functions/ledger", () => ({
 	decideLedgerTransaction: decide,
+	confirmLedgerReceipt: confirm,
 }));
 const { cleanup, fireEvent, render, screen, waitFor } = await import(
 	"@testing-library/react"
@@ -61,7 +68,8 @@ const payment: Payment = {
 	reason: "Possible existing manual payment: compare receipts",
 	decision: "review",
 	origin: "automatic",
-	group: "duplicate",
+	group: "unclear",
+	suggestion: null,
 	shared: false,
 	matchCandidate: true,
 	allocations: [],
@@ -86,11 +94,37 @@ const manualPayments: Ready["manualPayments"] = [
 		bankTransactionId: null,
 	},
 ];
+const bill = (id: string, name: string, amountCents: number) => ({
+	id,
+	name,
+	category: name.toLowerCase(),
+	dueAt: payment.effectiveAt,
+	amountCents,
+	paidCents: 0,
+	remainingCents: amountCents,
+	payments: [],
+});
+const billing: AccountPayments = {
+	revision: "r1",
+	bills: [bill("gas", "Gas", 6000), bill("clean", "Cleaners", 3000)],
+	receipts: [],
+	unallocatedCents: 0,
+	unpaidCents: 9000,
+};
 // ReviewPayment reads only accounts and manualPayments from the loader data.
 const data = {
-	accounts: [{ id: "oliver", name: "Oliver" }],
+	accounts: [{ id: "oliver", name: "Oliver", billing }],
 	manualPayments,
 } as unknown as Ready;
+const suggested: Partial<Payment> = {
+	matchCandidate: false,
+	group: "suggested",
+	suggestion: {
+		allocations: [{ debtId: "gas", amountCents: 6000 }],
+		confidence: "exact",
+		reason: "Exactly matches Gas",
+	},
+};
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
 	let resolve = (): void => {};
@@ -100,10 +134,12 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 	return { promise, resolve };
 }
 
-const textbox = (): HTMLInputElement =>
-	screen.getByRole("textbox") as HTMLInputElement;
+const note = (): HTMLInputElement =>
+	screen.getByRole("textbox", { name: /Note/ }) as HTMLInputElement;
 const button = (name: string): HTMLButtonElement =>
 	screen.getByRole("button", { name }) as HTMLButtonElement;
+const field = (name: RegExp): HTMLInputElement =>
+	screen.getByRole("spinbutton", { name }) as HTMLInputElement;
 
 function openReview(overrides: Partial<Payment> = {}) {
 	const onSaved = mock(async () => {});
@@ -122,46 +158,72 @@ function openReview(overrides: Partial<Payment> = {}) {
 beforeEach(() => {
 	decide.mockReset();
 	decide.mockImplementation(async () => {});
+	confirm.mockReset();
+	confirm.mockImplementation(async () => {});
 });
 afterEach(cleanup);
 
-test("short notes explain the requirement; a corrected note credits the selected account", async () => {
+test("short notes explain the requirement; a corrected note keeps the money as credit", async () => {
 	const { onSaved, onClose } = openReview();
-	const note = textbox();
-	const credit = button("Credit account");
-	fireEvent.change(note, { target: { value: " rent " } });
-	expect(credit.disabled).toBe(false);
-	fireEvent.click(credit);
-	expect(decide).not.toHaveBeenCalled();
+	const keep = button("Keep as credit");
+	fireEvent.change(note(), { target: { value: " rent " } });
+	expect(keep.disabled).toBe(false);
+	fireEvent.click(keep);
+	expect(confirm).not.toHaveBeenCalled();
 	expect(screen.getByRole("alert").textContent).toContain(
 		"at least 5 characters",
 	);
-	expect(document.activeElement).toBe(note);
-	expect(note.getAttribute("aria-invalid")).toBe("true");
-	fireEvent.change(note, { target: { value: "Separate rent payment" } });
+	expect(document.activeElement).toBe(note());
+	expect(note().getAttribute("aria-invalid")).toBe("true");
+	fireEvent.change(note(), { target: { value: "Separate rent payment" } });
 	expect(screen.queryByRole("alert")).toBeNull();
-	fireEvent.click(credit);
+	fireEvent.click(keep);
 	await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
 	expect(onSaved).toHaveBeenCalledTimes(1);
-	expect(decide).toHaveBeenCalledWith({
+	expect(decide).not.toHaveBeenCalled();
+	expect(confirm).toHaveBeenCalledWith({
 		data: {
 			transactionId: "bank-1",
-			action: "credit",
 			housemateId: "oliver",
-			manualSourceKeys: undefined,
+			allocations: [],
 			reason: "Separate rent payment",
 			expectedRevision: 7,
 		},
 	});
 });
 
-test("a note alone cannot credit an unassigned payment; the form focuses the housemate", async () => {
+test("a suggestion pre-fills the bills; edited amounts are what gets confirmed", async () => {
+	openReview(suggested);
+	expect(field(/Allocate to Gas/).value).toBe("60.00");
+	expect(field(/Allocate to Cleaners/).value).toBe("");
+	expect(screen.getByText(/Kept as credit: \$40\.00/)).toBeTruthy();
+	fireEvent.change(field(/Allocate to Cleaners/), { target: { value: "30" } });
+	expect(screen.getByText(/Kept as credit: \$10\.00/)).toBeTruthy();
+	fireEvent.change(note(), { target: { value: "Gas and cleaning" } });
+	fireEvent.click(button("Confirm payment"));
+	await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+	expect(confirm.mock.calls[0][0].data.allocations).toEqual([
+		{ debtId: "gas", amountCents: 6000 },
+		{ debtId: "clean", amountCents: 3000 },
+	]);
+	expect(confirm.mock.calls[0][0].data.reason).toBe("Gas and cleaning");
+});
+
+test("allocating more than the payment is refused before it reaches the server", () => {
+	openReview(suggested);
+	fireEvent.change(field(/Allocate to Gas/), { target: { value: "150" } });
+	fireEvent.click(button("Confirm payment"));
+	expect(confirm).not.toHaveBeenCalled();
+	expect(screen.getByRole("alert").textContent).toContain("exceed");
+});
+
+test("a note alone cannot confirm an unassigned payment; the form focuses the housemate", async () => {
 	openReview({ housemateId: null });
-	fireEvent.change(textbox(), {
+	fireEvent.change(note(), {
 		target: { value: "Separate payment for bills" },
 	});
-	fireEvent.click(button("Credit account"));
-	expect(decide).not.toHaveBeenCalled();
+	fireEvent.click(button("Keep as credit"));
+	expect(confirm).not.toHaveBeenCalled();
 	expect(screen.getByRole("alert").textContent).toContain(
 		"Choose the housemate",
 	);
@@ -169,14 +231,15 @@ test("a note alone cannot credit an unassigned payment; the form focuses the hou
 	fireEvent.change(screen.getByRole("combobox"), {
 		target: { value: "oliver" },
 	});
-	fireEvent.click(button("Credit account"));
-	await waitFor(() => expect(decide).toHaveBeenCalledTimes(1));
+	fireEvent.click(button("Keep as credit"));
+	await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+	expect(confirm.mock.calls[0][0].data.housemateId).toBe("oliver");
 });
 
 test("a note cannot bypass an incomplete match; exact matches link without adding credit", async () => {
 	openReview();
 	fireEvent.click(screen.getByRole("checkbox", { name: /Electricity/ }));
-	fireEvent.change(textbox(), {
+	fireEvent.change(note(), {
 		target: { value: "These bills were already recorded" },
 	});
 	fireEvent.click(button("Confirm match · no extra credit"));
@@ -185,9 +248,10 @@ test("a note cannot bypass an incomplete match; exact matches link without addin
 		"must equal the bank payment",
 	);
 	fireEvent.click(screen.getByRole("checkbox", { name: /Internet/ }));
-	fireEvent.change(textbox(), { target: { value: "" } });
+	fireEvent.change(note(), { target: { value: "" } });
 	fireEvent.click(button("Confirm match · no extra credit"));
 	await waitFor(() => expect(decide).toHaveBeenCalledTimes(1));
+	expect(confirm).not.toHaveBeenCalled();
 	expect(decide.mock.calls[0][0].data.action).toBe("link");
 	expect(decide.mock.calls[0][0].data.manualSourceKeys).toEqual([
 		"manual:1",
@@ -204,33 +268,33 @@ test("excluding a personal payment needs neither a housemate nor a note", async 
 
 test("server errors stay visible and permit retry", async () => {
 	const { onClose } = openReview();
-	decide.mockRejectedValueOnce(
+	confirm.mockRejectedValueOnce(
 		new Error("Payment changed. Refresh and try again."),
 	);
-	fireEvent.change(textbox(), { target: { value: "Separate money" } });
-	fireEvent.click(button("Credit account"));
+	fireEvent.change(note(), { target: { value: "Separate money" } });
+	fireEvent.click(button("Keep as credit"));
 	await waitFor(() =>
 		expect(screen.getByRole("alert").textContent).toContain("Payment changed"),
 	);
 	expect(onClose).not.toHaveBeenCalled();
-	expect(button("Credit account").disabled).toBe(false);
-	fireEvent.click(button("Credit account"));
+	expect(button("Keep as credit").disabled).toBe(false);
+	fireEvent.click(button("Keep as credit"));
 	await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
 });
 
 test("saving disables repeat submissions until the request completes", async () => {
 	const { onClose } = openReview();
 	const pending = deferred();
-	decide.mockImplementationOnce(() => pending.promise);
-	fireEvent.change(textbox(), { target: { value: "Separate money" } });
-	fireEvent.click(button("Credit account"));
+	confirm.mockImplementationOnce(() => pending.promise);
+	fireEvent.change(note(), { target: { value: "Separate money" } });
+	fireEvent.click(button("Keep as credit"));
 	const saving = button("Saving…");
 	expect(saving.disabled).toBe(true);
 	fireEvent.click(saving);
 	const form = saving.closest("form");
 	if (!form) throw new Error("Review form not rendered");
 	fireEvent.submit(form);
-	expect(decide).toHaveBeenCalledTimes(1);
+	expect(confirm).toHaveBeenCalledTimes(1);
 	pending.resolve();
 	await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
 });

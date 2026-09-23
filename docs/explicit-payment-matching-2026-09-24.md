@@ -24,3 +24,25 @@ The ledger never allocates a payment to a bill on its own. Automation may sugges
 ## Before applying
 
 Take a full backup of the live database first. Step 2 removes allocations that were written by automation and the paid-state resync flips debts back to unpaid where only automatic allocations covered them. The allocation history table is immutable, so the reversal is auditable, but the backup is the only way to restore the pre-freeze state as a whole.
+
+## Phase 3: arrivals, cash and what housemates see
+
+- **Owner is told when money arrives.** `recordLedgerBankEvent` (the Up webhook path) enqueues a `payment_arrived` WhatsApp notification (`arrival-notifications.ts`, event key `payment-arrived:<transactionId>`) inside the ingest transaction whenever a positive transaction lands in `review` with a housemate, or names several housemates. The row is unique per transaction, so re-ingests and settlement updates never repeat it. `workflows/payment-arrived.ts` sends the message to the owner housemate: sender, amount, reference, date, the live suggestion ("Looks like Rent · 12 Sep, $420.00" or "No matching bill") and a link to `/payment-review?query=<transactionId>`. It is ignored if the transaction has been decided before it is sent.
+- **Cash is the only manual payment.** "Mark paid" is gone. "Record cash" (`cash-receipt.ts`, `recordCashReceived`) takes an amount, date and note, writes a `manual:cash-<uuid>` payment source, allocates it to the chosen share with origin `review`, marks it reviewed and enqueues the housemate's receipt in one ledger transaction. `payment_transactions` is no longer written by the app.
+- **Credit is named.** Bill reminders skip shares that unallocated money already covers (`bill-reminder-credit.ts`) and the reminder message states the credit applied and what is left to pay. The public pay page subtracts the same credit and says where it came from.
+- **Private statement leads with bills.** `/statement/<token>` lists each bill share with what covered it and when, then money received and the journal collapsed below. Suggestions and bank identifiers stay admin-only.
+
+## Phase 2 changes
+
+- Automatic crediting is gone. `classifyBankTransaction` gives every identified housemate receipt the decision `review`; unidentified senders are still excluded, own-account transfers, interest and merchant refunds still ignored, pre-history receipts still archived, and multi-beneficiary transfers still reviewed as a whole. `hasHouseholdReference` and the household word list are deleted; `isRentReference` remains only to keep rent money on rent bills.
+- Suggestions are attached to review rows. `loadPaymentReview` loads each housemate's open shares once (`getAccountPayments`) and proposes allocations per row with `suggestBankReceipt`. Nothing is written until an admin acts.
+- Review groups are now `suggested` (an exact or combination suggestion exists), `unclear`, `shared` and `outgoing`. Only the last three are stored in `review_group`; `suggested` is derived at read time because it depends on the bills open today. A possible manual duplicate is the `matchCandidate` flag on the row, not a group.
+- `confirmReceipt` (`src/api/services/ledger/confirm-receipt.ts`, server function `confirmLedgerReceipt`) is the one explicit action: in a single transaction it credits the transfer to the housemate, replaces the receipt's allocations with origin `review`, records a `ledger_allocation_reviews` row and enqueues the housemate's WhatsApp receipt. Empty allocations are a deliberate "keep as credit" and produce a receipt whose `after` list is empty. Stale bank revisions, over-allocation and rent-to-utility allocations are rejected and nothing is written.
+- Bulk confirmation: `decideLedgerBatch` accepts `{ action: "confirm" }` items. The server recomputes the suggestion and only confirms an exact single-bill match, so a stale page cannot confirm bills that changed.
+- The review screen shows the bank line and the proposal per row with **Confirm**, **Change**, **Keep as credit** and **Not a bill**. A possible duplicate hides the one-tap actions so the admin compares the manual records inside Change. Shared payments keep the split flow. Matching a transfer to manual records stays available inside Change as the secondary path.
+
+## Migration 0018 `review_groups`
+
+1. Remaps stored groups: `purpose` and `duplicate` become `unclear`, `assignment` becomes `shared`.
+2. Automatic credits whose receipt already carries a reviewed allocation (legacy bill assignments frozen by 0017, or an explicit admin allocation) are kept and marked `decision_origin='review'`, so re-import never touches them.
+3. Every other automatic credit is queued as a `bank` ledger event. The next sync re-classifies it as `review` and reverses its posting, so it appears on the review screen with a suggestion and the admin confirms it explicitly. Balances for those housemates rise until that is done; the 0017 backup advice applies.

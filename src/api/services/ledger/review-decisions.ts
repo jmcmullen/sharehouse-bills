@@ -1,21 +1,24 @@
-import type { Client, Row } from "@libsql/client";
+import type { Client } from "@libsql/client";
 import { z } from "zod";
+import {
+	type BankRow,
+	creditBankTransaction,
+	loadBankRow,
+	requireHousemate,
+	validateReviewPosting,
+} from "./bank-credit";
 import {
 	clearBankPosting,
 	clearSplitPosting,
 	isSettledExternalAud,
-	postBankDecision,
 	setBankDecision,
 } from "./bank-decisions";
-import { type BankTransaction, bankTransactionSchema } from "./model";
-import { linkPaymentEvidence } from "./payment-evidence";
-import { ignoredBankReason } from "./review-policy";
 import {
-	type Executor,
-	applySource,
-	loadHousemates,
-	withWriteTransaction,
-} from "./sources";
+	applyConfirmSuggested,
+	confirmSuggestedSchema,
+} from "./confirm-receipt";
+import { linkPaymentEvidence } from "./payment-evidence";
+import { type Executor, applySource, withWriteTransaction } from "./sources";
 import { postSplitPayment, requireSeparatePaymentNote } from "./split-payments";
 
 export const reviewDecisionSchema = z.object({
@@ -40,7 +43,12 @@ export const reviewDecisionSchema = z.object({
 type ReviewDecision = z.infer<typeof reviewDecisionSchema>;
 
 export const batchReviewSchema = z
-	.array(reviewDecisionSchema.extend({ expectedRevision: z.number().int() }))
+	.array(
+		z.union([
+			reviewDecisionSchema.extend({ expectedRevision: z.number().int() }),
+			confirmSuggestedSchema,
+		]),
+	)
 	.min(1)
 	.max(10);
 
@@ -54,7 +62,7 @@ export async function reviewBankTransaction(
 
 export async function reviewBankTransactions(
 	client: Client,
-	input: z.infer<typeof batchReviewSchema>,
+	input: z.input<typeof batchReviewSchema>,
 ): Promise<void> {
 	const decisions = batchReviewSchema.parse(input);
 	if (
@@ -63,7 +71,10 @@ export async function reviewBankTransactions(
 	)
 		throw new Error("Select each payment only once");
 	await withWriteTransaction(client, async (tx) => {
-		for (const decision of decisions) await applyReviewDecision(tx, decision);
+		for (const decision of decisions)
+			await (decision.action === "confirm"
+				? applyConfirmSuggested(tx, decision)
+				: applyReviewDecision(tx, decision));
 	});
 }
 
@@ -72,114 +83,59 @@ async function applyReviewDecision(
 	input: ReviewDecision,
 ): Promise<void> {
 	const reason = input.reason || defaultReviewReason(input.action);
-	const bank = (
-		await tx.execute({
-			sql: "SELECT * FROM ledger_bank_transactions WHERE id=?",
-			args: [input.transactionId],
-		})
-	).rows[0];
-	if (!bank) throw new Error("Bank transaction not found");
-	if (
-		input.expectedRevision !== undefined &&
-		input.expectedRevision !== Number(bank.updated_at)
-	)
-		throw new Error(
-			"This payment changed since you opened it. Refresh and review it again.",
-		);
-	const transaction = bankTransactionSchema.parse(
-		JSON.parse(String(bank.raw_data)),
+	const bank = await loadBankRow(
+		tx,
+		input.transactionId,
+		input.expectedRevision,
 	);
 	if (input.action === "exclude") {
-		await clearBankPosting(tx, transaction.id);
-		await setBankDecision(tx, transaction, {
+		await clearBankPosting(tx, bank.transaction.id);
+		await setBankDecision(tx, bank.transaction, {
 			decision: "exclude",
 			housemateId:
-				bank.housemate_id === null ? null : String(bank.housemate_id),
+				bank.row.housemate_id === null ? null : String(bank.row.housemate_id),
 			origin: "review",
 			reason,
 		});
 		return;
 	}
-	validateReviewPosting(bank, transaction, input);
+	validateReviewPosting(bank, input);
 	if (input.action === "split") {
-		await postSplitPayment(tx, transaction, input.allocations, reason);
+		if (bank.row.housemate_id !== null)
+			await requireSeparatePaymentNote(
+				tx,
+				bank.transaction,
+				String(bank.row.housemate_id),
+				bank.transaction.attributes.amount.valueInBaseUnits,
+				input.reason,
+			);
+		await postSplitPayment(tx, bank.transaction, input.allocations, reason);
 		return;
 	}
-	const housemate = (await loadHousemates(tx)).find(
-		(housemate) => housemate.id === input.housemateId && !housemate.isOwner,
-	);
-	if (!housemate) throw new Error("Select a non-owner housemate");
-	if (!isSettledExternalAud(transaction))
-		throw new Error("Only settled external AUD transactions can be posted");
-	if (input.action === "credit")
-		await requireSeparatePaymentNote(
-			tx,
-			transaction,
-			housemate.id,
-			transaction.attributes.amount.valueInBaseUnits,
-			input.reason,
-		);
+	const housemateId = await requireHousemate(tx, input.housemateId);
 	if (input.action === "link") {
-		await linkManualPayment(tx, transaction, input, housemate.id, reason);
+		await linkManualPayment(tx, bank, input, housemateId, reason);
 		return;
 	}
-	await clearSplitPosting(tx, transaction.id);
-	await tx.execute({
-		sql: "DELETE FROM ledger_payment_evidence WHERE transaction_id=?",
-		args: [transaction.id],
-	});
-	await setBankDecision(tx, transaction, {
-		decision: "credit",
-		housemateId: housemate.id,
-		origin: "review",
-		reason,
-	});
-	await postBankDecision(tx, transaction, housemate.id);
-}
-
-function validateReviewPosting(
-	bank: Row,
-	transaction: BankTransaction,
-	input: ReviewDecision,
-): void {
-	if (
-		input.action === "credit" &&
-		transaction.attributes.amount.valueInBaseUnits < 0 &&
-		input.reason.trim().length < 5
-	)
-		throw new Error("Add a note explaining the household refund");
-	if (bank.bank_status === "DELETED")
-		throw new Error("Deleted bank transactions cannot be credited or linked");
-	if (ignoredBankReason(transaction))
-		throw new Error(
-			"Own-account movements, interest and merchant refunds cannot be housemate payments",
-		);
-	if (bank.decision === "archive" && input.reason.length < 5)
-		throw new Error("Explain the historical charges this payment covers");
-	if (
-		["credit", "split"].includes(input.action) &&
-		bank.review_group === "duplicate" &&
-		input.reason.length < 5
-	)
-		throw new Error(
-			"Link the existing payment or explain why this is a separate payment",
-		);
+	await creditBankTransaction(tx, bank, housemateId, input.reason);
 }
 
 async function linkManualPayment(
 	tx: Executor,
-	transaction: BankTransaction,
+	bank: BankRow,
 	decision: ReviewDecision,
 	housemateId: string,
 	reason: string,
 ): Promise<void> {
+	if (!isSettledExternalAud(bank.transaction))
+		throw new Error("Only settled external AUD transactions can be posted");
 	const keys =
 		decision.manualSourceKeys ??
 		(decision.manualSourceKey ? [decision.manualSourceKey] : []);
-	await linkPaymentEvidence(tx, transaction, housemateId, keys);
-	await clearSplitPosting(tx, transaction.id);
-	await applySource(tx, `bank:${transaction.id}`, null);
-	await setBankDecision(tx, transaction, {
+	await linkPaymentEvidence(tx, bank.transaction, housemateId, keys);
+	await clearSplitPosting(tx, bank.transaction.id);
+	await applySource(tx, `bank:${bank.transaction.id}`, null);
+	await setBankDecision(tx, bank.transaction, {
 		decision: "linked",
 		housemateId,
 		origin: "review",

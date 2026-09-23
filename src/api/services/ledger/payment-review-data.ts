@@ -1,9 +1,26 @@
 import type { Client } from "@libsql/client";
 import { z } from "zod";
+import {
+	type AccountPayments,
+	getAccountPayments,
+	suggestBankReceipt,
+} from "./account-payments";
 import { bankTransactionSchema, namedBeneficiaries } from "./model";
 import { hasPossibleManualMatch } from "./payment-evidence";
-import { reviewGroupSql } from "./review-policy";
+import {
+	type ReviewGroup,
+	reviewGroupSql,
+	reviewGroups,
+} from "./review-policy";
 import { loadHousemates } from "./sources";
+import type { Suggestion } from "./suggestions";
+
+type Executor = Pick<Client, "execute">;
+interface ReviewAccount {
+	id: string;
+	name: string;
+	billing: AccountPayments;
+}
 
 export const reviewFiltersSchema = z.object({
 	reviewPage: z.number().int().min(0).default(0),
@@ -14,59 +31,72 @@ export const reviewFiltersSchema = z.object({
 	scope: z.enum(["all", "known", "unidentified"]).default("all"),
 	recentOnly: z.boolean().default(false),
 	group: z
-		.enum(["all", "purpose", "duplicate", "assignment", "outgoing"])
+		.enum(["all", ...(Object.keys(reviewGroups) as [ReviewGroup])])
 		.default("all"),
 	query: z.string().max(100).default(""),
 });
 
+const manualSnapshotSchema = z.object({
+	housemateId: z.string(),
+	amountCents: z.number(),
+	description: z.string(),
+	effectiveAt: z.number(),
+});
+const allocationsSchema = z.array(
+	z.object({ housemateId: z.string(), amountCents: z.number() }),
+);
+
 export async function loadPaymentReview(
-	client: Pick<Client, "execute">,
+	client: Executor,
 	input: z.input<typeof reviewFiltersSchema>,
 ) {
 	const data = reviewFiltersSchema.parse(input);
-	const manualPayments = (
+	const accounts = await loadReviewAccounts(client);
+	const manualPayments = await loadManualPayments(client);
+	const candidates = (
 		await client.execute(
-			"SELECT source_key,snapshot,(SELECT transaction_id FROM ledger_payment_evidence e WHERE e.source_key=ledger_sources.source_key) AS bank_transaction_id FROM ledger_sources WHERE source_key LIKE 'manual:%' AND entry_id IS NOT NULL AND json_extract(snapshot,'$.amountCents')<0",
+			"SELECT id,housemate_id,amount_cents,effective_at,message FROM ledger_bank_transactions WHERE housemate_id IS NOT NULL AND amount_cents>0 AND decision='review'",
 		)
 	).rows.map((row) => ({
-		bankTransactionId:
-			row.bank_transaction_id === null ? null : String(row.bank_transaction_id),
-		key: String(row.source_key),
-		...z
-			.object({
-				housemateId: z.string(),
-				amountCents: z.number(),
-				description: z.string(),
-				effectiveAt: z.number(),
-			})
-			.parse(JSON.parse(String(row.snapshot))),
+		id: String(row.id),
+		housemateId: String(row.housemate_id),
+		amountCents: Number(row.amount_cents),
+		receivedAt: Number(row.effective_at),
+		message: String(row.message),
 	}));
-	const matchIds = (
-		await client.execute(
-			"SELECT id,housemate_id,amount_cents,effective_at FROM ledger_bank_transactions WHERE housemate_id IS NOT NULL AND amount_cents>0 AND (decision='review' OR (decision='credit' AND decision_origin!='review'))",
-		)
-	).rows
+	const matchIds = candidates
 		.filter((bank) =>
 			hasPossibleManualMatch(
 				manualPayments.filter(
 					(manual) =>
 						!manual.bankTransactionId &&
-						manual.housemateId === bank.housemate_id,
+						manual.housemateId === bank.housemateId,
 				),
-				Number(bank.amount_cents),
-				Number(bank.effective_at),
+				bank.amountCents,
+				bank.receivedAt,
 			),
 		)
-		.map((bank) => String(bank.id));
+		.map((bank) => bank.id);
+	const suggestions = new Map(
+		candidates.flatMap((bank) => {
+			const account = accounts.find((item) => item.id === bank.housemateId);
+			const suggestion = account
+				? suggestBankReceipt(account.billing, bank)
+				: null;
+			return suggestion ? [[bank.id, suggestion] as const] : [];
+		}),
+	);
+	const suggestedIds = [...suggestions]
+		.filter(([, suggestion]) => suggestion.confidence !== "partial")
+		.map(([id]) => id);
 	const rowsSql =
-		"WITH payment_rows AS (SELECT *,id IN (SELECT value FROM json_each(?)) AS match_candidate FROM ledger_bank_transactions)";
+		"WITH payment_rows AS (SELECT *,id IN (SELECT value FROM json_each(?)) AS match_candidate,id IN (SELECT value FROM json_each(?)) AS suggested FROM ledger_bank_transactions)";
+	const rowArgs = [JSON.stringify(matchIds), JSON.stringify(suggestedIds)];
 	const conditions = [
-		data.status === "review"
-			? "(decision='review' OR (decision='credit' AND match_candidate))"
-			: "decision=?",
+		data.status === "review" ? "decision='review'" : "decision=?",
 	];
 	const filterArgs: Array<string | number> = [
-		JSON.stringify(matchIds),
+		...rowArgs,
 		...(data.status === "review" ? [] : [data.status]),
 	];
 	if (data.housemateId) {
@@ -115,8 +145,9 @@ export async function loadPaymentReview(
 		id: String(row.id),
 		matchCandidate: Boolean(row.match_candidate),
 		group: z
-			.enum(["purpose", "duplicate", "assignment", "outgoing"])
+			.enum(Object.keys(reviewGroups) as [ReviewGroup])
 			.parse(row.review_group),
+		suggestion: (suggestions.get(String(row.id)) ?? null) as Suggestion | null,
 		shared:
 			namedBeneficiaries(
 				bankTransactionSchema.parse(JSON.parse(String(row.raw_data))),
@@ -124,9 +155,7 @@ export async function loadPaymentReview(
 			).length > 1,
 		internalTransfer: Boolean(row.internal_transfer),
 		transactionType: String(row.transaction_type ?? ""),
-		allocations: z
-			.array(z.object({ housemateId: z.string(), amountCents: z.number() }))
-			.parse(JSON.parse(String(row.allocations))),
+		allocations: allocationsSchema.parse(JSON.parse(String(row.allocations))),
 		manualSourceKeys: z
 			.array(z.string())
 			.parse(JSON.parse(String(row.manual_keys))),
@@ -144,12 +173,40 @@ export async function loadPaymentReview(
 	}));
 	const totalReviewCount = Number(
 		(
-			await client.execute({
-				sql: `${rowsSql} SELECT count(*) AS n FROM payment_rows WHERE (decision='review' OR (decision='credit' AND match_candidate)) AND effective_at >= (SELECT coalesce(min(created_at),0) FROM bills)`,
-				args: [JSON.stringify(matchIds)],
-			})
+			await client.execute(
+				"SELECT count(*) AS n FROM ledger_bank_transactions WHERE decision='review' AND effective_at >= (SELECT coalesce(min(created_at),0) FROM bills)",
+			)
 		).rows[0].n,
 	);
+	return { reviews, reviewCount, totalReviewCount, manualPayments, accounts };
+}
 
-	return { reviews, reviewCount, totalReviewCount, manualPayments };
+// Every non-owner housemate with their open bills, loaded once so each review
+// row can carry its proposal.
+async function loadReviewAccounts(client: Executor): Promise<ReviewAccount[]> {
+	const housemates = (
+		await client.execute(
+			"SELECT id,name FROM housemates WHERE is_owner=0 ORDER BY name",
+		)
+	).rows;
+	return Promise.all(
+		housemates.map(async (row) => ({
+			id: String(row.id),
+			name: String(row.name),
+			billing: await getAccountPayments(client, String(row.id)),
+		})),
+	);
+}
+
+async function loadManualPayments(client: Executor) {
+	return (
+		await client.execute(
+			"SELECT source_key,snapshot,(SELECT transaction_id FROM ledger_payment_evidence e WHERE e.source_key=ledger_sources.source_key) AS bank_transaction_id FROM ledger_sources WHERE source_key LIKE 'manual:%' AND entry_id IS NOT NULL AND json_extract(snapshot,'$.amountCents')<0",
+		)
+	).rows.map((row) => ({
+		bankTransactionId:
+			row.bank_transaction_id === null ? null : String(row.bank_transaction_id),
+		key: String(row.source_key),
+		...manualSnapshotSchema.parse(JSON.parse(String(row.snapshot))),
+	}));
 }

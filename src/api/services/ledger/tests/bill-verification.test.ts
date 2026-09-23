@@ -8,6 +8,7 @@ import { getAccountPayments } from "../account-payments";
 import { allocateReceipt, recordReceipt } from "../allocation-actions";
 import { ingestBankTransaction } from "../bank-ingest";
 import { loadBillVerification } from "../bill-verification";
+import { confirmReceipt } from "../confirm-receipt";
 import { drainLedgerEvents } from "../events";
 import { type BankTransaction, bankTransactionSchema } from "../model";
 import { withWriteTransaction } from "../sources";
@@ -62,6 +63,30 @@ async function fixture(run: (client: Client) => Promise<void>): Promise<void> {
 	}
 }
 
+// Ingests a bank receipt for Oliver and confirms it against one bill share.
+async function confirm(
+	client: Client,
+	transactionId: string,
+	amountCents: number,
+	debtId: string,
+): Promise<void> {
+	await withWriteTransaction(client, (tx) =>
+		ingestBankTransaction(tx, receipt(transactionId, amountCents)),
+	);
+	const bank = (
+		await client.execute({
+			sql: "SELECT updated_at FROM ledger_bank_transactions WHERE id=?",
+			args: [transactionId],
+		})
+	).rows[0];
+	await confirmReceipt(client, {
+		transactionId,
+		housemateId: "oliver",
+		allocations: [{ debtId, amountCents }],
+		expectedRevision: Number(bank.updated_at),
+	});
+}
+
 test("reports unavailable when ledger tables are missing", async () => {
 	const client = createClient({ url: ":memory:" });
 	try {
@@ -78,16 +103,7 @@ test("pivots housemate payments into bills with shares, receipts, status and sum
 			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-o','oliver','gas',100,100,${time - 100}),('gas-s','sarah','gas',50,50,${time - 100}),('clean-o','oliver','clean',30,0,${time - 50});`);
 		await drainLedgerEvents(client);
 
-		await withWriteTransaction(client, (tx) =>
-			ingestBankTransaction(tx, receipt("bank-1", 10000)),
-		);
-		const oliver = await getAccountPayments(client, "oliver");
-		await allocateReceipt(client, {
-			housemateId: "oliver",
-			receiptId: "bank:bank-1",
-			allocations: [{ debtId: "gas-o", amountCents: 10000 }],
-			expectedRevision: oliver.revision,
-		});
+		await confirm(client, "bank-1", 10000, "gas-o");
 
 		const sarahBefore = await getAccountPayments(client, "sarah");
 		await recordReceipt(client, {
@@ -164,16 +180,7 @@ test("a bill whose shares are all covered is paid and a partly covered bill is p
 			INSERT INTO bills(id,biller_name,due_date,created_at,bill_type,stack_group) VALUES('water','Water',${time},${time - 1000},'water',NULL);
 			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('water-o','oliver','water',40,40,${time - 100}),('water-s','sarah','water',40,0,${time - 100});`);
 		await drainLedgerEvents(client);
-		await withWriteTransaction(client, (tx) =>
-			ingestBankTransaction(tx, receipt("bank-2", 4000)),
-		);
-		const oliver = await getAccountPayments(client, "oliver");
-		await allocateReceipt(client, {
-			housemateId: "oliver",
-			receiptId: "bank:bank-2",
-			allocations: [{ debtId: "water-o", amountCents: 4000 }],
-			expectedRevision: oliver.revision,
-		});
+		await confirm(client, "bank-2", 4000, "water-o");
 		const part = await loadBillVerification(client);
 		assert.ok(part.available);
 		assert.equal(part.bills[0].status, "part");

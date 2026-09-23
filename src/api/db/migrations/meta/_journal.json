@@ -127,6 +127,13 @@
 			"when": 1790202110000,
 			"tag": "0017_freeze_history",
 			"breakpoints": true
+		},
+		{
+			"idx": 18,
+			"version": "6",
+			"when": 1790290000000,
+			"tag": "0018_review_groups",
+			"breakpoints": true
 		}
 	]
 }

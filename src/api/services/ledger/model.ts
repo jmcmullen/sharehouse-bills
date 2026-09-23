@@ -112,29 +112,12 @@ export function namedBeneficiaries(
 	});
 }
 
-const utilityWords = [
-	"cleaners?",
-	"cleaning",
-	"bills?",
-	"gas",
-	"electricity",
-	"water",
-	"internets?",
-	"pool",
-];
-export const utilityPattern = new RegExp(
-	`\\b(${utilityWords.join("|")})\\b`,
-	"i",
-);
-const householdPattern = new RegExp(
-	`\\b(rent|${utilityWords.join("|")})\\b`,
-	"i",
-);
+const utilityPattern =
+	/\b(cleaners?|cleaning|bills?|gas|electricity|water|internets?|pool)\b/i;
 
-export function hasHouseholdReference(transaction: BankTransaction): boolean {
-	return householdPattern.test(
-		`${transaction.attributes.message ?? ""} ${transaction.attributes.description}`,
-	);
+// A reference that names rent and nothing else; such money only pays rent bills.
+export function isRentReference(text: string): boolean {
+	return /\brent\b/i.test(text) && !utilityPattern.test(text);
 }
 
 export interface StatementEntry extends LedgerSource {

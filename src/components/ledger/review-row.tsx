@@ -1,6 +1,6 @@
 import { reviewHint } from "../../api/services/ledger/review-policy";
 import { Button } from "../ui/button";
-import type { Payment } from "./review-payment";
+import { type Payment, paymentEligible } from "./review-payment";
 import { ledgerMoney, ledgerTime } from "./statement";
 
 export function ReviewRow({
@@ -12,6 +12,8 @@ export function ReviewRow({
 	selectionFull,
 	onCheck,
 	onOpen,
+	onConfirm,
+	onExclude,
 }: {
 	payment: Payment;
 	name: string | undefined;
@@ -21,8 +23,18 @@ export function ReviewRow({
 	selectionFull: boolean;
 	onCheck: (checked: boolean) => void;
 	onOpen: () => void;
+	onConfirm: (
+		allocations: Array<{ debtId: string; amountCents: number }>,
+	) => void;
+	onExclude: () => void;
 }) {
-	const needsReview = payment.decision === "review" || payment.matchCandidate;
+	const needsReview = payment.decision === "review";
+	const reconcilable =
+		needsReview &&
+		payment.housemateId !== null &&
+		payment.amountCents > 0 &&
+		!payment.shared &&
+		paymentEligible(payment);
 	return (
 		<article className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 p-4 sm:flex sm:items-center sm:justify-between sm:gap-4">
 			{selectable && (
@@ -39,7 +51,7 @@ export function ReviewRow({
 				<p className="font-medium">
 					{name ?? sharedLabel(payment)}{" "}
 					<span className="ml-2 font-normal text-muted-foreground text-sm">
-						{originLabel(payment)}
+						{payment.origin === "review" ? "Reviewed" : ""}
 					</span>
 				</p>
 				<p className="mt-1 break-words text-sm">
@@ -54,15 +66,68 @@ export function ReviewRow({
 					</p>
 				)}
 			</div>
-			<div className="col-start-2 flex items-center justify-between gap-4 sm:justify-start">
+			<div className="col-start-2 flex flex-wrap items-center justify-between gap-2 sm:justify-end">
 				<span className="font-semibold tabular-nums">
 					{ledgerMoney(payment.amountCents)}
 				</span>
-				<Button variant="outline" disabled={busy} onClick={onOpen}>
-					{needsReview ? "Review" : "View decision"}
-				</Button>
+				{reconcilable ? (
+					<RowActions
+						payment={payment}
+						busy={busy}
+						onOpen={onOpen}
+						onConfirm={onConfirm}
+						onExclude={onExclude}
+					/>
+				) : (
+					<Button variant="outline" disabled={busy} onClick={onOpen}>
+						{needsReview ? "Review" : "View decision"}
+					</Button>
+				)}
 			</div>
 		</article>
+	);
+}
+
+// Confirm and keep-as-credit are one tap only when nothing suggests the money
+// is already recorded; a possible duplicate goes through the dialog.
+function RowActions({
+	payment,
+	busy,
+	onOpen,
+	onConfirm,
+	onExclude,
+}: {
+	payment: Payment;
+	busy: boolean;
+	onOpen: () => void;
+	onConfirm: (
+		allocations: Array<{ debtId: string; amountCents: number }>,
+	) => void;
+	onExclude: () => void;
+}) {
+	const quick = !payment.matchCandidate;
+	return (
+		<div className="flex flex-wrap gap-2">
+			{quick && payment.suggestion && (
+				<Button
+					disabled={busy}
+					onClick={() => onConfirm(payment.suggestion?.allocations ?? [])}
+				>
+					Confirm
+				</Button>
+			)}
+			<Button variant="outline" disabled={busy} onClick={onOpen}>
+				Change
+			</Button>
+			{quick && (
+				<Button variant="ghost" disabled={busy} onClick={() => onConfirm([])}>
+					Keep as credit
+				</Button>
+			)}
+			<Button variant="ghost" disabled={busy} onClick={onExclude}>
+				Not a bill
+			</Button>
+		</div>
 	);
 }
 
@@ -70,9 +135,4 @@ function sharedLabel(payment: Payment): string {
 	return payment.allocations.length > 1 || payment.shared
 		? "Shared payment"
 		: "Choose housemate";
-}
-
-function originLabel(payment: Payment): string {
-	if (payment.origin === "review") return "Reviewed";
-	return payment.decision === "credit" ? "Automatic" : "";
 }

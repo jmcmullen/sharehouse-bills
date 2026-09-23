@@ -1,6 +1,5 @@
 import type { Row } from "@libsql/client";
 import {
-	bankSource,
 	clearBankPosting,
 	isSettledExternalAud,
 	postBankDecision,
@@ -10,7 +9,6 @@ import {
 import {
 	type BankTransaction,
 	bankTransactionSchema,
-	hasHouseholdReference,
 	identifyHousemate,
 	namedBeneficiaries,
 } from "./model";
@@ -105,21 +103,16 @@ export async function ingestBankTransaction(
 			args: [transaction.id],
 		})
 	).rows[0];
-	await classifyBankTransaction(
-		tx,
-		transaction,
-		legacy,
-		effectiveAt,
-		existing?.decision === "credit",
-	);
+	await classifyBankTransaction(tx, transaction, legacy, effectiveAt);
 }
 
+// Automation never credits: an identified housemate receipt always waits for
+// an explicit decision, and everything else is ignored.
 async function classifyBankTransaction(
 	tx: Executor,
 	transaction: BankTransaction,
 	legacy: Row | undefined,
 	effectiveAt: number,
-	previouslyCredited: boolean,
 ): Promise<void> {
 	const attributes = transaction.attributes;
 	const housemates = await loadHousemates(tx);
@@ -138,44 +131,29 @@ async function classifyBankTransaction(
 			)
 		: false;
 	const eligible =
-		housemate &&
+		housemate !== null &&
 		attributes.amount.valueInBaseUnits > 0 &&
 		isSettledExternalAud(transaction);
-	const referenced = hasHouseholdReference(transaction);
-	const credit = eligible && referenced && (!duplicate || previouslyCredited);
 	await setBankDecision(tx, transaction, {
-		decision: credit ? "credit" : housemate ? "review" : "exclude",
+		decision: housemate ? "review" : "exclude",
 		housemateId: housemate?.id ?? null,
 		origin: "automatic",
-		reason: automaticDecisionReason(
-			duplicate,
-			Boolean(housemate),
-			Boolean(eligible),
-			referenced,
-		),
-		duplicate,
+		reason: automaticDecisionReason(duplicate, Boolean(housemate), eligible),
 	});
-	await applySource(
-		tx,
-		`bank:${transaction.id}`,
-		credit ? bankSource(transaction, housemate.id) : null,
-	);
+	await applySource(tx, `bank:${transaction.id}`, null);
 }
 
 function automaticDecisionReason(
 	duplicate: boolean,
 	identified: boolean,
 	eligible: boolean,
-	referenced: boolean,
 ): string {
 	if (duplicate)
 		return "Possible existing manual payment: match the recorded payments before adding credit";
 	if (!identified) return "No matching housemate; personal account activity";
 	if (!eligible)
 		return "Review currency, settlement status, transfer or refund";
-	if (!referenced)
-		return "Missing or unclear household payment purpose; approval required";
-	return "Identified housemate and household reference; no exact bill match required";
+	return "Identified housemate; confirm the bills this payment covers";
 }
 
 async function preserveReviewedDecision(
@@ -223,7 +201,7 @@ export async function deleteBankTransaction(
 		decision=CASE WHEN decision IN ('credit','linked','review') THEN 'review' ELSE 'exclude' END,
 		decision_origin=CASE WHEN decision IN ('credit','linked','review') THEN 'review' ELSE decision_origin END,
 		reason=CASE WHEN decision IN ('credit','linked','review') THEN 'Bank transaction deleted; verify any linked manual payment' ELSE reason END,
-		review_group=CASE WHEN amount_cents<0 THEN 'outgoing' WHEN housemate_id IS NULL THEN 'assignment' ELSE 'purpose' END,
+		review_group=CASE WHEN amount_cents<0 THEN 'outgoing' WHEN housemate_id IS NULL THEN 'shared' ELSE 'unclear' END,
 		updated_at=max(updated_at+1,?) WHERE id=?`,
 		args: [nowSeconds(), transactionId],
 	});

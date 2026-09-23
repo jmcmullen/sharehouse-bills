@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { syncLedger } from "../../functions/ledger";
 import { Button } from "../ui/button";
 import { BatchReview } from "./batch-review";
+import { confirmRow, excludeRow } from "./review-actions";
 import { ReviewFilterBar, type ReviewFilters } from "./review-filters";
 import { type Payment, ReviewPayment } from "./review-payment";
 import { ReviewRow } from "./review-row";
@@ -52,6 +53,23 @@ export function PaymentReviewPage() {
 			setBusy(false);
 		}
 	}
+	// Reloads after a decision, stepping back a page when this one empties.
+	async function decided(saved: boolean) {
+		if (!saved || !data.available) return;
+		await showPage(
+			data.reviews.length === 1
+				? Math.max(0, filters.reviewPage - 1)
+				: filters.reviewPage,
+		);
+	}
+	async function act(run: () => Promise<boolean>) {
+		setBusy(true);
+		try {
+			await decided(await run());
+		} finally {
+			setBusy(false);
+		}
+	}
 	if (!data.available) return <p>The ledger migration is not installed yet.</p>;
 	const pages = Math.max(1, Math.ceil(data.reviewCount / pageSize));
 	const chosen = data.reviews.filter((item) => checked.includes(item.id));
@@ -71,10 +89,10 @@ export function PaymentReviewPage() {
 				</Button>
 			</header>
 			<p className="text-muted-foreground text-sm">
-				Rent, bills, cleaning and utility references are accepted automatically
-				for identified housemates. Missing references, possible duplicates and
-				shared payments need a decision. Other personal account activity is
-				ignored.
+				Nothing is credited until you confirm it. Each payment from a housemate
+				shows the bills it looks like it covers: confirm the suggestion, change
+				it, keep the money as credit, or mark it as not a bill. Shared payments
+				are split first. Other personal account activity is ignored.
 			</p>
 			<ReviewFilterBar
 				filters={filters}
@@ -121,6 +139,10 @@ export function PaymentReviewPage() {
 							)
 						}
 						onOpen={() => setSelected(payment)}
+						onConfirm={(allocations) =>
+							act(() => confirmRow(payment, allocations))
+						}
+						onExclude={() => act(() => excludeRow(payment))}
 					/>
 				))}
 				{data.reviews.length === 0 && (
@@ -168,13 +190,7 @@ export function PaymentReviewPage() {
 					payment={selected}
 					data={data}
 					onClose={() => setSelected(null)}
-					onSaved={() =>
-						showPage(
-							data.reviews.length === 1
-								? Math.max(0, filters.reviewPage - 1)
-								: filters.reviewPage,
-						)
-					}
+					onSaved={() => decided(true)}
 				/>
 			)}
 		</div>

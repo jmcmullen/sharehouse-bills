@@ -1,18 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { type Client, createClient } from "@libsql/client";
+import type { Client } from "@libsql/client";
 import { getAccountPayments } from "../account-payments";
 import { allocateReceipt, recordReceipt } from "../allocation-actions";
-import { deleteBankTransaction, ingestBankTransaction } from "../bank-ingest";
+import { deleteBankTransaction } from "../bank-ingest";
 import { restoreLegacyAllocations } from "../bill-allocations";
 import { drainLedgerEvents } from "../events";
 import {
-	type BankTransaction,
-	type LedgerSource,
-	bankTransactionSchema,
 	calculateStatement,
 	currentStatement,
 	identifyHousemate,
@@ -28,113 +23,34 @@ import {
 	withWriteTransaction,
 } from "../sources";
 import { importUpHistory } from "../up-import";
-import { legacyTables } from "./legacy-tables";
+import { charge, fixture, ingest, manual, receipt, time } from "./fixture";
 
-const migration = await readFile(
-	new URL("../../../db/migrations/0009_housemate_ledger.sql", import.meta.url),
-	"utf8",
-);
-const time = 1780000000;
-const receipt = (
+async function credit(
+	client: Client,
 	id = "bank-1",
-	amount = 19900,
-	message = "Bills",
-): BankTransaction =>
-	bankTransactionSchema.parse({
-		id,
-		attributes: {
-			status: "SETTLED",
-			description: "Mr Oliver William Caprile",
-			rawText: "OLIVER WILLIAM CAPRI",
-			message,
-			amount: { currencyCode: "AUD", valueInBaseUnits: amount },
-			createdAt: new Date(time * 1000).toISOString(),
-			settledAt: new Date(time * 1000).toISOString(),
-		},
-		relationships: {
-			account: { data: { id: "spending" } },
-			transferAccount: { data: null },
-		},
+	reason = "",
+): Promise<void> {
+	await reviewBankTransaction(client, {
+		transactionId: id,
+		action: "credit",
+		housemateId: "oliver",
+		reason,
 	});
-const charge: LedgerSource = {
-	housemateId: "oliver",
-	kind: "charge",
-	amountCents: 10000,
-	description: "Gas",
-	billId: "bill",
-	effectiveAt: time - 100,
-	dueAt: time - 10,
-};
-
-async function fixture(run: (client: Client) => Promise<void>): Promise<void> {
-	const directory = await mkdtemp(join(tmpdir(), "ledger-test-"));
-	const client = createClient({ url: `file:${join(directory, "ledger.db")}` });
-	try {
-		await client.executeMultiple(`${legacyTables}
-		INSERT INTO housemates VALUES('oliver','Oliver Caprile','OLIVER WILLIAM CAPRIL',0),('sarah','Sarah O Dwyer',NULL,0),('jay','Jay McMullen',NULL,1);
-		INSERT INTO bills(id,biller_name,due_date,created_at) VALUES('bill','Gas',${time - 10},${time - 1000});`);
-		await client.executeMultiple(migration);
-		await client.executeMultiple(
-			await readFile(
-				new URL(
-					"../../../db/migrations/0011_payment_review_simplification.sql",
-					import.meta.url,
-				),
-				"utf8",
-			),
-		);
-		await client.executeMultiple(
-			await readFile(
-				new URL(
-					"../../../db/migrations/0013_payment_bill_allocations.sql",
-					import.meta.url,
-				),
-				"utf8",
-			),
-		);
-		await client.executeMultiple(
-			await readFile(
-				new URL(
-					"../../../db/migrations/0014_allocation_review_decisions.sql",
-					import.meta.url,
-				),
-				"utf8",
-			),
-		);
-		for (const name of ["0015_review_group", "0017_freeze_history"])
-			await client.executeMultiple(
-				await readFile(
-					new URL(`../../../db/migrations/${name}.sql`, import.meta.url),
-					"utf8",
-				),
-			);
-		await drainLedgerEvents(client);
-		await run(client);
-	} finally {
-		client.close();
-		await rm(directory, { recursive: true, force: true });
-	}
 }
 
-async function ingest(client: Client, bank = receipt()): Promise<void> {
-	await withWriteTransaction(client, (tx) => ingestBankTransaction(tx, bank));
-}
-
-async function manual(client: Client, amount = 199): Promise<void> {
-	await client.execute({
-		sql: "INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,created_at) VALUES ('manual','manual-1','oliver',?,'matched','manual_admin','Manual payment',?)",
-		args: [amount, time],
-	});
-	await drainLedgerEvents(client);
-}
-
-test("a non-matching payment immediately reduces the balance and excess remains credit; retries do not duplicate", async () =>
+test("an identified receipt waits for review; confirming it reduces the balance once and excess remains credit", async () =>
 	fixture(async (client) => {
 		await withWriteTransaction(client, (tx) =>
 			applySource(tx, "charge:1", charge),
 		);
 		await ingest(client);
 		await ingest(client);
+		assert.equal(
+			(await getAccountStatement(client, "oliver")).balanceCents,
+			10000,
+		);
+		await credit(client);
+		await credit(client);
 		const statement = await getAccountStatement(client, "oliver");
 		assert.equal(statement.balanceCents, -9900);
 		assert.equal(statement.creditCents, 9900);
@@ -142,64 +58,6 @@ test("a non-matching payment immediately reduces the balance and excess remains 
 		assert.deepEqual(
 			statement.entries.map((entry) => entry.runningBalanceCents),
 			[10000, -9900],
-		);
-	}));
-
-test("approved household words auto-credit; unclear legacy matches still need approval", async () =>
-	fixture(async (client) => {
-		for (const [index, message] of [
-			"Gas",
-			"Cleaners",
-			"Pool",
-			"Bill",
-			"Rental",
-			"",
-			"bills",
-			"RENT",
-			"Rent clean",
-		].entries())
-			await ingest(client, receipt(`reference-${index}`, 3000, message));
-		assert.equal(
-			(await getAccountStatement(client, "oliver")).balanceCents,
-			-21000,
-		);
-		const legacy = receipt("old-match", 19900, "IOU");
-		await client.execute({
-			sql: "INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,raw_data,settled_at,created_at) VALUES ('p','old-match','oliver',199,'matched','up_bank','Gas',?,?,?)",
-			args: [JSON.stringify(legacy), time, time],
-		});
-		await drainLedgerEvents(client);
-		assert.equal(
-			(await getAccountStatement(client, "oliver")).balanceCents,
-			-21000,
-		);
-		const revision = Number(
-			(
-				await client.execute(
-					"SELECT updated_at FROM ledger_bank_transactions WHERE id='old-match'",
-				)
-			).rows[0].updated_at,
-		);
-		await reviewBankTransaction(client, {
-			transactionId: "old-match",
-			action: "credit",
-			housemateId: "oliver",
-			reason: "Jay confirmed this was gas",
-			expectedRevision: revision,
-		});
-		await assert.rejects(
-			reviewBankTransaction(client, {
-				transactionId: "old-match",
-				action: "exclude",
-				reason: "Stale browser decision",
-				expectedRevision: revision,
-			}),
-			/changed since/,
-		);
-		await ingest(client, legacy);
-		assert.equal(
-			(await getAccountStatement(client, "oliver")).balanceCents,
-			-40900,
 		);
 	}));
 
@@ -234,18 +92,15 @@ test("unmatched personal receipts are ignored regardless of reference, including
 		);
 		await ingest(client, receipt("housemate-blank", 5000, ""));
 		await ingest(client, receipt("housemate-bills", 3000, "Bills"));
-		assert.equal(
+		assert.deepEqual(
 			(
 				await client.execute(
-					"SELECT id FROM ledger_bank_transactions WHERE decision='review'",
+					"SELECT id FROM ledger_bank_transactions WHERE decision='review' ORDER BY id",
 				)
-			).rows[0].id,
-			"housemate-blank",
+			).rows.map((row) => row.id),
+			["housemate-bills", "housemate-blank"],
 		);
-		assert.equal(
-			(await getAccountStatement(client, "oliver")).balanceCents,
-			-3000,
-		);
+		assert.equal((await getAccountStatement(client, "oliver")).balanceCents, 0);
 	}));
 
 test("housemate-only migration removes old personal reviews while retaining shared receipts and explicit decisions", async () =>
@@ -325,18 +180,17 @@ test("blank references remain reviewable while pre-history receipts are archived
 		);
 	}));
 
-test("a manual entry arriving after a bank receipt offers a match without withdrawing an existing credit; linking counts the money once", async () =>
+test("a manual entry arriving after a bank receipt offers a match; linking counts the money once", async () =>
 	fixture(async (client) => {
 		await ingest(client);
 		await manual(client);
 		assert.equal(
 			(await getAccountStatement(client, "oliver")).balanceCents,
-			-39800,
+			-19900,
 		);
 		assert.equal(
-			(await client.execute("SELECT decision FROM ledger_bank_transactions"))
-				.rows[0].decision,
-			"credit",
+			(await loadPaymentReview(client, {})).reviews[0].matchCandidate,
+			true,
 		);
 		await reviewBankTransaction(client, {
 			transactionId: "bank-1",
@@ -361,31 +215,33 @@ test("a manual entry arriving after a bank receipt offers a match without withdr
 		);
 	}));
 
-test("existing matched legacy payments and bank imports share the same source", async () =>
+test("legacy matched payments identify the housemate but still wait for review", async () =>
 	fixture(async (client) => {
-		const bank = receipt();
+		const bank = receipt("bank-1", 19900, "IOU");
 		await client.execute({
-			sql: "INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,raw_data,settled_at,created_at) VALUES ('p','bank-1','oliver',199,'matched','up_bank','Gas',?,?,?)",
+			sql: "INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,raw_data,settled_at,created_at) VALUES ('p','bank-1','sarah',199,'matched','up_bank','Gas',?,?,?)",
 			args: [JSON.stringify(bank), time, time],
 		});
 		await drainLedgerEvents(client);
 		await ingest(client, bank);
-		assert.equal(
-			(await getAccountStatement(client, "oliver")).balanceCents,
-			-19900,
-		);
-		assert.equal(
-			(await getAccountStatement(client, "oliver")).entries.length,
-			1,
-		);
+		const row = async () => {
+			const found = (
+				await client.execute(
+					"SELECT housemate_id,decision FROM ledger_bank_transactions WHERE id='bank-1'",
+				)
+			).rows[0];
+			return [found.housemate_id, found.decision];
+		};
+		assert.deepEqual(await row(), ["sarah", "review"]);
+		assert.equal((await getAccountStatement(client, "sarah")).balanceCents, 0);
 		await client.execute(
-			"UPDATE payment_transactions SET housemate_id='sarah' WHERE id='p'",
+			"UPDATE payment_transactions SET housemate_id='oliver' WHERE id='p'",
 		);
 		await drainLedgerEvents(client);
-		assert.equal((await getAccountStatement(client, "oliver")).balanceCents, 0);
+		assert.deepEqual(await row(), ["oliver", "review"]);
 		assert.equal(
-			(await getAccountStatement(client, "sarah")).balanceCents,
-			-19900,
+			(await client.execute("SELECT count(*) n FROM ledger_entries")).rows[0].n,
+			0,
 		);
 	}));
 
@@ -414,6 +270,7 @@ test("legacy charge edits and deletion create immutable corrections, retaining m
 		);
 		await drainLedgerEvents(client);
 		await ingest(client);
+		await credit(client);
 		await client.execute("UPDATE debts SET amount_owed=120 WHERE id='d'");
 		await drainLedgerEvents(client);
 		assert.equal(
@@ -496,6 +353,7 @@ test("pending and foreign-currency receipts never credit AUD balances", async ()
 		await ingest(client, foreign);
 		assert.equal((await getAccountStatement(client, "oliver")).balanceCents, 0);
 		await ingest(client);
+		await credit(client);
 		assert.equal(
 			(await getAccountStatement(client, "oliver")).balanceCents,
 			-19900,
@@ -602,52 +460,20 @@ test("Up import follows every page and safely reruns without posting duplicates"
 			await importUpHistory(client, "test-token");
 			assert.equal(requests, 4);
 			assert.equal(
-				(await getAccountStatement(client, "oliver")).balanceCents,
-				-39800,
+				(
+					await client.execute(
+						"SELECT count(*) n FROM ledger_bank_transactions WHERE decision='review' AND housemate_id='oliver'",
+					)
+				).rows[0].n,
+				2,
 			);
 			assert.equal(
-				(await getAccountStatement(client, "oliver")).entries.length,
-				2,
+				(await getAccountStatement(client, "oliver")).balanceCents,
+				0,
 			);
 		} finally {
 			globalThis.fetch = original;
 		}
-	}));
-
-test("household references preserve word boundaries and include singulars and utility names", async () =>
-	fixture(async (client) => {
-		const accepted = [
-			"Cleaner",
-			"Cleaners",
-			"CLEANING",
-			"bill",
-			"BILLS",
-			"Rent",
-			"Gas",
-			"Electricity",
-			"Water",
-			"Internet",
-			"Internets",
-			"Pool",
-			"Rent + pool and water",
-		];
-		for (const [index, reference] of accepted.entries())
-			await ingest(client, receipt(`approved-${index}`, 100, reference));
-		for (const reference of [
-			"",
-			"IOU",
-			"Dinner",
-			"Bali",
-			"Rental",
-			"Billboard",
-			"Gasoline",
-			"Watermelon",
-		])
-			await ingest(client, receipt(`unclear-${reference}`, 100, reference));
-		assert.equal(
-			(await getAccountStatement(client, "oliver")).balanceCents,
-			-accepted.length * 100,
-		);
 	}));
 
 test("own-account movements, interest and merchant refunds never become housemate credits", async () =>
@@ -711,9 +537,14 @@ test("Matt aliases identify receipts but Matt plus Sarah requires a beneficiary 
 		matt.attributes.description = "Matt Blair";
 		matt.attributes.rawText = null;
 		await ingest(client, matt);
-		assert.equal(
-			(await getAccountStatement(client, "matt")).balanceCents,
-			-42000,
+		const posted = (
+			await client.execute(
+				"SELECT housemate_id,decision FROM ledger_bank_transactions WHERE id='matt-receipt'",
+			)
+		).rows[0];
+		assert.deepEqual(
+			[posted.housemate_id, posted.decision],
+			["matt", "review"],
 		);
 	}));
 
@@ -914,7 +745,7 @@ test("a legacy match cannot bypass the manual-payment duplicate check", async ()
 					{ housemateId: "sarah", amountCents: 9900 },
 				],
 			}),
-			/existing payment/,
+			/Match the recorded/,
 		);
 	}));
 
@@ -1018,6 +849,7 @@ test("allocations conserve money, reject stale edits and other housemates, and l
 		);
 		await drainLedgerEvents(client);
 		await ingest(client, receipt("extra", 9000));
+		await credit(client, "extra");
 		const before = await getAccountPayments(client, "oliver");
 		const input = {
 			housemateId: "oliver",
@@ -1088,6 +920,7 @@ test("manual paid marks migrate idempotently and rent cannot silently pay utilit
 			2,
 		);
 		await ingest(client, receipt("rent", 12000, "Rent"));
+		await credit(client, "rent");
 		const account = await getAccountPayments(client, "oliver");
 		await assert.rejects(
 			allocateReceipt(client, {
@@ -1131,46 +964,35 @@ test("confirming an already credited transfer as manual evidence removes only th
 		);
 	}));
 
-test("review includes possible duplicates already credited, preserves their balance, and honours confirmed separate payments", async () =>
+test("review flags possible duplicates of recorded payments and honours confirmed separate payments", async () =>
 	fixture(async (client) => {
 		await recordedBillPayments(client);
-		await ingest(client, receipt("old-credit", 9000));
-		await withWriteTransaction(client, (tx) =>
-			applySource(tx, "bank:old-credit", {
-				...charge,
-				billId: null,
-				kind: "payment",
-				amountCents: -9000,
-			}),
-		);
-		await client.execute(
-			"UPDATE ledger_bank_transactions SET decision='credit',decision_origin='legacy' WHERE id='old-credit'",
-		);
+		await ingest(client, receipt("dup", 9000));
 		const personal = receipt("personal-review", 9000);
 		personal.attributes.description = "Personal contact";
 		personal.attributes.rawText = "Personal contact";
 		await ingest(client, personal);
 		const before = await getAccountStatement(client, "oliver");
 		const queue = await loadPaymentReview(client, {
-			group: "duplicate",
+			group: "unclear",
 			recentOnly: true,
 		});
 		assert.equal(queue.reviewCount, 1);
 		assert.equal(queue.totalReviewCount, 1);
-		assert.equal(queue.reviews[0].id, "old-credit");
+		assert.equal(queue.reviews[0].id, "dup");
 		assert.equal(queue.reviews[0].matchCandidate, true);
-		assert.equal(queue.reviews[0].decision, "credit");
+		assert.equal(queue.reviews[0].suggestion, null);
+		await assert.rejects(credit(client, "dup"), /Match the recorded/);
 		assert.deepEqual(await getAccountStatement(client, "oliver"), before);
-		await reviewBankTransaction(client, {
-			transactionId: "old-credit",
-			action: "credit",
-			housemateId: "oliver",
-			reason: "Confirmed this is additional money",
-		});
+		await credit(client, "dup", "Confirmed this is additional money");
 		assert.equal((await loadPaymentReview(client, {})).totalReviewCount, 0);
 		assert.equal(
 			(await loadPaymentReview(client, { status: "credit" })).reviewCount,
 			1,
+		);
+		assert.equal(
+			(await getAccountStatement(client, "oliver")).balanceCents,
+			-9000,
 		);
 	}));
 
@@ -1198,6 +1020,8 @@ test("legacy allocation restores a multi-bill payment after single-bill partial 
 			});
 		}
 		await drainLedgerEvents(client);
+		await credit(client, "multi-legacy");
+		await credit(client, "single-legacy");
 		await withWriteTransaction(client, (tx) => restoreLegacyAllocations(tx));
 		const account = await getAccountPayments(client, "oliver");
 		assert.equal(account.unpaidCents, 0);
@@ -1228,6 +1052,7 @@ test("legacy allocation restores a multi-bill payment after single-bill partial 
 test("recording money rejects likely repeats, requires explicit confirmation for additional money and is retry-safe", async () =>
 	fixture(async (client) => {
 		await ingest(client, receipt("bank-existing", 12000));
+		await credit(client, "bank-existing");
 		const account = await getAccountPayments(client, "oliver");
 		const input = {
 			housemateId: "oliver",
@@ -1248,7 +1073,7 @@ test("recording money rejects likely repeats, requires explicit confirmation for
 			(await getAccountPayments(client, "oliver")).receipts.length,
 			2,
 		);
-		assert.equal((await loadPaymentReview(client, {})).reviewCount, 1);
+		assert.equal((await loadPaymentReview(client, {})).reviewCount, 0);
 	}));
 
 test("an explicit removal of a legacy bill allocation survives later backfills", async () =>
@@ -1350,6 +1175,7 @@ test("allocations write the legacy paid state through and releasing them reverts
 		);
 		await drainLedgerEvents(client);
 		await ingest(client, receipt("pay", 6000));
+		await credit(client, "pay");
 		const oliver = await getAccountPayments(client, "oliver");
 		await allocateReceipt(client, {
 			housemateId: "oliver",
@@ -1448,6 +1274,7 @@ test("confirming allocations enqueues one housemate receipt and a numbered corre
 		);
 		await drainLedgerEvents(client);
 		await ingest(client, receipt("paid", 9000));
+		await credit(client, "paid");
 		const receiptRows = () =>
 			client.execute(
 				"SELECT event_key,event_type,housemate_id,payload FROM whatsapp_notifications WHERE event_type IN ('payment_receipt','payment_correction') ORDER BY event_key",
