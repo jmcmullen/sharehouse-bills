@@ -126,7 +126,7 @@ export const utilityPattern = new RegExp(
 	`\\b(${utilityWords.join("|")})\\b`,
 	"i",
 );
-export const householdPattern = new RegExp(
+const householdPattern = new RegExp(
 	`\\b(rent|${utilityWords.join("|")})\\b`,
 	"i",
 );

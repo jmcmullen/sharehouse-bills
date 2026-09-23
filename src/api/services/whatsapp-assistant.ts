@@ -9,7 +9,6 @@ import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { paymentTransactions } from "../db/schema/payment-transactions";
 import { recurringBills } from "../db/schema/recurring-bills";
-import { unreconciledTransactions } from "../db/schema/unreconciled-transactions";
 import { BillPdfStorageService } from "./bill-pdf-storage";
 import { createAbsoluteDebtReceiptUrl } from "./debt-receipt-page.server";
 import {
@@ -17,6 +16,11 @@ import {
 	createPayToken,
 	getPublicHousematePayPageData,
 } from "./housemate-pay-page.server";
+import { createLedgerClient } from "./ledger/client.server";
+import {
+	getUnallocatedCredit,
+	getUnallocatedCredits,
+} from "./ledger/credit.server";
 import { getVertexModel } from "./vertex-ai";
 
 const WHATSAPP_ASSISTANT_MODEL = "gemini-2.5-flash";
@@ -438,18 +442,6 @@ async function getAssistantPayPageData(input: {
 	};
 }
 
-async function getHousemateCreditBalance(housemateId: string) {
-	const [housemate] = await db
-		.select({
-			creditBalance: housemates.creditBalance,
-		})
-		.from(housemates)
-		.where(eq(housemates.id, housemateId))
-		.limit(1);
-
-	return housemate?.creditBalance ?? 0;
-}
-
 async function getRecentHousematePayments(input: {
 	housemateId: string;
 	limit?: number;
@@ -695,17 +687,24 @@ async function getHousewideRecentPayments(input?: { days?: number }) {
 }
 
 async function getUnreconciledTransactionRows() {
-	return db
-		.select({
-			transactionId: unreconciledTransactions.transactionId,
-			description: unreconciledTransactions.description,
-			amount: unreconciledTransactions.amount,
-			reason: unreconciledTransactions.reason,
-			createdAt: unreconciledTransactions.createdAt,
-		})
-		.from(unreconciledTransactions)
-		.orderBy(desc(unreconciledTransactions.createdAt))
-		.limit(20);
+	const client = createLedgerClient();
+	try {
+		const rows = await client.execute(
+			"SELECT id,description,message,amount_cents,reason,effective_at FROM ledger_bank_transactions WHERE decision='review' ORDER BY effective_at DESC LIMIT 20",
+		);
+		return rows.rows.map((row) => ({
+			transactionId: String(row.id),
+			description: [row.description, row.message]
+				.filter(Boolean)
+				.map(String)
+				.join(" · "),
+			amount: Number(row.amount_cents) / 100,
+			reason: String(row.reason),
+			createdAt: new Date(Number(row.effective_at) * 1000),
+		}));
+	} finally {
+		client.close();
+	}
 }
 
 async function getHousewideOutstandingSummary() {
@@ -714,7 +713,6 @@ async function getHousewideOutstandingSummary() {
 			id: housemates.id,
 			name: housemates.name,
 			isOwner: housemates.isOwner,
-			creditBalance: housemates.creditBalance,
 			amountOwed: debts.amountOwed,
 			amountPaid: debts.amountPaid,
 			isPaid: debts.isPaid,
@@ -722,6 +720,7 @@ async function getHousewideOutstandingSummary() {
 		.from(housemates)
 		.leftJoin(debts, eq(debts.housemateId, housemates.id))
 		.where(and(eq(housemates.isActive, true), eq(housemates.isOwner, false)));
+	const credits = await getUnallocatedCredits(rows.map((row) => row.id));
 
 	const perHousemate = new Map<
 		string,
@@ -733,7 +732,7 @@ async function getHousewideOutstandingSummary() {
 			id: row.id,
 			name: row.name,
 			amount: 0,
-			creditBalance: row.creditBalance,
+			creditBalance: credits.get(row.id) ?? 0,
 		};
 
 		if (row.amountOwed !== null && !row.isPaid) {
@@ -765,7 +764,6 @@ async function getHousewideBillTypeSummary(billType: AssistantBillType) {
 		.select({
 			housemateId: housemates.id,
 			housemateName: housemates.name,
-			creditBalance: housemates.creditBalance,
 			billId: bills.id,
 			billerName: bills.billerName,
 			billType: bills.billType,
@@ -790,12 +788,15 @@ async function getHousewideBillTypeSummary(billType: AssistantBillType) {
 			),
 		)
 		.orderBy(desc(bills.dueDate), desc(bills.createdAt));
+	const credits = await getUnallocatedCredits(
+		rows.map((row) => row.housemateId),
+	);
 
 	const items = rows
 		.map((row) => ({
 			housemateId: row.housemateId,
 			housemateName: row.housemateName,
-			creditBalance: row.creditBalance,
+			creditBalance: credits.get(row.housemateId) ?? 0,
 			billId: row.billId,
 			label: getBillLabel(row),
 			period: formatBillPeriod({
@@ -1133,7 +1134,7 @@ function createAssistantTools(context: AssistantToolContext) {
 		housemateId: context.housemate.id,
 		previewDate: context.previewDate,
 	});
-	const creditBalancePromise = getHousemateCreditBalance(context.housemate.id);
+	const creditBalancePromise = getUnallocatedCredit(context.housemate.id);
 	const recentPaymentsPromise = getRecentHousematePayments({
 		housemateId: context.housemate.id,
 	});
@@ -1797,7 +1798,7 @@ function createAssistantTools(context: AssistantToolContext) {
 			}),
 			get_unreconciled_transactions_summary: tool({
 				description:
-					"Get a summary of recent unreconciled bank transactions that could not be matched to bills.",
+					"Get a summary of recent bank transactions waiting for payment review.",
 				parameters: EMPTY_TOOL_PARAMETERS,
 				execute: async () => {
 					const rows = await unreconciledTransactionsPromise;
@@ -1818,7 +1819,7 @@ function createAssistantTools(context: AssistantToolContext) {
 			}),
 			get_unreconciled_transaction_details: tool({
 				description:
-					"Find a recent unreconciled transaction by description or transaction id and return details about why it was not matched.",
+					"Find a bank transaction waiting for review by description or transaction id and return why it needs a decision.",
 				parameters: BILL_QUERY_TOOL_PARAMETERS,
 				execute: async ({ query }: { query: string }) => {
 					const rows = await unreconciledTransactionsPromise;

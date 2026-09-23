@@ -10,12 +10,8 @@ import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBillAssignments } from "../db/schema/recurring-bill-assignments";
 import { recurringBills } from "../db/schema/recurring-bills";
-import { getRemainingDebtAmount } from "./debt-payment-state";
-import {
-	enqueueBillCreatedNotification,
-	enqueueBillPaidNotification,
-	enqueueDebtPaidNotification,
-} from "./whatsapp-notification-events";
+import { settleLedger } from "./ledger-sync.server";
+import { enqueueBillCreatedNotification } from "./whatsapp-notification-events";
 
 type RecurringBillRecord = typeof recurringBills.$inferSelect;
 type RecurringBillGenerationClient = Pick<
@@ -33,8 +29,6 @@ type GeneratedBillResult = {
 	status: "generated";
 	billId: string;
 	debtRecordCount: number;
-	paidDebtIds: string[];
-	billPaid: boolean;
 };
 type DuplicateBillResult = {
 	status: "duplicate";
@@ -534,126 +528,6 @@ function buildRecurringDebtEntries(
 	}));
 }
 
-async function applyHousemateCreditToDebtInTransaction(
-	client: RecurringBillGenerationClient,
-	housemateId: string,
-	debtId: string,
-) {
-	const [housemate] = await client
-		.select({
-			creditBalance: housemates.creditBalance,
-		})
-		.from(housemates)
-		.where(eq(housemates.id, housemateId))
-		.limit(1);
-
-	if (!housemate || housemate.creditBalance <= 0.009) {
-		return { appliedAmount: 0, fullyPaid: false };
-	}
-
-	const [debt] = await client
-		.select({
-			id: debts.id,
-			housemateId: debts.housemateId,
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-		})
-		.from(debts)
-		.where(eq(debts.id, debtId))
-		.limit(1);
-
-	if (!debt || debt.housemateId !== housemateId) {
-		return { appliedAmount: 0, fullyPaid: false };
-	}
-
-	const remainingAmount = getRemainingDebtAmount(debt);
-	if (remainingAmount <= 0.009) {
-		return { appliedAmount: 0, fullyPaid: false };
-	}
-
-	const appliedAmount = Math.min(housemate.creditBalance, remainingAmount);
-	const nextAmountPaid = roundCurrency(debt.amountPaid + appliedAmount);
-	const fullyPaid =
-		getRemainingDebtAmount({
-			amountOwed: debt.amountOwed,
-			amountPaid: nextAmountPaid,
-		}) <= 0.009;
-	const now = new Date();
-
-	await client
-		.update(debts)
-		.set({
-			amountPaid: fullyPaid ? debt.amountOwed : nextAmountPaid,
-			isPaid: fullyPaid,
-			paidAt: fullyPaid ? now : null,
-			updatedAt: now,
-		})
-		.where(eq(debts.id, debt.id));
-
-	await client
-		.update(housemates)
-		.set({
-			creditBalance: roundCurrency(housemate.creditBalance - appliedAmount),
-			updatedAt: now,
-		})
-		.where(eq(housemates.id, housemateId));
-
-	return { appliedAmount: roundCurrency(appliedAmount), fullyPaid };
-}
-
-async function updateGeneratedBillStatusInTransaction(
-	client: RecurringBillGenerationClient,
-	billId: string,
-) {
-	const [existingBill] = await client
-		.select({
-			status: bills.status,
-		})
-		.from(bills)
-		.where(eq(bills.id, billId))
-		.limit(1);
-
-	if (!existingBill) {
-		return { transitionedToPaid: false };
-	}
-
-	const billDebts = await client
-		.select({
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-		})
-		.from(debts)
-		.where(eq(debts.billId, billId));
-	const totalRemaining = billDebts.reduce(
-		(sum, debt) => sum + getRemainingDebtAmount(debt),
-		0,
-	);
-	const totalPaidAmount = billDebts.reduce(
-		(sum, debt) => sum + roundCurrency(debt.amountPaid),
-		0,
-	);
-	const status =
-		totalRemaining <= 0.009
-			? "paid"
-			: totalPaidAmount > 0.009
-				? "partially_paid"
-				: "pending";
-
-	if (status !== existingBill.status) {
-		await client
-			.update(bills)
-			.set({
-				status,
-				updatedAt: new Date(),
-			})
-			.where(eq(bills.id, billId));
-	}
-
-	return {
-		transitionedToPaid: existingBill.status !== "paid" && status === "paid",
-	};
-}
-
 async function generateBillFromTemplate(
 	recurringBill: RecurringBillRecord,
 	dueDate: Date,
@@ -710,47 +584,25 @@ async function generateBillFromTemplate(
 				} satisfies DuplicateBillResult;
 			}
 
-			const insertedDebts = await tx
-				.insert(debts)
-				.values(
-					debtEntries.map((debtEntry) => ({
-						billId: newBill.id,
-						housemateId: debtEntry.housemateId,
-						amountOwed: debtEntry.amountOwed,
-						amountPaid: 0,
-						isPaid: false,
-					})),
-				)
-				.returning({
-					id: debts.id,
-					housemateId: debts.housemateId,
-				});
-			const paidDebtIds: string[] = [];
-			for (const debtRecord of insertedDebts) {
-				const creditResult = await applyHousemateCreditToDebtInTransaction(
-					tx,
-					debtRecord.housemateId,
-					debtRecord.id,
-				);
-				if (creditResult.fullyPaid) {
-					paidDebtIds.push(debtRecord.id);
-				}
-			}
-			const billStatus = await updateGeneratedBillStatusInTransaction(
-				tx,
-				newBill.id,
+			await tx.insert(debts).values(
+				debtEntries.map((debtEntry) => ({
+					billId: newBill.id,
+					housemateId: debtEntry.housemateId,
+					amountOwed: debtEntry.amountOwed,
+					amountPaid: 0,
+					isPaid: false,
+				})),
 			);
-
 			await updateRecurringBillLastGeneratedDate(tx, recurringBill.id, dueDate);
 
 			return {
 				status: "generated",
 				billId: newBill.id,
 				debtRecordCount: debtEntries.length,
-				paidDebtIds,
-				billPaid: billStatus.transitionedToPaid,
 			} satisfies GeneratedBillResult;
 		});
+		// Unallocated money pays the new shares before the created message goes out.
+		if (result.status === "generated") await settleLedger();
 
 		log?.set({
 			recurringBillGeneration: {
@@ -766,12 +618,6 @@ async function generateBillFromTemplate(
 		});
 		if (result.status === "generated") {
 			await enqueueBillCreatedNotification(result.billId, "recurring");
-			for (const debtId of result.paidDebtIds) {
-				await enqueueDebtPaidNotification(debtId, "credit");
-			}
-			if (result.billPaid) {
-				await enqueueBillPaidNotification(result.billId, "status_transition");
-			}
 		}
 
 		return result;

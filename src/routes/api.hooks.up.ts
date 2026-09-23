@@ -4,8 +4,7 @@ import { EvlogError, type RequestLogger, createError } from "evlog";
 import {
 	recordLedgerBankEvent,
 	removeLedgerBankTransaction,
-} from "../api/services/ledger/client.server";
-import { processTransaction } from "../api/services/payment-reconciliation";
+} from "../api/services/ledger-sync.server";
 import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";
 import { getRequestLogger } from "../lib/request-logger";
 
@@ -381,11 +380,13 @@ async function handleUpBankWebhook(request: Request) {
 		const eventType = payload.data.attributes.eventType;
 		const transactionId = logUpBankWebhookPayload(log, payload);
 
-		const ledgerEnabled = process.env.LEDGER_ENABLED === "true";
-		const ledgerEvent =
-			ledgerEnabled &&
-			["TRANSACTION_SETTLED", "TRANSACTION_DELETED"].includes(eventType);
-		if (eventType !== "TRANSACTION_CREATED" && !ledgerEvent) {
+		if (
+			![
+				"TRANSACTION_CREATED",
+				"TRANSACTION_SETTLED",
+				"TRANSACTION_DELETED",
+			].includes(eventType)
+		) {
 			log?.info("Ignoring unsupported Up Bank webhook event", {
 				webhook: {
 					provider: "up-bank",
@@ -411,7 +412,7 @@ async function handleUpBankWebhook(request: Request) {
 			});
 		}
 
-		if (eventType === "TRANSACTION_DELETED" && ledgerEnabled) {
+		if (eventType === "TRANSACTION_DELETED") {
 			await removeLedgerBankTransaction(transactionId);
 			return Response.json({
 				success: true,
@@ -421,34 +422,8 @@ async function handleUpBankWebhook(request: Request) {
 
 		const transaction = await fetchUpBankTransaction(transactionId, log);
 		logUpBankTransaction(log, transaction);
-		if (ledgerEnabled) {
-			await recordLedgerBankEvent(transaction);
-			if (eventType === "TRANSACTION_SETTLED")
-				return Response.json({ success: true, ledger: "settled" });
-		}
-
-		const amountInCents = transaction.attributes.amount.valueInBaseUnits;
-		if (amountInCents <= 0) {
-			log?.info("Ignoring outgoing Up Bank transaction", {
-				transaction: {
-					id: transaction.id,
-					amountInCents,
-				},
-			});
-			return ignoredWebhookResponse(log, "outgoing_transaction", {
-				transaction: {
-					id: transaction.id,
-					ignored: true,
-					ignoreReason: "outgoing_transaction",
-				},
-			});
-		}
-
-		const result = await processTransaction(transaction);
-		log?.set({
-			reconciliation: result,
-		});
-		log?.info("Processed Up Bank transaction", {
+		await recordLedgerBankEvent(transaction);
+		log?.info("Recorded Up Bank transaction in the ledger", {
 			transaction: {
 				id: transaction.id,
 			},
@@ -459,7 +434,7 @@ async function handleUpBankWebhook(request: Request) {
 
 		return Response.json({
 			success: true,
-			reconciliation: result,
+			ledger: eventType === "TRANSACTION_SETTLED" ? "settled" : "recorded",
 			timestamp: new Date().toISOString(),
 		});
 	} catch (error) {

@@ -8,17 +8,12 @@ import { bills } from "../api/db/schema/bills";
 import { debts } from "../api/db/schema/debts";
 import { housemates } from "../api/db/schema/housemates";
 import { paymentTransactions } from "../api/db/schema/payment-transactions";
-import {
-	applyHousemateCreditToDebt,
-	getRemainingDebtAmount,
-	updateBillStatusFromDebts,
-} from "../api/services/debt-payment-state";
+import { getRemainingDebtAmount } from "../api/services/debt-payment-state";
 import { createPayPath } from "../api/services/housemate-pay-page.server";
+import { settleLedger } from "../api/services/ledger-sync.server";
+import { getUnallocatedCredit } from "../api/services/ledger/credit.server";
 import { generateWeeklyRentBill } from "../api/services/recurring-bill";
-import {
-	enqueueBillCreatedNotification,
-	enqueueDebtPaidNotification,
-} from "../api/services/whatsapp-notification-events";
+import { enqueueBillCreatedNotification } from "../api/services/whatsapp-notification-events";
 import { authMiddleware } from "../lib/auth-middleware";
 import {
 	billReminderConfigInputSchema,
@@ -185,13 +180,8 @@ export const createBill = createServerFn({ method: "POST" })
 			isPaid: false,
 		}));
 
-		const insertedDebts = await db.insert(debts).values(debtRecords).returning({
-			id: debts.id,
-			housemateId: debts.housemateId,
-		});
-		for (const debtRecord of insertedDebts) {
-			await applyHousemateCreditToDebt(debtRecord.housemateId, debtRecord.id);
-		}
+		await db.insert(debts).values(debtRecords);
+		await settleLedger();
 		log?.set({
 			bill: {
 				id: newBill.id,
@@ -287,13 +277,8 @@ export const createBillFromParsedData = createServerFn({ method: "POST" })
 			isPaid: false,
 		}));
 
-		const insertedDebts = await db.insert(debts).values(debtRecords).returning({
-			id: debts.id,
-			housemateId: debts.housemateId,
-		});
-		for (const debtRecord of insertedDebts) {
-			await applyHousemateCreditToDebt(debtRecord.housemateId, debtRecord.id);
-		}
+		await db.insert(debts).values(debtRecords);
+		await settleLedger();
 		log?.set({
 			bill: {
 				id: newBill.id,
@@ -414,39 +399,24 @@ export const markDebtPaid = createServerFn({ method: "POST" })
 			});
 		}
 
-		const normalizedAmountPaid = Math.min(
-			existingDebt.debts.amountOwed,
-			Math.max(0, data.amountPaid),
-		);
-		const isPaid =
-			getRemainingDebtAmount({
-				amountOwed: existingDebt.debts.amountOwed,
-				amountPaid: normalizedAmountPaid,
-			}) <= 0.009;
+		// The admin records money; the ledger allocates it and writes paid state back.
+		await recordManualPaymentTransaction({
+			debtId: existingDebt.debts.id,
+			housemateId: existingDebt.debts.housemateId,
+			billerName: existingDebt.bills.billerName,
+			amount: roundCurrency(
+				Math.min(existingDebt.debts.amountOwed, Math.max(0, data.amountPaid)) -
+					existingDebt.debts.amountPaid,
+			),
+			createdAt: now,
+		});
+		await settleLedger();
 		const [updatedDebt] = await db
-			.update(debts)
-			.set({
-				amountPaid: isPaid
-					? existingDebt.debts.amountOwed
-					: normalizedAmountPaid,
-				isPaid,
-				paidAt: isPaid ? now : null,
-				updatedAt: now,
-			})
+			.select()
+			.from(debts)
 			.where(eq(debts.id, data.debtId))
-			.returning();
-
+			.limit(1);
 		if (updatedDebt) {
-			await recordManualPaymentTransaction({
-				debtId: updatedDebt.id,
-				housemateId: updatedDebt.housemateId,
-				billerName: existingDebt.bills.billerName,
-				amount: roundCurrency(
-					updatedDebt.amountPaid - existingDebt.debts.amountPaid,
-				),
-				createdAt: now,
-			});
-			await updateBillStatusFromDebts(updatedDebt.billId);
 			log?.set({
 				debt: {
 					id: updatedDebt.id,
@@ -456,9 +426,6 @@ export const markDebtPaid = createServerFn({ method: "POST" })
 					paidAt: updatedDebt.paidAt?.toISOString() ?? null,
 				},
 			});
-			if (updatedDebt.isPaid) {
-				await enqueueDebtPaidNotification(updatedDebt.id, "manual");
-			}
 		}
 
 		return updatedDebt;
@@ -497,16 +464,12 @@ export const getTotalOwedByHousemate = createServerFn({ method: "GET" })
 				and(eq(debts.housemateId, data.housemateId), eq(debts.isPaid, false)),
 			);
 
-		const [housemate] = await db
-			.select({ creditBalance: housemates.creditBalance })
-			.from(housemates)
-			.where(eq(housemates.id, data.housemateId))
-			.limit(1);
+		const credit = await getUnallocatedCredit(data.housemateId);
 		const totalOwed = Math.max(
 			0,
 			debtsInfo.reduce((sum, { debt }) => {
 				return sum + getRemainingDebtAmount(debt);
-			}, 0) - (housemate?.creditBalance ?? 0),
+			}, 0) - credit,
 		);
 
 		return { totalOwed, unpaidCount: debtsInfo.length };

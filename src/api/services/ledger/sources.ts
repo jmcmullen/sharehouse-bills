@@ -1,4 +1,5 @@
 import type { Client, Transaction } from "@libsql/client";
+import { autoAllocate } from "./auto-allocation";
 import {
 	releaseBillAllocations,
 	restoreLegacyAllocations,
@@ -30,25 +31,39 @@ export async function applySource(
 	).rows[0];
 	const snapshot = JSON.stringify(source);
 	if (previous?.snapshot === snapshot) return;
+	const old = previous
+		? sourceSchema.nullable().parse(JSON.parse(String(previous.snapshot)))
+		: null;
 	await syncSourceAllocations(tx, key, source);
-	if (
-		key.startsWith("charge:") &&
-		(!source ||
-			(previous &&
-				sourceSchema.nullable().parse(JSON.parse(String(previous.snapshot)))
-					?.housemateId !== source.housemateId))
-	) {
+	if (key.startsWith("charge:") && chargeMoved(old, source))
 		await releaseBillAllocations(tx, key.slice(7), "debt");
-	}
-	if (previous?.entry_id) {
-		const old = sourceSchema.parse(JSON.parse(String(previous.snapshot)));
+	await journalSource(tx, key, old, source, previous?.entry_id, snapshot);
+	await reallocate(tx, key, old, source);
+}
+
+function chargeMoved(
+	old: LedgerSource | null,
+	source: LedgerSource | null,
+): boolean {
+	return !source || (old !== null && old.housemateId !== source.housemateId);
+}
+
+// Reverses the previous entry, posts the new one and stores the snapshot.
+async function journalSource(
+	tx: Executor,
+	key: string,
+	old: LedgerSource | null,
+	source: LedgerSource | null,
+	previousEntryId: unknown,
+	snapshot: string,
+): Promise<void> {
+	if (previousEntryId && old)
 		await insertEntry(
 			tx,
 			key,
 			{ ...old, amountCents: -old.amountCents },
-			String(previous.entry_id),
+			String(previousEntryId),
 		);
-	}
 	const entryId =
 		source && source.amountCents !== 0
 			? await insertEntry(tx, key, source, null)
@@ -57,8 +72,24 @@ export async function applySource(
 		sql: "INSERT INTO ledger_sources(source_key,entry_id,snapshot) VALUES (?,?,?) ON CONFLICT(source_key) DO UPDATE SET entry_id=excluded.entry_id,snapshot=excluded.snapshot",
 		args: [key, entryId, snapshot],
 	});
+}
+
+// Legacy bill assignments win for a receipt; the rest is applied oldest-first
+// for every housemate the change touched.
+async function reallocate(
+	tx: Executor,
+	key: string,
+	old: LedgerSource | null,
+	source: LedgerSource | null,
+): Promise<void> {
 	if (source?.kind === "payment" || source?.kind === "adjustment")
 		await restoreLegacyAllocations(tx, key);
+	const touched = new Set(
+		[old?.housemateId, source?.housemateId].filter(
+			(id): id is string => id !== undefined,
+		),
+	);
+	for (const housemateId of touched) await autoAllocate(tx, housemateId);
 }
 
 async function insertEntry(

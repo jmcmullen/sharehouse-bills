@@ -1,6 +1,7 @@
 import type { Client, Row } from "@libsql/client";
 import { z } from "zod";
 import { type LedgerSource, sourceSchema, toCents } from "./model";
+import { syncPaidState } from "./paid-state";
 
 type Executor = Pick<Client, "execute">;
 
@@ -173,13 +174,14 @@ export async function writeBillAllocation(
 ): Promise<void> {
 	await clearAllocationIssue(tx, key);
 	await tx.execute({
-		sql: "INSERT INTO ledger_bill_allocations(source_key,debt_id,amount_cents,origin) VALUES (?,?,?,?)",
+		sql: "INSERT INTO ledger_bill_allocations(source_key,debt_id,amount_cents,origin) VALUES (?,?,?,?) ON CONFLICT(source_key,debt_id) DO UPDATE SET amount_cents=amount_cents+excluded.amount_cents,origin=excluded.origin",
 		args: [key, debtId, amount, origin],
 	});
 	await tx.execute({
 		sql: "INSERT INTO ledger_allocation_history(source_key,debt_id,amount_cents,origin) VALUES (?,?,?,?)",
 		args: [key, debtId, amount, origin],
 	});
+	await syncPaidState(tx, [debtId]);
 }
 
 export async function releaseBillAllocations(
@@ -188,6 +190,13 @@ export async function releaseBillAllocations(
 	kind: "source" | "debt",
 ): Promise<void> {
 	const column = kind === "source" ? "source_key" : "debt_id";
+	const debtIds = (
+		await tx.execute({
+			sql: `SELECT debt_id FROM ledger_bill_allocations WHERE ${column}=?`,
+			args: [key],
+		})
+	).rows.map((row) => String(row.debt_id));
+	if (!debtIds.length) return;
 	await tx.execute({
 		sql: `INSERT INTO ledger_allocation_history(source_key,debt_id,amount_cents,origin) SELECT source_key,debt_id,-amount_cents,'released' FROM ledger_bill_allocations WHERE ${column}=?`,
 		args: [key],
@@ -196,4 +205,5 @@ export async function releaseBillAllocations(
 		sql: `DELETE FROM ledger_bill_allocations WHERE ${column}=?`,
 		args: [key],
 	});
+	await syncPaidState(tx, debtIds);
 }

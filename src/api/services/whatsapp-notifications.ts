@@ -1,5 +1,5 @@
 // fallow-ignore-file code-duplication
-import { and, asc, eq, lt, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, sql } from "drizzle-orm";
 import { createError } from "evlog";
 import type { BillReminderMode } from "../../lib/bill-reminder-config";
 import {
@@ -236,30 +236,6 @@ export async function createBillCreatedNotification(
 	});
 }
 
-export async function createBillPaidNotification(
-	billId: string,
-	source: string,
-) {
-	return await createNotification({
-		eventKey: `bill-paid:${billId}`,
-		eventType: "bill_paid",
-		billId,
-		payload: { source },
-	});
-}
-
-export async function createDebtPaidNotification(
-	debtId: string,
-	source: string,
-) {
-	return await createNotification({
-		eventKey: `debt-paid:${debtId}`,
-		eventType: "debt_paid",
-		debtId,
-		payload: { source },
-	});
-}
-
 export async function createBillReminderNotification(input: {
 	eventKey: string;
 	billId?: string | null;
@@ -322,6 +298,22 @@ export async function createAssistantMessageNotification(input: {
 			sessionName: input.sessionName,
 		},
 	});
+}
+
+// Paid notifications the ledger recorded inside its own transaction and that
+// no workflow has picked up yet.
+export async function getPendingPaidNotifications() {
+	return await db
+		.select()
+		.from(whatsappNotifications)
+		.where(
+			and(
+				eq(whatsappNotifications.status, "pending"),
+				inArray(whatsappNotifications.eventType, ["bill_paid", "debt_paid"]),
+				sql`json_extract(${whatsappNotifications.payload}, '$.workflowRunId') IS NULL`,
+			),
+		)
+		.orderBy(asc(whatsappNotifications.createdAt));
 }
 
 async function getWhatsappNotificationById(notificationId: string) {

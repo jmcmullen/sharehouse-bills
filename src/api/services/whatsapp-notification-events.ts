@@ -11,10 +11,9 @@ import {
 	type WhatsappNotificationRecord,
 	createAssistantMessageNotification,
 	createBillCreatedNotification,
-	createBillPaidNotification,
 	createBillReminderNotification,
-	createDebtPaidNotification,
 	createDueCommandNotification,
+	getPendingPaidNotifications,
 	markWhatsappNotificationFailed,
 	markWhatsappNotificationPending,
 	recordWhatsappNotificationWorkflowRun,
@@ -119,32 +118,18 @@ export async function enqueueBillCreatedNotification(
 	return result.notification;
 }
 
-export async function enqueueBillPaidNotification(
-	billId: string,
-	source: string,
-) {
-	const result = await createBillPaidNotification(billId, source);
-	await startNotificationWorkflow(
-		result.notification,
-		"bill-paid WhatsApp workflow",
-		async () => await start(runBillPaidNotification, [result.notification.id]),
-	);
-
-	return result.notification;
-}
-
-export async function enqueueDebtPaidNotification(
-	debtId: string,
-	source: string,
-) {
-	const result = await createDebtPaidNotification(debtId, source);
-	await startNotificationWorkflow(
-		result.notification,
-		"debt-paid WhatsApp workflow",
-		async () => await start(runDebtPaidNotification, [result.notification.id]),
-	);
-
-	return result.notification;
+export async function startPendingPaidNotifications() {
+	for (const notification of await getPendingPaidNotifications()) {
+		const bill = notification.eventType === "bill_paid";
+		await startNotificationWorkflow(
+			notification,
+			bill ? "bill-paid WhatsApp workflow" : "debt-paid WhatsApp workflow",
+			async () =>
+				await start(bill ? runBillPaidNotification : runDebtPaidNotification, [
+					notification.id,
+				]),
+		);
+	}
 }
 
 export async function enqueueBillReminderNotification(input: {

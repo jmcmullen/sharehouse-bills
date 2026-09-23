@@ -9,7 +9,7 @@ import type { BankTransaction } from "./model";
 import { possibleManualDuplicate } from "./payment-evidence";
 import { type Executor, applySource, loadHousemates } from "./sources";
 
-export interface SplitAllocation {
+interface SplitAllocation {
 	housemateId: string;
 	amountCents: number;
 }

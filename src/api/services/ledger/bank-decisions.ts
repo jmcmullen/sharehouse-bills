@@ -2,7 +2,7 @@ import type { BankTransaction, LedgerSource } from "./model";
 import { type ReviewGroup, reviewGroupFor } from "./review-policy";
 import { type Executor, applySource, nowSeconds } from "./sources";
 
-export interface BankDecision {
+interface BankDecision {
 	decision: "credit" | "exclude" | "review" | "archive" | "linked";
 	housemateId: string | null;
 	origin: "automatic" | "review";

@@ -9,6 +9,10 @@ import { debts } from "../api/db/schema/debts";
 import { housemates } from "../api/db/schema/housemates";
 import { getRemainingDebtAmount } from "../api/services/debt-payment-state";
 import { createPayPath } from "../api/services/housemate-pay-page.server";
+import {
+	getUnallocatedCredit,
+	getUnallocatedCredits,
+} from "../api/services/ledger/credit.server";
 import { normalizeWhatsappNumber } from "../api/services/whatsapp-phone";
 import { authMiddleware } from "../lib/auth-middleware";
 import { entityIdSchema } from "../lib/id";
@@ -55,49 +59,34 @@ export const getHousemateOutstandingBalances = createServerFn({ method: "GET" })
 				id: housemates.id,
 				name: housemates.name,
 				isActive: housemates.isActive,
-				creditBalance: housemates.creditBalance,
 				debt: debts,
 			})
 			.from(housemates)
 			.leftJoin(debts, eq(debts.housemateId, housemates.id))
 			.orderBy(housemates.name);
+		const credits = await getUnallocatedCredits(rows.map((row) => row.id));
 
 		const balances = Array.from(
 			rows
-				.reduce(
-					(map, row) => {
-						const existing = map.get(row.id) ?? {
-							id: row.id,
-							name: row.name,
-							isActive: row.isActive,
-							amount: 0,
-							creditBalance: row.creditBalance,
-						};
+				.reduce((map, row) => {
+					const existing = map.get(row.id) ?? {
+						id: row.id,
+						name: row.name,
+						isActive: row.isActive,
+						amount: 0,
+					};
 
-						if (row.debt) {
-							existing.amount += getRemainingDebtAmount(row.debt);
-						}
+					if (row.debt) {
+						existing.amount += getRemainingDebtAmount(row.debt);
+					}
 
-						map.set(row.id, existing);
-						return map;
-					},
-					new Map<
-						string,
-						{
-							id: string;
-							name: string;
-							isActive: boolean;
-							amount: number;
-							creditBalance: number;
-						}
-					>(),
-				)
+					map.set(row.id, existing);
+					return map;
+				}, new Map<string, HousemateBalanceRow>())
 				.values(),
 		).map((row) => ({
-			id: row.id,
-			name: row.name,
-			isActive: row.isActive,
-			amount: Math.max(0, row.amount - row.creditBalance),
+			...row,
+			amount: Math.max(0, row.amount - (credits.get(row.id) ?? 0)),
 		}));
 
 		return balances.sort((left, right) => {
@@ -287,11 +276,7 @@ export const getHousemateStats = createServerFn({ method: "GET" })
 
 		const paidDebts = allDebts.filter((debt) => debt.isPaid);
 		const unpaidDebts = allDebts.filter((debt) => !debt.isPaid);
-		const [housemate] = await db
-			.select({ creditBalance: housemates.creditBalance })
-			.from(housemates)
-			.where(eq(housemates.id, data.housemateId))
-			.limit(1);
+		const credit = await getUnallocatedCredit(data.housemateId);
 
 		const totalOwed = allDebts.reduce((sum, debt) => sum + debt.amountOwed, 0);
 		const totalPaid = allDebts.reduce((sum, debt) => sum + debt.amountPaid, 0);
@@ -299,7 +284,7 @@ export const getHousemateStats = createServerFn({ method: "GET" })
 			0,
 			unpaidDebts.reduce((sum, debt) => {
 				return sum + getRemainingDebtAmount(debt);
-			}, 0) - (housemate?.creditBalance ?? 0),
+			}, 0) - credit,
 		);
 
 		return {

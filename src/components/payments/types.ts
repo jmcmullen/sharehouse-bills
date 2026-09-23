@@ -26,5 +26,5 @@ export interface PaymentsSummary {
 	recentAmount: number;
 	recentCount: number;
 	outstandingAmount: number;
-	creditBalance: number;
+	unallocatedCredit: number;
 }

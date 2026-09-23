@@ -51,8 +51,7 @@ Inbound WhatsApp events are handled at `POST /api/hooks/whatsapp`.
 - Split bills across selected housemates using equal or custom amounts.
 - Track pending, partially paid, and paid bills, including each housemate's
   outstanding balance and payment history.
-- Manage housemates, bank aliases, WhatsApp numbers, credit balances, and active
-  status.
+- Manage housemates, bank aliases, WhatsApp numbers, and active status.
 
 ### Recurring bills and reminders
 
@@ -62,33 +61,32 @@ Inbound WhatsApp events are handled at `POST /api/hooks/whatsapp`.
 - Generate due templates automatically through the authenticated cron route.
 - Configure individual or stacked WhatsApp reminders before and after a due
   date.
-- Apply existing housemate credit automatically when a new debt is created.
+- Allocate money a housemate has already sent to new bill shares automatically.
 
 The cron route, `GET /api/cron`, generates due recurring bills and queues due
 reminders. It requires `CRON_SECRET` as a bearer token or `secret` query
 parameter.
 
-### Up Bank payment reconciliation
+### Up Bank payments and the housemate ledger
 
 Incoming transfers are handled at `POST /api/hooks/up`. The route verifies Up's
-request signature, fetches the complete transaction, and processes incoming
-`TRANSACTION_CREATED` events.
+request signature, fetches the complete transaction, and records
+`TRANSACTION_CREATED` and `TRANSACTION_SETTLED` events in the housemate ledger;
+`TRANSACTION_DELETED` removes the bank transaction again.
 
-Reconciliation is deliberately conservative:
+The ledger is the single source of truth for what has been paid:
 
-- a transfer note must contain `rent`, `bill`, or `bills`
-- the beneficiary is resolved from an explicit name or bank alias, then from
-  sender details when there is one unambiguous match
-- the amount must exactly match one open debt or an exact combination of open
-  debts
-- unmatched or ambiguous transfers are recorded as unreconciled instead of
-  being guessed
-- non-billing transfers are recorded as ignored
-- successful matches update debts and bill status and can trigger WhatsApp
-  receipt and paid-in-full notifications
-
-The current webhook reacts to transaction creation. Settlement, reversal, and
-deletion events are not yet applied to bill state.
+- settled transfers are credited to a housemate automatically when the sender
+  or note identifies exactly one housemate and the note references household
+  bills; anything unclear waits in the payment review queue
+- credited money is allocated to that housemate's open bill shares oldest
+  first, and money that arrives before a bill is allocated when the bill is
+  created; rent-only transfers only ever pay rent
+- an admin can re-allocate any receipt by hand, and hand-allocated receipts are
+  never touched automatically again
+- every allocation change writes the debt's paid amount and the bill's status
+  back to the bills views, and a share or bill becoming fully paid queues the
+  WhatsApp receipt and paid-in-full notifications
 
 ### Public payment views
 

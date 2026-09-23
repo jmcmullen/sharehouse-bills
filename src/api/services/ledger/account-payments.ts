@@ -1,11 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Client } from "@libsql/client";
-import {
-	type LedgerSource,
-	sourceSchema,
-	toCents,
-	utilityPattern,
-} from "./model";
+import { type LedgerSource, sourceSchema, utilityPattern } from "./model";
 
 type Executor = Pick<Client, "execute">;
 export interface BillPaymentView {
@@ -16,7 +11,6 @@ export interface BillPaymentView {
 	amountCents: number;
 	paidCents: number;
 	remainingCents: number;
-	legacyPaidCents: number;
 	payments: Array<{ receiptId: string; amountCents: number }>;
 }
 export interface ReceiptView {
@@ -40,7 +34,6 @@ export interface AccountPayments {
 	receipts: ReceiptView[];
 	unallocatedCents: number;
 	unpaidCents: number;
-	allocationReviewCount: number;
 }
 interface CurrentSource extends LedgerSource {
 	key: string;
@@ -58,11 +51,11 @@ export async function getAccountPayments(
 			args: [housemateId, now],
 		}),
 		client.execute({
-			sql: "SELECT a.source_key,a.debt_id,a.amount_cents FROM ledger_bill_allocations a JOIN ledger_sources s ON s.source_key=a.source_key WHERE s.entry_id IS NOT NULL AND json_extract(s.snapshot,'$.housemateId')=?",
+			sql: "SELECT a.source_key,a.debt_id,a.amount_cents,a.origin FROM ledger_bill_allocations a JOIN ledger_sources s ON s.source_key=a.source_key WHERE s.entry_id IS NOT NULL AND json_extract(s.snapshot,'$.housemateId')=?",
 			args: [housemateId],
 		}),
 		client.execute({
-			sql: "SELECT d.id,d.amount_paid,b.bill_type,b.stack_group FROM debts d JOIN bills b ON b.id=d.bill_id WHERE d.housemate_id=?",
+			sql: "SELECT d.id,b.bill_type,b.stack_group FROM debts d JOIN bills b ON b.id=d.bill_id WHERE d.housemate_id=?",
 			args: [housemateId],
 		}),
 		client.execute({
@@ -102,7 +95,7 @@ export async function getAccountPayments(
 		.filter((source) => source.kind === "charge")
 		.map((source) => {
 			const id = source.key.slice(7);
-			const legacy = results[2].rows.find((row) => row.id === id);
+			const bill = results[2].rows.find((row) => row.id === id);
 			const payments = receipts.flatMap((receipt) =>
 				receipt.allocations
 					.filter((allocation) => allocation.debtId === id)
@@ -118,12 +111,11 @@ export async function getAccountPayments(
 			return {
 				id,
 				name: source.description,
-				category: String(legacy?.bill_type ?? legacy?.stack_group ?? "bill"),
+				category: String(bill?.bill_type ?? bill?.stack_group ?? "bill"),
 				dueAt: source.dueAt,
 				amountCents: source.amountCents,
 				paidCents,
 				remainingCents: Math.max(0, source.amountCents - paidCents),
-				legacyPaidCents: toCents(Number(legacy?.amount_paid ?? 0)),
 				payments,
 			};
 		})
@@ -141,12 +133,6 @@ export async function getAccountPayments(
 			0,
 		),
 		unpaidCents: bills.reduce((sum, bill) => sum + bill.remainingCents, 0),
-		allocationReviewCount: bills.filter(
-			(bill) =>
-				bill.legacyPaidCents > bill.paidCents ||
-				bill.paidCents > bill.amountCents ||
-				bill.paidCents < 0,
-		).length,
 	};
 }
 

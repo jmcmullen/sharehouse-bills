@@ -34,7 +34,7 @@
 			"exports": ["*"]
 		},
 		{
-			"file": "src/api/services/{debt-receipt-page.server,payment-reconciliation,pdf-bill-extractor,recurring-bill,waha,whatsapp-assistant}.ts",
+			"file": "src/api/services/{debt-receipt-page.server,pdf-bill-extractor,recurring-bill,waha,whatsapp-assistant}.ts",
 			"exports": ["*"]
 		},
 		{

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { type RequestLogger, createError } from "evlog";
 import { enqueueDueBillReminders } from "../api/services/bill-reminder";
 import { generateDueBills } from "../api/services/recurring-bill";
+import { startPendingPaidNotifications } from "../api/services/whatsapp-notification-events";
 import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";
 import { getRequestLogger } from "../lib/request-logger";
 
@@ -46,6 +47,7 @@ export const Route = createFileRoute("/api/cron")({
 					});
 				}
 
+				await startPendingPaidNotifications();
 				const generatedBills = await generateDueBills(new Date());
 				const reminders = await enqueueDueBillReminders(new Date());
 				log?.set({

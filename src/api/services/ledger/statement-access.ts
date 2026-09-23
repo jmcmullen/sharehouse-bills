@@ -124,7 +124,6 @@ function privateBilling(account: AccountPayments) {
 	return {
 		unallocatedCents: account.unallocatedCents,
 		unpaidCents: account.unpaidCents,
-		allocationReviewCount: account.allocationReviewCount,
 		bills: account.bills.map((bill) => ({
 			...bill,
 			payments: bill.payments.map((payment) => ({

@@ -1,5 +1,6 @@
 import type { Client } from "@libsql/client";
 import { z } from "zod";
+import { autoAllocateAll } from "./auto-allocation";
 import { ingestBankTransaction } from "./bank-ingest";
 import { restoreLegacyAllocations } from "./bill-allocations";
 import { toCents } from "./model";
@@ -41,6 +42,7 @@ async function processEvent(
 ): Promise<void> {
 	if (kind === "allocations") {
 		await restoreLegacyAllocations(tx);
+		await autoAllocateAll(tx);
 		return;
 	}
 	if (kind === "bank") {

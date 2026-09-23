@@ -18,7 +18,7 @@ test("private statement tokens isolate housemates, expire, rotate and revoke wit
    CREATE TABLE ledger_bank_transactions(id TEXT,housemate_id TEXT,decision TEXT,amount_cents INTEGER,effective_at INTEGER,message TEXT);
    CREATE TABLE ledger_sources(source_key TEXT PRIMARY KEY,entry_id TEXT,snapshot TEXT);
    INSERT INTO ledger_sources VALUES('bank:secret-bank-id','1','{"housemateId":"oliver","kind":"payment","amountCents":-3000,"description":"Private sender details","billId":null,"effectiveAt":100,"dueAt":null}');
-   CREATE TABLE ledger_bill_allocations(source_key TEXT,debt_id TEXT,amount_cents INTEGER);
+   CREATE TABLE ledger_bill_allocations(source_key TEXT,debt_id TEXT,amount_cents INTEGER,origin TEXT);
    CREATE TABLE ledger_allocation_issues(source_key TEXT PRIMARY KEY,reason TEXT,recorded_at INTEGER);
    CREATE TABLE ledger_payment_evidence(source_key TEXT,transaction_id TEXT,amount_cents INTEGER);
    CREATE TABLE bills(id TEXT,bill_type TEXT,stack_group TEXT);

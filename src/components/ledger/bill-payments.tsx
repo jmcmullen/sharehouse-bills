@@ -59,12 +59,6 @@ export function BillPayments(props: {
 				A payment counts once. Matching bank evidence confirms money already
 				recorded. Unallocated money stays available until assigned to a bill.
 			</p>
-			{props.billing.allocationReviewCount > 0 && (
-				<p className="rounded-lg border border-amber-500/40 p-3 text-sm">
-					{props.billing.allocationReviewCount} bill records need allocation
-					checks. Their earlier paid amounts are shown below for comparison.
-				</p>
-			)}
 			{tab === "bills" ? (
 				<div className="divide-y rounded-xl border">
 					{bills.map((bill) => (
@@ -99,11 +93,7 @@ export function BillPayments(props: {
 }
 
 function billStatus(bill: BillPaymentView): string {
-	if (
-		bill.paidCents > bill.amountCents ||
-		bill.paidCents < 0 ||
-		bill.legacyPaidCents > bill.paidCents
-	)
+	if (bill.paidCents > bill.amountCents || bill.paidCents < 0)
 		return "Check allocation";
 	if (bill.remainingCents === 0) return "Paid";
 	return bill.paidCents > 0 ? "Part paid" : "Unpaid";
@@ -131,12 +121,6 @@ function BillRow(props: {
 				</div>
 			</summary>
 			<div className="mt-4 space-y-3 border-t pt-4 text-sm">
-				{props.bill.legacyPaidCents > props.bill.paidCents && (
-					<p className="text-amber-700 dark:text-amber-300">
-						Previously marked paid: {ledgerMoney(props.bill.legacyPaidCents)}.
-						The difference still needs supporting payment allocations.
-					</p>
-				)}
 				{props.bill.payments.map((payment) => {
 					const receipt = props.receipts.find(
 						(item) => item.id === payment.receiptId,

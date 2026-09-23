@@ -154,12 +154,6 @@ function ShareRow({ share }: { share: BillShare }) {
 				<Amount label="Paid" cents={share.paidCents} />
 				<Amount label="Remaining" cents={share.remainingCents} />
 			</div>
-			{share.mismatch && (
-				<p className="rounded-lg border border-destructive/40 px-3 py-2 text-xs">
-					Previously marked paid {ledgerMoney(share.legacyPaidCents)} in the old
-					system. Allocated payments total {ledgerMoney(share.paidCents)}.
-				</p>
-			)}
 			{share.paidCents > share.amountCents && (
 				<p className="rounded-lg border border-destructive/40 px-3 py-2 text-xs">
 					Allocated payments exceed this share.

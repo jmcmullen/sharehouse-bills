@@ -12,7 +12,7 @@ import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { BillPdfStorageService } from "./bill-pdf-storage";
-import { applyHousemateCreditToDebt } from "./debt-payment-state";
+import { settleLedger } from "./ledger-sync.server";
 import {
 	type ExtractedBillData,
 	PdfBillExtractorService,
@@ -357,13 +357,8 @@ export class BillProcessorService {
 			amountPaid: 0,
 		}));
 
-		const insertedDebts = await db.insert(debts).values(debtRecords).returning({
-			id: debts.id,
-			housemateId: debts.housemateId,
-		});
-		for (const debtRecord of insertedDebts) {
-			await applyHousemateCreditToDebt(debtRecord.housemateId, debtRecord.id);
-		}
+		await db.insert(debts).values(debtRecords);
+		await settleLedger();
 		getRequestLogger()?.set({
 			debtCreation: {
 				billId,

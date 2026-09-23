@@ -93,7 +93,7 @@ async function importBankFile(bankPath: string): Promise<void> {
 async function writeReport(reportPath: string): Promise<void> {
 	const housemates = (
 		await client.execute(
-			"SELECT id,name,credit_balance FROM housemates WHERE is_owner=0 ORDER BY name",
+			"SELECT id,name FROM housemates WHERE is_owner=0 ORDER BY name",
 		)
 	).rows;
 	const accounts = [];
@@ -105,8 +105,7 @@ async function writeReport(reportPath: string): Promise<void> {
 				args: [housemate.id],
 			})
 		).rows[0];
-		const legacyBalanceCents =
-			Number(old.balance) - Math.round(Number(housemate.credit_balance) * 100);
+		const legacyBalanceCents = Number(old.balance);
 		accounts.push({
 			housemateId: housemate.id,
 			name: housemate.name,
