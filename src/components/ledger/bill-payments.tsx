@@ -7,7 +7,7 @@ import type {
 import { Button } from "../ui/button";
 import { ledgerDate, ledgerMoney, ledgerTime } from "./statement";
 
-type VisibleReceipt = Omit<ReceiptView, "sourceKeys">;
+type VisibleReceipt = Omit<ReceiptView, "sourceKeys" | "suggestion">;
 type VisibleAccount = Omit<AccountPayments, "revision" | "receipts"> & {
 	receipts: VisibleReceipt[];
 };

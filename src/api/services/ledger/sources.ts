@@ -1,5 +1,4 @@
 import type { Client, Transaction } from "@libsql/client";
-import { autoAllocate } from "./auto-allocation";
 import {
 	releaseBillAllocations,
 	restoreLegacyAllocations,
@@ -38,7 +37,8 @@ export async function applySource(
 	if (key.startsWith("charge:") && chargeMoved(old, source))
 		await releaseBillAllocations(tx, key.slice(7), "debt");
 	await journalSource(tx, key, old, source, previous?.entry_id, snapshot);
-	await reallocate(tx, key, old, source);
+	if (source?.kind === "payment" || source?.kind === "adjustment")
+		await restoreLegacyAllocations(tx, key);
 }
 
 function chargeMoved(
@@ -72,24 +72,6 @@ async function journalSource(
 		sql: "INSERT INTO ledger_sources(source_key,entry_id,snapshot) VALUES (?,?,?) ON CONFLICT(source_key) DO UPDATE SET entry_id=excluded.entry_id,snapshot=excluded.snapshot",
 		args: [key, entryId, snapshot],
 	});
-}
-
-// Legacy bill assignments win for a receipt; the rest is applied oldest-first
-// for every housemate the change touched.
-async function reallocate(
-	tx: Executor,
-	key: string,
-	old: LedgerSource | null,
-	source: LedgerSource | null,
-): Promise<void> {
-	if (source?.kind === "payment" || source?.kind === "adjustment")
-		await restoreLegacyAllocations(tx, key);
-	const touched = new Set(
-		[old?.housemateId, source?.housemateId].filter(
-			(id): id is string => id !== undefined,
-		),
-	);
-	for (const housemateId of touched) await autoAllocate(tx, housemateId);
 }
 
 async function insertEntry(

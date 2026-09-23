@@ -1,7 +1,9 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { setBillReviewed } from "@/functions/bill-verification";
+import { Link, useRouter } from "@tanstack/react-router";
+import { type MouseEvent, startTransition, useState } from "react";
+import { toast } from "sonner";
 import type {
 	BillShare,
 	BillVerification,
@@ -28,8 +30,10 @@ const statusVariant: Record<
 	check: "destructive",
 };
 
+type Filter = "look" | "all";
+
 export function BillVerificationSection({ data }: { data: BillVerification }) {
-	const [filter, setFilter] = useState<"all" | "check">("check");
+	const [filter, setFilter] = useState<Filter>("look");
 	if (!data.available)
 		return (
 			<section className="space-y-2" aria-label="Payment verification">
@@ -40,26 +44,25 @@ export function BillVerificationSection({ data }: { data: BillVerification }) {
 				</p>
 			</section>
 		);
-	const bills = data.bills.filter(
-		(bill) => filter === "all" || bill.status !== "paid",
-	);
+	const bills = data.bills.filter((bill) => filter === "all" || bill.needsLook);
 	return (
 		<section className="space-y-4" aria-label="Payment verification">
 			<div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div>
 					<h2 className="font-semibold text-xl">Payment verification</h2>
 					<p className="text-muted-foreground text-sm">
-						Which payments cover each bill, per housemate share.
+						Which payments cover each bill, per housemate share. Tick a bill
+						once its payments look right.
 					</p>
 				</div>
 				<div className="flex gap-2">
 					<Button
-						variant={filter === "check" ? "default" : "outline"}
+						variant={filter === "look" ? "default" : "outline"}
 						size="sm"
-						aria-pressed={filter === "check"}
-						onClick={() => setFilter("check")}
+						aria-pressed={filter === "look"}
+						onClick={() => setFilter("look")}
 					>
-						Needs verification
+						Needs a look
 					</Button>
 					<Button
 						variant={filter === "all" ? "default" : "outline"}
@@ -80,7 +83,7 @@ export function BillVerificationSection({ data }: { data: BillVerification }) {
 					<p className="p-6 text-muted-foreground text-sm">
 						{filter === "all"
 							? "No bills in the ledger yet."
-							: "Every bill is fully paid and verified."}
+							: "Every bill has been approved."}
 					</p>
 				)}
 			</div>
@@ -94,10 +97,12 @@ function SummaryStrip({ summary }: { summary: BillVerificationSummary }) {
 		["Part paid", String(summary.part)],
 		["Unpaid", String(summary.unpaid)],
 		["Needs check", String(summary.check)],
+		["Approved", String(summary.approved)],
+		["Needs a look", String(summary.needsLook)],
 		["Remaining", ledgerMoney(summary.remainingCents)],
 	];
 	return (
-		<dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-5">
+		<dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-4 lg:grid-cols-7">
 			{items.map(([label, value]) => (
 				<div key={label} className="bg-card px-4 py-3">
 					<dt className="text-muted-foreground text-xs">{label}</dt>
@@ -112,7 +117,7 @@ function BillRow({ bill }: { bill: VerifiedBill }) {
 	return (
 		<details className="group p-4">
 			<summary className="cursor-pointer list-none">
-				<div className="grid grid-cols-3 items-center gap-x-4 gap-y-3 sm:grid-cols-[minmax(0,2fr)_1fr_1fr_1fr]">
+				<div className="grid grid-cols-3 items-center gap-x-4 gap-y-3 sm:grid-cols-[minmax(0,2fr)_1fr_1fr_1fr_auto]">
 					<div className="col-span-3 flex flex-wrap items-center gap-2 sm:col-span-1">
 						<div className="min-w-0">
 							<p className="truncate font-medium">{bill.name}</p>
@@ -129,6 +134,9 @@ function BillRow({ bill }: { bill: VerifiedBill }) {
 					<Amount label="Total" cents={bill.amountCents} />
 					<Amount label="Paid" cents={bill.paidCents} />
 					<Amount label="Remaining" cents={bill.remainingCents} />
+					<div className="col-span-3 sm:col-span-1">
+						<ApproveButton bill={bill} />
+					</div>
 				</div>
 			</summary>
 			<div className="mt-4 divide-y border-t">
@@ -137,6 +145,43 @@ function BillRow({ bill }: { bill: VerifiedBill }) {
 				))}
 			</div>
 		</details>
+	);
+}
+
+function ApproveButton({ bill }: { bill: VerifiedBill }) {
+	const router = useRouter();
+	const [pending, setPending] = useState(false);
+	function toggle(event: MouseEvent<HTMLButtonElement>) {
+		event.preventDefault();
+		setPending(true);
+		startTransition(async () => {
+			try {
+				await setBillReviewed({
+					data: { billId: bill.id, approved: !bill.approved },
+				});
+				await router.invalidate();
+				toast.success(
+					bill.approved ? "Approval removed" : `${bill.name} approved`,
+				);
+			} catch (error) {
+				console.error("Bill review failed:", error);
+				toast.error("Could not save the review. Try again.");
+			} finally {
+				setPending(false);
+			}
+		});
+	}
+	return (
+		<Button
+			variant={bill.approved ? "secondary" : "outline"}
+			size="sm"
+			className="w-full sm:w-auto"
+			aria-pressed={bill.approved}
+			disabled={pending}
+			onClick={toggle}
+		>
+			{bill.approved ? "Approved" : "Looks right"}
+		</Button>
 	);
 }
 

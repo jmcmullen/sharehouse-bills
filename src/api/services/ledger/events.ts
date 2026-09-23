@@ -1,9 +1,8 @@
 import type { Client } from "@libsql/client";
 import { z } from "zod";
-import { autoAllocateAll } from "./auto-allocation";
 import { ingestBankTransaction } from "./bank-ingest";
-import { restoreLegacyAllocations } from "./bill-allocations";
 import { toCents } from "./model";
+import { syncPaidState } from "./paid-state";
 import {
 	type Executor,
 	applySource,
@@ -40,9 +39,8 @@ async function processEvent(
 	kind: string,
 	payload: string,
 ): Promise<void> {
-	if (kind === "allocations") {
-		await restoreLegacyAllocations(tx);
-		await autoAllocateAll(tx);
+	if (kind === "paid_state") {
+		await syncAllPaidState(tx);
 		return;
 	}
 	if (kind === "bank") {
@@ -53,7 +51,22 @@ async function processEvent(
 		await processChargeEvent(tx, chargeEventSchema.parse(JSON.parse(payload)));
 		return;
 	}
-	await processPaymentEvent(tx, paymentEventSchema.parse(JSON.parse(payload)));
+	if (kind === "payment") {
+		await processPaymentEvent(
+			tx,
+			paymentEventSchema.parse(JSON.parse(payload)),
+		);
+		return;
+	}
+	throw new Error(`Unknown ledger event kind: ${kind}`);
+}
+
+// Rewrites legacy paid state for every debt an allocation has ever touched.
+async function syncAllPaidState(tx: Executor): Promise<void> {
+	const debtIds = (
+		await tx.execute("SELECT DISTINCT debt_id FROM ledger_allocation_history")
+	).rows.map((row) => String(row.debt_id));
+	await syncPaidState(tx, debtIds);
 }
 
 async function processChargeEvent(

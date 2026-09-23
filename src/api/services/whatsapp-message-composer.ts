@@ -197,3 +197,97 @@ export function buildBillReminderPreviewSummary(input: {
 
 	return lines.join("\n");
 }
+
+interface ReceiptLine {
+	billName: string;
+	dueDate: Date | null;
+	amountCents: number;
+}
+interface PaymentReceiptInput {
+	firstName: string;
+	amountCents: number;
+	receivedAt: Date;
+	covered: ReceiptLine[];
+	creditCents: number;
+	balanceCents: number;
+}
+interface PaymentCorrectionInput extends Omit<PaymentReceiptInput, "covered"> {
+	before: ReceiptLine[];
+	after: ReceiptLine[];
+}
+
+function cents(amount: number) {
+	return formatCurrency(amount / 100);
+}
+
+function formatDayMonth(date: Date) {
+	return new Intl.DateTimeFormat("en-AU", {
+		day: "numeric",
+		month: "short",
+	}).format(date);
+}
+
+function receiptLines(lines: ReceiptLine[]) {
+	return lines.map(
+		(line) =>
+			`- ${line.billName}${line.dueDate ? ` (due ${formatDayMonth(line.dueDate)})` : ""} · ${cents(line.amountCents)}`,
+	);
+}
+
+function balanceLine(balanceCents: number) {
+	if (balanceCents > 0) return `You still owe ${cents(balanceCents)}.`;
+	if (balanceCents < 0) return `You're ${cents(-balanceCents)} in credit.`;
+	return "You're all settled up.";
+}
+
+function receiptFooter(input: Pick<PaymentReceiptInput, "balanceCents">) {
+	return [balanceLine(input.balanceCents)];
+}
+
+export function buildPaymentReceiptSummary(input: PaymentReceiptInput) {
+	const header = [
+		`*Thanks ${input.firstName}, payment received*`,
+		`${cents(input.amountCents)} on ${formatReminderDate(input.receivedAt)}`,
+		"",
+	];
+	if (!input.covered.length)
+		return [
+			...header,
+			"This payment is held as credit for your next bill.",
+			...receiptFooter(input),
+		].join("\n");
+	return [
+		...header,
+		"Covers:",
+		...receiptLines(input.covered),
+		"",
+		...(input.creditCents > 0
+			? [`${cents(input.creditCents)} is held as credit for your next bill.`]
+			: []),
+		...receiptFooter(input),
+	].join("\n");
+}
+
+export function buildPaymentCorrectionSummary(input: PaymentCorrectionInput) {
+	return [
+		`*${input.firstName}, a correction to your payment*`,
+		`${cents(input.amountCents)} on ${formatReminderDate(input.receivedAt)}`,
+		"",
+		...(input.before.length
+			? ["Previously covered:", ...receiptLines(input.before)]
+			: ["Previously held as credit."]),
+		"",
+		...(input.after.length
+			? [
+					"Now covers:",
+					...receiptLines(input.after),
+					...(input.creditCents > 0
+						? [
+								`${cents(input.creditCents)} is held as credit for your next bill.`,
+							]
+						: []),
+				]
+			: ["Now held as credit for your next bill."]),
+		...receiptFooter(input),
+	].join("\n");
+}

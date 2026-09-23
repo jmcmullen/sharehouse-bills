@@ -4,6 +4,7 @@ import {
 	type ReceiptView,
 	getAccountPayments,
 } from "./account-payments";
+import { loadApprovedBills } from "./bill-reviews";
 
 type Executor = Pick<Client, "execute">;
 
@@ -35,6 +36,8 @@ export interface VerifiedBill {
 	paidCents: number;
 	remainingCents: number;
 	status: BillVerificationStatus;
+	approved: boolean;
+	needsLook: boolean;
 	shares: BillShare[];
 }
 export interface BillVerificationSummary {
@@ -42,6 +45,8 @@ export interface BillVerificationSummary {
 	part: number;
 	unpaid: number;
 	check: number;
+	approved: number;
+	needsLook: number;
 	remainingCents: number;
 }
 export type BillVerification =
@@ -68,13 +73,14 @@ export async function loadBillVerification(
 		"SELECT name FROM sqlite_master WHERE type='table' AND name='ledger_entries'",
 	);
 	if (installed.rows.length === 0) return { available: false };
-	const [housemateRows, debtRows] = await Promise.all([
+	const [housemateRows, debtRows, approved] = await Promise.all([
 		client.execute(
 			"SELECT id,name FROM housemates WHERE is_owner=0 ORDER BY name",
 		),
 		client.execute(
 			"SELECT d.id,d.bill_id,b.biller_name FROM debts d LEFT JOIN bills b ON b.id=d.bill_id",
 		),
+		loadApprovedBills(client),
 	]);
 	const housemates: Housemate[] = housemateRows.rows.map((row) => ({
 		id: String(row.id),
@@ -95,7 +101,7 @@ export async function loadBillVerification(
 			account: await getAccountPayments(client, housemate.id),
 		})),
 	);
-	const bills = pivot(accounts, debts);
+	const bills = pivot(accounts, debts, approved);
 	return { available: true, bills, summary: summarise(bills) };
 }
 
@@ -105,6 +111,7 @@ function pivot(
 		account: Awaited<ReturnType<typeof getAccountPayments>>;
 	}>,
 	debts: Map<string, DebtRow>,
+	approved: Set<string>,
 ): VerifiedBill[] {
 	const groups = new Map<string, VerifiedBill>();
 	for (const { housemate, account } of accounts) {
@@ -122,6 +129,8 @@ function pivot(
 				paidCents: 0,
 				remainingCents: 0,
 				status: "unpaid",
+				approved: approved.has(debt.billId),
+				needsLook: !approved.has(debt.billId),
 				shares: [...(existing?.shares ?? []), share],
 			});
 		}
@@ -199,6 +208,8 @@ function summarise(bills: VerifiedBill[]): BillVerificationSummary {
 		part: count("part"),
 		unpaid: count("unpaid"),
 		check: count("check"),
+		approved: bills.filter((bill) => bill.approved).length,
+		needsLook: bills.filter((bill) => bill.needsLook).length,
 		remainingCents: bills.reduce((sum, bill) => sum + bill.remainingCents, 0),
 	};
 }

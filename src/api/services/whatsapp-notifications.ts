@@ -171,7 +171,9 @@ async function createNotification(input: {
 		| "debt_paid"
 		| "bill_reminder"
 		| "due_command"
-		| "assistant_message";
+		| "assistant_message"
+		| "payment_receipt"
+		| "payment_correction";
 	billId?: string | null;
 	debtId?: string | null;
 	housemateId?: string | null;
@@ -300,8 +302,8 @@ export async function createAssistantMessageNotification(input: {
 	});
 }
 
-// Paid notifications the ledger recorded inside its own transaction and that
-// no workflow has picked up yet.
+// Paid and receipt notifications the ledger recorded inside its own
+// transaction and that no workflow has picked up yet.
 export async function getPendingPaidNotifications() {
 	return await db
 		.select()
@@ -309,7 +311,12 @@ export async function getPendingPaidNotifications() {
 		.where(
 			and(
 				eq(whatsappNotifications.status, "pending"),
-				inArray(whatsappNotifications.eventType, ["bill_paid", "debt_paid"]),
+				inArray(whatsappNotifications.eventType, [
+					"bill_paid",
+					"debt_paid",
+					"payment_receipt",
+					"payment_correction",
+				]),
 				sql`json_extract(${whatsappNotifications.payload}, '$.workflowRunId') IS NULL`,
 			),
 		)

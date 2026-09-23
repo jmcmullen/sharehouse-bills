@@ -20,6 +20,7 @@ const migrations = [
 	"0013_payment_bill_allocations",
 	"0014_allocation_review_decisions",
 	"0015_review_group",
+	"0017_freeze_history",
 ];
 
 const receipt = (id: string, amount: number): BankTransaction =>
@@ -151,6 +152,8 @@ test("pivots housemate payments into bills with shares, receipts, status and sum
 			part: 1,
 			unpaid: 1,
 			check: 0,
+			approved: 0,
+			needsLook: 2,
 			remainingCents: 6000,
 		});
 	}));
@@ -195,4 +198,6 @@ test("a bill whose shares are all covered is paid and a partly covered bill is p
 		assert.equal(paid.bills[0].status, "paid");
 		assert.equal(paid.summary.paid, 1);
 		assert.equal(paid.summary.remainingCents, 0);
+		assert.equal(paid.bills[0].approved, false);
+		assert.equal(paid.bills[0].needsLook, true);
 	}));

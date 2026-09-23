@@ -120,6 +120,13 @@
 			"when": 1790157723606,
 			"tag": "0016_ledger_paid_state",
 			"breakpoints": true
+		},
+		{
+			"idx": 17,
+			"version": "6",
+			"when": 1790202110000,
+			"tag": "0017_freeze_history",
+			"breakpoints": true
 		}
 	]
 }

@@ -1,5 +1,7 @@
 # Housemate ledger migration
 
+**24 September 2026:** payments are no longer matched to bills automatically. See [Explicit payment matching](explicit-payment-matching-2026-09-24.md) for the decision, phase 1 changes and migration 0017.
+
 The latest implementation and migration results are in [Payments and bill allocations](payment-bill-allocations-2026-09-11.md). All 19 manual payments now retain their bill assignments, and matched bank evidence confirms the same money. Earlier figures below are historical snapshots.
 
 Current review rules and the 11 September cleanup are documented in [Housemate-only payment review](payment-review-housemates-only-2026-09-11.md). The live queue now contains 25 housemate payments. Unmatched personal receipts are ignored. Earlier reconciliation figures below are historical snapshots.

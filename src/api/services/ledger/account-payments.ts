@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Client } from "@libsql/client";
 import { type LedgerSource, sourceSchema, utilityPattern } from "./model";
+import { type Suggestion, suggestAllocations } from "./suggestions";
 
 type Executor = Pick<Client, "execute">;
 export interface BillPaymentView {
@@ -27,6 +28,7 @@ export interface ReceiptView {
 	allocations: Array<{ debtId: string; amountCents: number }>;
 	unallocatedCents: number;
 	allocationIssue: string | null;
+	suggestion: Suggestion | null;
 }
 export interface AccountPayments {
 	revision: string;
@@ -90,13 +92,13 @@ export async function getAccountPayments(
 	const issues = new Map(
 		results[4].rows.map((row) => [String(row.source_key), String(row.reason)]),
 	);
-	const receipts = buildReceipts(sources, evidence, allocationRows, issues);
+	const drafts = buildReceipts(sources, evidence, allocationRows, issues);
 	const bills = sources
 		.filter((source) => source.kind === "charge")
 		.map((source) => {
 			const id = source.key.slice(7);
 			const bill = results[2].rows.find((row) => row.id === id);
-			const payments = receipts.flatMap((receipt) =>
+			const payments = drafts.flatMap((receipt) =>
 				receipt.allocations
 					.filter((allocation) => allocation.debtId === id)
 					.map((allocation) => ({
@@ -122,6 +124,27 @@ export async function getAccountPayments(
 		.sort(
 			(a, b) => (b.dueAt ?? 0) - (a.dueAt ?? 0) || a.id.localeCompare(b.id),
 		);
+	const shares = bills
+		.filter((bill) => bill.remainingCents > 0)
+		.map((bill) => ({
+			debtId: bill.id,
+			billName: bill.name,
+			category: bill.category,
+			dueAt: bill.dueAt,
+			remainingCents: bill.remainingCents,
+		}));
+	const receipts = drafts.map((receipt) => ({
+		...receipt,
+		suggestion:
+			receipt.unallocatedCents > 0
+				? suggestAllocations({
+						amountCents: receipt.unallocatedCents,
+						receivedAt: receipt.receivedAt,
+						rentOnly: receipt.rentOnly,
+						shares,
+					})
+				: null,
+	}));
 	return {
 		revision: createHash("sha256")
 			.update(JSON.stringify(results.map((result) => result.rows)))
@@ -141,7 +164,7 @@ function buildReceipts(
 	evidence: Map<string, { id: string; receivedAt: number; message: string }>,
 	allocations: Array<{ key: string; debtId: string; amountCents: number }>,
 	issues: Map<string, string>,
-): ReceiptView[] {
+): Array<Omit<ReceiptView, "suggestion">> {
 	const groups = new Map<string, CurrentSource[]>();
 	for (const source of sources.filter((item) => item.kind !== "charge")) {
 		const match = evidence.get(source.key);

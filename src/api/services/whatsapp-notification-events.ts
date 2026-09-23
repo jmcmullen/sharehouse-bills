@@ -5,6 +5,7 @@ import { runBillPaidNotification } from "../../../workflows/bill-paid";
 import { runBillReminderNotification } from "../../../workflows/bill-reminder";
 import { runDebtPaidNotification } from "../../../workflows/debt-paid";
 import { runDueCommandNotification } from "../../../workflows/inbound-command";
+import { runPaymentReceiptNotification } from "../../../workflows/payment-receipt";
 import { getRequestLogger } from "../../lib/request-logger";
 import type { InboundCommandType } from "../../lib/whatsapp-commands";
 import {
@@ -118,16 +119,34 @@ export async function enqueueBillCreatedNotification(
 	return result.notification;
 }
 
+const ledgerWorkflows: Partial<
+	Record<
+		WhatsappNotificationRecord["eventType"],
+		{ label: string; run: (notificationId: string) => Promise<void> }
+	>
+> = {
+	bill_paid: { label: "bill-paid", run: runBillPaidNotification },
+	debt_paid: { label: "debt-paid", run: runDebtPaidNotification },
+	payment_receipt: {
+		label: "payment-receipt",
+		run: runPaymentReceiptNotification,
+	},
+	payment_correction: {
+		label: "payment-correction",
+		run: runPaymentReceiptNotification,
+	},
+};
+
+// Ledger transactions write notification rows directly; this hands each one
+// to its workflow.
 export async function startPendingPaidNotifications() {
 	for (const notification of await getPendingPaidNotifications()) {
-		const bill = notification.eventType === "bill_paid";
+		const workflow = ledgerWorkflows[notification.eventType];
+		if (!workflow) continue;
 		await startNotificationWorkflow(
 			notification,
-			bill ? "bill-paid WhatsApp workflow" : "debt-paid WhatsApp workflow",
-			async () =>
-				await start(bill ? runBillPaidNotification : runDebtPaidNotification, [
-					notification.id,
-				]),
+			`${workflow.label} WhatsApp workflow`,
+			async () => await start(workflow.run, [notification.id]),
 		);
 	}
 }

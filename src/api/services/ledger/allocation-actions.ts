@@ -7,6 +7,10 @@ import {
 	writeBillAllocation,
 } from "./bill-allocations";
 import { sourceSchema } from "./model";
+import {
+	enqueuePaymentReceipt,
+	paymentReceiptKind,
+} from "./receipt-notifications";
 import { applySource, withWriteTransaction } from "./sources";
 
 const allocationsSchema = z
@@ -42,6 +46,12 @@ export async function allocateReceipt(
 		if (account.revision !== data.expectedRevision)
 			throw new Error("Payments or bills changed. Refresh before saving.");
 		await writeAllocations(tx, account, data);
+		await enqueuePaymentReceipt(
+			tx,
+			data.housemateId,
+			data.receiptId,
+			await paymentReceiptKind(tx, data.receiptId),
+		);
 	});
 }
 
