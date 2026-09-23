@@ -30,8 +30,10 @@ const NEPTUNE_INTERNET_MARKER_REGEX =
 const NEPTUNE_RECEIPT_REGEX = /\bReceipt\b.*\bReceipt number\b/i;
 const NEPTUNE_INVOICE_HEADER_REGEX = /\bInvoice\s+Invoice number\b/i;
 const NEPTUNE_INVOICE_NUMBER_REGEX = /Invoice number\s+([A-Z0-9]+)[\s-]+(\d+)/i;
-const NEPTUNE_ISSUE_DATE_REGEX = /Date of issue\s+([A-Za-z]+ \d{1,2}, \d{4})/i;
-const NEPTUNE_DUE_DATE_REGEX = /Date due\s+([A-Za-z]+ \d{1,2}, \d{4})/i;
+const NEPTUNE_ISSUE_DATE_REGEX =
+	/Date of issue\s+((?:[A-Za-z]+\s+\d{1,2},|\d{1,2}\s+[A-Za-z]+)\s+\d{4})/i;
+const NEPTUNE_DUE_DATE_REGEX =
+	/Date due\s+((?:[A-Za-z]+\s+\d{1,2},|\d{1,2}\s+[A-Za-z]+)\s+\d{4})/i;
 const NEPTUNE_AMOUNT_DUE_REGEX = /Amount due\s+A?\$([\d,]+\.\d{2})/i;
 const NEPTUNE_ACCOUNT_NUMBER_REGEX = /\bAVC\s+(AVC\d+)/i;
 const NEPTUNE_BILL_PERIOD_REGEX =
@@ -569,12 +571,20 @@ export class PdfBillExtractorService {
 	}
 
 	private parseLongDate(value: string): Date {
-		const match = value.match(/^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})$/);
+		const match = value.match(
+			/^(?:([A-Za-z]+)\s+(\d{1,2}),|(\d{1,2})\s+([A-Za-z]+))\s+(\d{4})$/,
+		);
 		if (!match) {
 			throw new UnsupportedBillFormatError(`Invalid date: ${value}`);
 		}
 
-		const [, monthValue, dayValue, yearValue] = match;
+		const monthValue = match[1] ?? match[4];
+		const dayValue = match[2] ?? match[3];
+		const yearValue = match[5];
+		if (!monthValue || !dayValue || !yearValue) {
+			throw new UnsupportedBillFormatError(`Invalid date: ${value}`);
+		}
+
 		const parsedDate = new Date(
 			Date.UTC(
 				Number.parseInt(yearValue, 10),
