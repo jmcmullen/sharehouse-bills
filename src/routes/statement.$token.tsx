@@ -1,9 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
-	BillPayments,
-	PaymentSummary,
-} from "../components/ledger/bill-payments";
-import { StatementHistory, ledgerTime } from "../components/ledger/statement";
+	StatementHistory,
+	ledgerMoney,
+	ledgerTime,
+} from "../components/ledger/statement";
+import {
+	MoneyReceived,
+	StatementBills,
+} from "../components/ledger/statement-bills";
 import { getHousemateStatement } from "../functions/ledger-statement";
 
 export const Route = createFileRoute("/statement/$token")({
@@ -33,7 +37,7 @@ function HousemateStatement() {
 			</main>
 		);
 	return (
-		<main className="mx-auto max-w-3xl space-y-7 px-4 py-8 sm:px-6 sm:py-12">
+		<main className="mx-auto max-w-2xl space-y-7 px-4 py-8 sm:px-6 sm:py-12">
 			<header>
 				<p className="text-muted-foreground text-sm">
 					Sharehouse Bills · Private statement
@@ -42,32 +46,34 @@ function HousemateStatement() {
 					{data.name}'s account
 				</h1>
 				<p className="mt-2 text-muted-foreground text-sm">
-					Your charges, payments and running balance in one place.
+					Each bill share, what has covered it and what is left.
 				</p>
 			</header>
-			<div className="rounded-lg border bg-muted/40 p-4 text-sm">
-				Jay is reviewing the payment history. This statement may change as
-				payments are approved. Contact Jay if a payment is missing.
+			<div className="grid gap-3 sm:grid-cols-2">
+				<Summary
+					label={data.balanceCents < 0 ? "In credit" : "Owed now"}
+					cents={data.balanceCents < 0 ? -data.balanceCents : data.dueNowCents}
+				/>
+				<Summary
+					label="Not yet applied to a bill"
+					cents={data.billing.unallocatedCents}
+				/>
 			</div>
 			{data.updatesPending && (
-				<output className="rounded-lg border p-4 text-sm">
+				<output className="block rounded-lg border p-4 text-sm">
 					Recent changes are waiting to be synced. Ask Jay to refresh your
 					statement before relying on this balance.
 				</output>
 			)}
-			<PaymentSummary balanceCents={data.balanceCents} {...data.billing} />
-			<BillPayments billing={data.billing} />
-			<p className="text-muted-foreground text-sm">
-				Money received reduces your balance once. Bill status shows where that
-				money has been allocated.
-			</p>
+			<StatementBills billing={data.billing} />
 			{data.reviewCount > 0 && (
 				<p className="rounded-lg border p-4 text-sm">
-					{data.reviewCount} incoming payment{data.reviewCount === 1 ? "" : "s"}{" "}
-					awaiting review. These have not been added as extra credit. Some may
-					already be recorded manually.
+					{data.reviewCount} payment{data.reviewCount === 1 ? "" : "s"} from you{" "}
+					{data.reviewCount === 1 ? "is" : "are"} waiting for Jay to confirm.
+					Once confirmed it appears against the bill above.
 				</p>
 			)}
+			<MoneyReceived billing={data.billing} />
 			<details className="rounded-lg border p-4">
 				<summary className="cursor-pointer text-sm">
 					Journal and running balance
@@ -82,5 +88,16 @@ function HousemateStatement() {
 				</p>
 			</footer>
 		</main>
+	);
+}
+
+function Summary(props: { label: string; cents: number }) {
+	return (
+		<div className="rounded-xl border bg-card p-4">
+			<p className="text-muted-foreground text-sm">{props.label}</p>
+			<p className="mt-2 font-semibold text-2xl tabular-nums">
+				{ledgerMoney(props.cents)}
+			</p>
+		</div>
 	);
 }

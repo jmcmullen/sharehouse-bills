@@ -5,8 +5,9 @@ import { drainLedgerEvents } from "./events";
 import { type StatementRow, currentStatement } from "./model";
 import { getAccountStatement } from "./sources";
 
+export type PrivateBilling = ReturnType<typeof privateBilling>;
 interface PrivateStatement {
-	billing: ReturnType<typeof privateBilling>;
+	billing: PrivateBilling;
 	name: string;
 	expiresAt: number;
 	asOf: number;

@@ -53,6 +53,12 @@ async function sendBillReminderSummary(notificationId: string) {
 	const { buildBillReminderSummary } = await import(
 		"../src/api/services/whatsapp-message-composer"
 	);
+	const { getCredit } = await import(
+		"../src/api/services/ledger/credit.server"
+	);
+	const { owingCents, reminderCredit } = await import(
+		"../src/api/services/bill-reminder-credit"
+	);
 	const { getWahaChatIdForPhoneNumber, sendWhatsappTextMessage } = await import(
 		"../src/api/services/waha"
 	);
@@ -79,6 +85,10 @@ async function sendBillReminderSummary(notificationId: string) {
 
 	const message = buildBillReminderSummary({
 		payUrl,
+		credit: reminderCredit(
+			await getCredit(context.housemate.id),
+			owingCents(context.debts),
+		),
 	});
 
 	await performTrackedWhatsappDelivery({

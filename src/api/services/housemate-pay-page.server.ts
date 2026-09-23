@@ -6,6 +6,7 @@ import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
+import { getCredit } from "./ledger/credit.server";
 import {
 	createSignedPublicLinkToken,
 	publicLinkSignaturesMatch,
@@ -76,6 +77,10 @@ export type PublicHousematePayPageData = {
 		settledAmount: number;
 		remainingAmount: number;
 		percentage: number;
+	};
+	credit: {
+		appliedAmount: number;
+		receivedAtIso: string | null;
 	};
 	recentlySettled: {
 		amount: number;
@@ -367,10 +372,15 @@ export async function getPublicHousematePayPageData(token: string) {
 			: items;
 
 	const totalAmount = items.reduce((total, item) => total + item.amountOwed, 0);
-	const remainingAmount = items.reduce(
+	const owingAmount = items.reduce(
 		(total, item) => total + item.remainingAmount,
 		0,
 	);
+	// Money already received but not yet allocated counts towards what is owed,
+	// so the page never asks for it twice.
+	const credit = await getCredit(housemate.id);
+	const creditApplied = Math.min(owingAmount, credit.amountCents / 100);
+	const remainingAmount = Math.max(0, owingAmount - creditApplied);
 	const settledAmount = Math.max(0, totalAmount - remainingAmount);
 	const overdueCount = items.filter((item) => item.isOverdue).length;
 	const utilityBillCount = items.filter((item) =>
@@ -438,6 +448,12 @@ export async function getPublicHousematePayPageData(token: string) {
 				totalAmount <= 0
 					? 100
 					: Math.round((settledAmount / totalAmount) * 100),
+		},
+		credit: {
+			appliedAmount: creditApplied,
+			receivedAtIso: credit.receivedAt
+				? new Date(credit.receivedAt * 1000).toISOString()
+				: null,
 		},
 		recentlySettled: {
 			amount: recentlySettledAmount,

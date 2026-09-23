@@ -4,10 +4,8 @@ import type { GroupedBill } from "../types";
 export function useBillModals() {
 	const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 	const [billToDelete, setBillToDelete] = useState<string | null>(null);
-	const [markPaidModalOpen, setMarkPaidModalOpen] = useState(false);
-	const [billToMarkPaid, setBillToMarkPaid] = useState<GroupedBill | null>(
-		null,
-	);
+	const [cashModalOpen, setCashModalOpen] = useState(false);
+	const [billForCash, setBillForCash] = useState<GroupedBill | null>(null);
 	const [addBillModalOpen, setAddBillModalOpen] = useState(false);
 	const [viewPdfModalOpen, setViewPdfModalOpen] = useState(false);
 	const [billToViewPdf, setBillToViewPdf] = useState<GroupedBill | null>(null);
@@ -26,14 +24,14 @@ export function useBillModals() {
 		setBillToDelete(null);
 	};
 
-	const openMarkPaidModal = (bill: GroupedBill) => {
-		setBillToMarkPaid(bill);
-		setMarkPaidModalOpen(true);
+	const openCashModal = (bill: GroupedBill) => {
+		setBillForCash(bill);
+		setCashModalOpen(true);
 	};
 
-	const closeMarkPaidModal = () => {
-		setMarkPaidModalOpen(false);
-		setBillToMarkPaid(null);
+	const closeCashModal = () => {
+		setCashModalOpen(false);
+		setBillForCash(null);
 	};
 
 	const openAddBillModal = () => {
@@ -71,11 +69,11 @@ export function useBillModals() {
 		openDeleteModal,
 		closeDeleteModal,
 
-		// Mark paid modal
-		markPaidModalOpen,
-		billToMarkPaid,
-		openMarkPaidModal,
-		closeMarkPaidModal,
+		// Record cash modal
+		cashModalOpen,
+		billForCash,
+		openCashModal,
+		closeCashModal,
 
 		// Add bill modal
 		addBillModalOpen,

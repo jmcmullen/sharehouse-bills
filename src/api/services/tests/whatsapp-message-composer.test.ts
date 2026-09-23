@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	buildBillReminderSummary,
+	buildCreditLine,
+	buildPaymentArrivedSummary,
 	buildPaymentCorrectionSummary,
 	buildPaymentReceiptSummary,
 } from "../whatsapp-message-composer";
@@ -92,4 +95,70 @@ test("payment correction lists the bills before and after the change", () => {
 	assert.equal(reallocated[3], "Previously held as credit.");
 	assert.equal(reallocated[5], "Now covers:");
 	assert.equal(reallocated[6], "- Cleaners (due 15 Sep) · $99.00");
+});
+
+test("payment arrived tells the owner who paid, what it looks like and where to review", () => {
+	const lines = buildPaymentArrivedSummary({
+		senderName: "Oliver",
+		amountCents: 42000,
+		receivedAt: received,
+		reference: "Rent",
+		shared: false,
+		suggestion: ["Rent · 12 Sep, $420.00"],
+		reviewUrl: "https://bills.example/payment-review?query=bank-1",
+	}).split("\n");
+	assert.equal(lines[0], "*Payment arrived from Oliver*");
+	assert.equal(lines[1], '$420.00 on Sat, 12 Sep · "Rent"');
+	assert.equal(lines[3], "Looks like Rent · 12 Sep, $420.00");
+	assert.equal(
+		lines[4],
+		"Review: https://bills.example/payment-review?query=bank-1",
+	);
+	assert.equal(lines.length, 5);
+});
+
+test("payment arrived without a match or reference says so, and shared payments ask for a split", () => {
+	const none = buildPaymentArrivedSummary({
+		senderName: "Oliver",
+		amountCents: 1000,
+		receivedAt: received,
+		reference: "",
+		shared: false,
+		suggestion: null,
+		reviewUrl: "https://bills.example/payment-review?query=bank-2",
+	}).split("\n");
+	assert.equal(none[1], "$10.00 on Sat, 12 Sep · no reference");
+	assert.equal(none[3], "No matching bill");
+	const shared = buildPaymentArrivedSummary({
+		senderName: "Oliver + Sarah",
+		amountCents: 30000,
+		receivedAt: received,
+		reference: "Oliver and Sarah rent",
+		shared: true,
+		suggestion: null,
+		reviewUrl: "https://bills.example/payment-review?query=bank-3",
+	}).split("\n");
+	assert.equal(shared[0], "*Payment arrived from Oliver + Sarah*");
+	assert.equal(shared[3], "Shared payment: choose how much belongs to each");
+});
+
+test("reminders name applied credit and the amount left to pay", () => {
+	assert.equal(
+		buildBillReminderSummary({
+			payUrl: "https://bills.example/pay/abc",
+			credit: { creditCents: 5000, receivedAt: received, toPayCents: 7000 },
+		}),
+		"$50.00 credit from your 12 Sep payment is applied, $70.00 to pay\nhttps://bills.example/pay/abc",
+	);
+	assert.equal(
+		buildCreditLine({ creditCents: 12000, receivedAt: null, toPayCents: 0 }),
+		"$120.00 credit covers this, nothing to pay",
+	);
+	assert.equal(
+		buildBillReminderSummary({
+			payUrl: "https://bills.example/pay/abc",
+			credit: null,
+		}),
+		"https://bills.example/pay/abc",
+	);
 });

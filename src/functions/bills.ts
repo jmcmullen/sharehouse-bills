@@ -7,10 +7,14 @@ import { db } from "../api/db/index.server";
 import { bills } from "../api/db/schema/bills";
 import { debts } from "../api/db/schema/debts";
 import { housemates } from "../api/db/schema/housemates";
-import { paymentTransactions } from "../api/db/schema/payment-transactions";
 import { getRemainingDebtAmount } from "../api/services/debt-payment-state";
 import { createPayPath } from "../api/services/housemate-pay-page.server";
 import { settleLedger } from "../api/services/ledger-sync.server";
+import {
+	cashReceiptSchema,
+	recordCashReceipt,
+} from "../api/services/ledger/cash-receipt";
+import { createLedgerClient } from "../api/services/ledger/client.server";
 import { getUnallocatedCredit } from "../api/services/ledger/credit.server";
 import { generateWeeklyRentBill } from "../api/services/recurring-bill";
 import { enqueueBillCreatedNotification } from "../api/services/whatsapp-notification-events";
@@ -20,36 +24,9 @@ import {
 	getDefaultBillReminderConfig,
 	toBillReminderDbValues,
 } from "../lib/bill-reminder-config";
-import { getEqualSplitAmounts, roundCurrency } from "../lib/equal-split";
-import { entityIdSchema, generateEntityId } from "../lib/id";
+import { getEqualSplitAmounts } from "../lib/equal-split";
+import { entityIdSchema } from "../lib/id";
 import { getRequestLogger } from "../lib/request-logger";
-
-async function recordManualPaymentTransaction(input: {
-	debtId: string;
-	housemateId: string;
-	billerName: string;
-	amount: number;
-	createdAt: Date;
-}) {
-	if (Math.abs(input.amount) <= 0.009) {
-		return;
-	}
-
-	const actionLabel = input.amount > 0 ? "payment" : "adjustment";
-	await db.insert(paymentTransactions).values({
-		transactionId: `manual-admin-${generateEntityId()}`,
-		description: `Manual ${actionLabel} for ${input.billerName}`,
-		amount: input.amount,
-		housemateId: input.housemateId,
-		status: "matched",
-		source: "manual_admin",
-		matchType: "manual_match",
-		matchedDebtIds: [input.debtId],
-		creditAmount: 0,
-		createdAt: input.createdAt,
-		updatedAt: input.createdAt,
-	});
-}
 
 // Get all bills with their associated debts and housemate info
 export const getAllBills = createServerFn({ method: "GET" })
@@ -366,69 +343,27 @@ export const deleteBill = createServerFn({ method: "POST" })
 	});
 
 // Mark a debt as paid or unpaid
-export const markDebtPaid = createServerFn({ method: "POST" })
+// Cash handed to the admin: recorded and allocated in one ledger transaction,
+// then settled so paid state and the housemate's receipt follow.
+export const recordCashReceived = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.inputValidator(
-		z.object({
-			debtId: entityIdSchema,
-			amountPaid: z.number().min(0),
-		}),
-	)
+	.inputValidator(cashReceiptSchema)
 	.handler(async ({ data }) => {
-		const log = getRequestLogger();
-		log?.set({
-			debt: {
-				id: data.debtId,
-				amountPaid: data.amountPaid,
+		getRequestLogger()?.set({
+			cashReceipt: {
+				debtId: data.debtId,
+				amountCents: data.amountCents,
+				receivedAt: data.receivedAt,
 			},
 		});
-		const now = new Date();
-		const [existingDebt] = await db
-			.select()
-			.from(debts)
-			.innerJoin(bills, eq(bills.id, debts.billId))
-			.where(eq(debts.id, data.debtId))
-			.limit(1);
-
-		if (!existingDebt) {
-			throw createError({
-				message: "Debt not found",
-				status: 404,
-				why: `No debt exists with id ${data.debtId}.`,
-				fix: "Refresh the page and retry with a valid debt.",
-			});
+		const client = createLedgerClient();
+		try {
+			await recordCashReceipt(client, data);
+		} finally {
+			client.close();
 		}
-
-		// The admin records money; the ledger allocates it and writes paid state back.
-		await recordManualPaymentTransaction({
-			debtId: existingDebt.debts.id,
-			housemateId: existingDebt.debts.housemateId,
-			billerName: existingDebt.bills.billerName,
-			amount: roundCurrency(
-				Math.min(existingDebt.debts.amountOwed, Math.max(0, data.amountPaid)) -
-					existingDebt.debts.amountPaid,
-			),
-			createdAt: now,
-		});
 		await settleLedger();
-		const [updatedDebt] = await db
-			.select()
-			.from(debts)
-			.where(eq(debts.id, data.debtId))
-			.limit(1);
-		if (updatedDebt) {
-			log?.set({
-				debt: {
-					id: updatedDebt.id,
-					billId: updatedDebt.billId,
-					amountPaid: updatedDebt.amountPaid,
-					isPaid: updatedDebt.isPaid,
-					paidAt: updatedDebt.paidAt?.toISOString() ?? null,
-				},
-			});
-		}
-
-		return updatedDebt;
+		return { success: true };
 	});
 // Get bills for a specific housemate
 export const getBillsForHousemate = createServerFn({ method: "GET" })

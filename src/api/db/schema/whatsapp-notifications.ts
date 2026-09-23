@@ -26,6 +26,7 @@ export const whatsappNotifications = sqliteTable(
 				"assistant_message",
 				"payment_receipt",
 				"payment_correction",
+				"payment_arrived",
 			],
 		}).notNull(),
 		status: text("status", {

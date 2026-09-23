@@ -6,7 +6,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
 	deleteBillAction,
-	markDebtPaidAction,
+	recordCashAction,
 	updateBillReminderSettingsAction,
 	uploadBillAction,
 } from "./actions";
@@ -18,10 +18,10 @@ import { usePagination } from "./hooks/use-pagination";
 import { AddBillModal } from "./modals/add-bill-modal";
 import { BillReminderSettingsModal } from "./modals/bill-reminder-settings-modal";
 import { DeleteBillModal } from "./modals/delete-bill-modal";
-import { MarkPaidModal } from "./modals/mark-paid-modal";
+import { RecordCashModal } from "./modals/record-cash-modal";
 import { ViewBillPdfModal } from "./modals/view-bill-pdf-modal";
 import { SummaryCards } from "./summary-cards";
-import type { BillReminderFormData } from "./types";
+import type { BillReminderFormData, CashReceiptData } from "./types";
 import {
 	buildBillReminderFormData,
 	calculateSummary,
@@ -40,10 +40,10 @@ export function BillsPage() {
 		billToDelete,
 		openDeleteModal,
 		closeDeleteModal,
-		markPaidModalOpen,
-		billToMarkPaid,
-		openMarkPaidModal,
-		closeMarkPaidModal,
+		cashModalOpen,
+		billForCash,
+		openCashModal,
+		closeCashModal,
 		addBillModalOpen,
 		openAddBillModal,
 		closeAddBillModal,
@@ -105,20 +105,18 @@ export function BillsPage() {
 		}
 	};
 
-	const handleMarkPaidConfirm = (
-		payments: Array<{ debtId: string; amountPaid: number }>,
-	) => {
+	const handleRecordCash = (data: CashReceiptData) => {
 		startTransition(async () => {
 			try {
-				await markDebtPaidAction({ payments });
-				toast.success("Payments updated successfully");
+				await recordCashAction(data);
+				toast.success("Cash recorded and applied to the bill");
 				router.invalidate();
+				closeCashModal();
 			} catch (error) {
-				toast.error("Failed to update payments", {
+				toast.error("Failed to record cash", {
 					description: error instanceof Error ? error.message : "Unknown error",
 				});
 			}
-			closeMarkPaidModal();
 		});
 	};
 
@@ -208,7 +206,7 @@ export function BillsPage() {
 				endIndex={endIndex}
 				onPrevious={goToPrevious}
 				onNext={goToNext}
-				onMarkPaid={openMarkPaidModal}
+				onRecordCash={openCashModal}
 				onDeleteBill={openDeleteModal}
 				onViewPdf={openViewPdfModal}
 				onEditReminders={handleOpenReminderSettings}
@@ -227,11 +225,13 @@ export function BillsPage() {
 				isDeleting={isPending}
 			/>
 
-			<MarkPaidModal
-				open={markPaidModalOpen}
-				onOpenChange={closeMarkPaidModal}
-				billToMarkPaid={billToMarkPaid}
-				onConfirm={handleMarkPaidConfirm}
+			<RecordCashModal
+				open={cashModalOpen}
+				onOpenChange={(open) => {
+					if (!open) closeCashModal();
+				}}
+				bill={billForCash}
+				onConfirm={handleRecordCash}
 				isProcessing={isPending}
 			/>
 

@@ -58,7 +58,7 @@ interface BillsTableProps {
 	endIndex: number;
 	onPrevious: () => void;
 	onNext: () => void;
-	onMarkPaid: (bill: GroupedBill) => void;
+	onRecordCash: (bill: GroupedBill) => void;
 	onDeleteBill: (billId: string) => void;
 	onViewPdf: (bill: GroupedBill) => void;
 	onEditReminders: (bill: GroupedBill) => void;
@@ -78,7 +78,7 @@ export function BillsTable({
 	endIndex,
 	onPrevious,
 	onNext,
-	onMarkPaid,
+	onRecordCash,
 	onDeleteBill,
 	onViewPdf,
 	onEditReminders,
@@ -228,11 +228,11 @@ export function BillsTable({
 																variant="default"
 																size="sm"
 																disabled={processingPayments}
-																onClick={() => onMarkPaid({ bill, debts })}
+																onClick={() => onRecordCash({ bill, debts })}
 															>
 																{processingPayments
-																	? "Processing..."
-																	: "Mark Paid"}
+																	? "Recording..."
+																	: "Record cash"}
 															</Button>
 														)}
 													<DropdownMenu>

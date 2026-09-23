@@ -61,9 +61,11 @@ export interface DebtSummary {
 	}>;
 }
 
-export interface PaymentData {
+export interface CashReceiptData {
 	debtId: string;
-	amountPaid: number;
+	amountCents: number;
+	receivedAt: number;
+	note: string;
 }
 
 export interface UploadResult {

@@ -155,8 +155,29 @@ function formatReminderDate(date: Date) {
 	}).format(date);
 }
 
-export function buildBillReminderSummary(input: { payUrl: string }) {
-	return input.payUrl;
+interface ReminderCredit {
+	creditCents: number;
+	receivedAt: Date | null;
+	toPayCents: number;
+}
+
+// Names the money already received so the reminder never asks for it twice.
+export function buildCreditLine(input: ReminderCredit) {
+	const from = input.receivedAt
+		? ` from your ${formatDayMonth(input.receivedAt)} payment`
+		: "";
+	return input.toPayCents > 0
+		? `${cents(input.creditCents)} credit${from} is applied, ${cents(input.toPayCents)} to pay`
+		: `${cents(input.creditCents)} credit${from} covers this, nothing to pay`;
+}
+
+export function buildBillReminderSummary(input: {
+	payUrl: string;
+	credit: ReminderCredit | null;
+}) {
+	return input.credit && input.credit.creditCents > 0
+		? [buildCreditLine(input.credit), input.payUrl].join("\n")
+		: input.payUrl;
 }
 
 export function buildBillReminderPreviewSummary(input: {
@@ -289,5 +310,34 @@ export function buildPaymentCorrectionSummary(input: PaymentCorrectionInput) {
 				]
 			: ["Now held as credit for your next bill."]),
 		...receiptFooter(input),
+	].join("\n");
+}
+
+interface PaymentArrivedInput {
+	senderName: string;
+	amountCents: number;
+	receivedAt: Date;
+	reference: string;
+	shared: boolean;
+	suggestion: string[] | null;
+	reviewUrl: string;
+}
+
+function arrivalHint(input: PaymentArrivedInput) {
+	if (input.shared) return "Shared payment: choose how much belongs to each";
+	if (input.suggestion?.length)
+		return `Looks like ${input.suggestion.join(" + ")}`;
+	return "No matching bill";
+}
+
+export function buildPaymentArrivedSummary(input: PaymentArrivedInput) {
+	return [
+		`*Payment arrived from ${input.senderName}*`,
+		`${cents(input.amountCents)} on ${formatReminderDate(input.receivedAt)} · ${
+			input.reference ? `"${input.reference}"` : "no reference"
+		}`,
+		"",
+		arrivalHint(input),
+		`Review: ${input.reviewUrl}`,
 	].join("\n");
 }

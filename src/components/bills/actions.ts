@@ -1,6 +1,6 @@
 import {
 	deleteBill,
-	markDebtPaid,
+	recordCashReceived,
 	updateBillReminderSettings,
 } from "@/functions/bills";
 import { uploadBillPdf } from "@/functions/upload-bill";
@@ -8,24 +8,14 @@ import type {
 	BillReminderMode,
 	BillReminderOverdueCadence,
 } from "@/lib/bill-reminder-config";
+import type { CashReceiptData } from "./types";
 
 export async function deleteBillAction(billId: string) {
 	await deleteBill({ data: { billId } });
 }
 
-export async function markDebtPaidAction(data: {
-	payments: Array<{ debtId: string; amountPaid: number }>;
-}) {
-	await Promise.all(
-		data.payments.map((payment) =>
-			markDebtPaid({
-				data: {
-					debtId: payment.debtId,
-					amountPaid: payment.amountPaid,
-				},
-			}),
-		),
-	);
+export async function recordCashAction(data: CashReceiptData) {
+	await recordCashReceived({ data });
 }
 
 function bytesToBase64(bytes: Uint8Array) {

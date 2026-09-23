@@ -5,6 +5,7 @@ import { runBillPaidNotification } from "../../../workflows/bill-paid";
 import { runBillReminderNotification } from "../../../workflows/bill-reminder";
 import { runDebtPaidNotification } from "../../../workflows/debt-paid";
 import { runDueCommandNotification } from "../../../workflows/inbound-command";
+import { runPaymentArrivedNotification } from "../../../workflows/payment-arrived";
 import { runPaymentReceiptNotification } from "../../../workflows/payment-receipt";
 import { getRequestLogger } from "../../lib/request-logger";
 import type { InboundCommandType } from "../../lib/whatsapp-commands";
@@ -134,6 +135,10 @@ const ledgerWorkflows: Partial<
 	payment_correction: {
 		label: "payment-correction",
 		run: runPaymentReceiptNotification,
+	},
+	payment_arrived: {
+		label: "payment-arrived",
+		run: runPaymentArrivedNotification,
 	},
 };
 

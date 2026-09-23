@@ -173,7 +173,8 @@ async function createNotification(input: {
 		| "due_command"
 		| "assistant_message"
 		| "payment_receipt"
-		| "payment_correction";
+		| "payment_correction"
+		| "payment_arrived";
 	billId?: string | null;
 	debtId?: string | null;
 	housemateId?: string | null;
@@ -316,6 +317,7 @@ export async function getPendingPaidNotifications() {
 					"debt_paid",
 					"payment_receipt",
 					"payment_correction",
+					"payment_arrived",
 				]),
 				sql`json_extract(${whatsappNotifications.payload}, '$.workflowRunId') IS NULL`,
 			),

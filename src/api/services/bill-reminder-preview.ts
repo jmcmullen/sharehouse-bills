@@ -14,6 +14,8 @@ import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
+import { uncoveredShares } from "./bill-reminder-credit";
+import { type Credit, getCredits } from "./ledger/credit.server";
 
 const NEXT_REMINDER_PREVIEW_LOOKAHEAD_DAYS = 31;
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
@@ -58,6 +60,7 @@ type RandomBillReminderPreview = {
 	};
 	reminders: ReminderPreviewEntry[];
 	scheduledForDate: Date;
+	credit: Credit | null;
 };
 
 export async function getReminderCandidateRows() {
@@ -138,6 +141,7 @@ export function getReminderKindForRow(input: {
 function collectReminderPreviewByHousemate(
 	rows: ReminderCandidateRow[],
 	targetDate: Date,
+	credits: Map<string, Credit>,
 ) {
 	const previews = new Map<string, RandomBillReminderPreview>();
 
@@ -160,6 +164,7 @@ function collectReminderPreviewByHousemate(
 				},
 				reminders: [],
 				scheduledForDate: getReminderScheduledForDate(targetDate),
+				credit: credits.get(row.housemateId) ?? null,
 			} satisfies RandomBillReminderPreview);
 
 		preview.reminders.push({
@@ -189,7 +194,9 @@ function addUtcDays(date: Date, days: number) {
 }
 
 export async function getNextBillReminderPreview(targetDate: Date) {
-	const rows = await getReminderCandidateRows();
+	const candidates = await getReminderCandidateRows();
+	const credits = await getCredits(candidates.map((row) => row.housemateId));
+	const rows = uncoveredShares(candidates, credits);
 
 	for (
 		let offset = 0;
@@ -197,7 +204,11 @@ export async function getNextBillReminderPreview(targetDate: Date) {
 		offset += 1
 	) {
 		const preview = getRandomPreview(
-			collectReminderPreviewByHousemate(rows, addUtcDays(targetDate, offset)),
+			collectReminderPreviewByHousemate(
+				rows,
+				addUtcDays(targetDate, offset),
+				credits,
+			),
 		);
 		if (preview) {
 			return preview;

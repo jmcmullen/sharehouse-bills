@@ -152,6 +152,9 @@ async function loadDueCommandSummaryDependencies() {
 	const { getNextBillReminderPreview: getNextReminderPreview } = await import(
 		"../src/api/services/bill-reminder-preview"
 	);
+	const { owingCents, reminderCredit } = await import(
+		"../src/api/services/bill-reminder-credit"
+	);
 	const { sendWhatsappTextMessage } = await import("../src/api/services/waha");
 	const previewDate = BillPdfStorageService.getMessageCacheDate();
 	const housematePaymentNames = await getActiveHousematePaymentNames();
@@ -179,7 +182,9 @@ async function loadDueCommandSummaryDependencies() {
 		getRandomDebtPaidPreviewContext,
 		getNextReminderPreview,
 		housematePaymentNames,
+		owingCents,
 		previewDate,
+		reminderCredit,
 		sendWhatsappTextMessage,
 	};
 }
@@ -324,7 +329,13 @@ async function sendReminderPreviewSummary({
 			throw new FatalError("Unable to build a pay link for reminder preview");
 		}
 
-		return dependencies.buildBillReminderSummary({ payUrl });
+		return dependencies.buildBillReminderSummary({
+			payUrl,
+			credit: dependencies.reminderCredit(
+				reminderPreview.credit,
+				dependencies.owingCents([reminder.debt]),
+			),
+		});
 	});
 
 	await performTrackedWhatsappDelivery({

@@ -579,6 +579,22 @@ function PayHeader({
 	);
 }
 
+function CreditNote({ credit }: { credit: PayPageData["credit"] }) {
+	if (credit.appliedAmount <= 0.009) return null;
+	return (
+		<p className="rounded-lg border border-success/30 bg-success/10 px-3.5 py-3 text-[13.5px] leading-6">
+			<span className="font-semibold text-success tabular-nums">
+				{formatCurrency(credit.appliedAmount)}
+			</span>{" "}
+			credit
+			{credit.receivedAtIso
+				? ` from your ${formatCompactDate(credit.receivedAtIso)} payment`
+				: ""}{" "}
+			is applied. The amount above is what is left to pay.
+		</p>
+	);
+}
+
 function PaymentProgressSection({
 	paymentProgress,
 }: {
@@ -805,6 +821,8 @@ function PublicPayPage() {
 						recentlySettled={loaderData.recentlySettled}
 					/>
 				) : null}
+
+				{isAllSorted ? null : <CreditNote credit={loaderData.credit} />}
 
 				{!isAllSorted && loaderData.paymentProgress.settledAmount > 0 ? (
 					<PaymentProgressSection

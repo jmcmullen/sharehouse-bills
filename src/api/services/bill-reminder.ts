@@ -1,14 +1,20 @@
 import { getReminderScheduledForDate } from "../../lib/bill-reminder-schedule";
+import { uncoveredShares } from "./bill-reminder-credit";
 import {
 	getReminderCandidateRows,
 	getReminderKindForRow,
 } from "./bill-reminder-preview";
+import { getCredits } from "./ledger/credit.server";
 import { enqueueBillReminderNotification } from "./whatsapp-notification-events";
 
 export async function enqueueDueBillReminders(targetDate: Date) {
 	const scheduledForDate = getReminderScheduledForDate(targetDate);
 	const scheduledForDateIso = scheduledForDate.toISOString();
-	const rows = await getReminderCandidateRows();
+	const candidates = await getReminderCandidateRows();
+	const rows = uncoveredShares(
+		candidates,
+		await getCredits(candidates.map((row) => row.housemateId)),
+	);
 
 	let scheduledCount = 0;
 
@@ -41,6 +47,6 @@ export async function enqueueDueBillReminders(targetDate: Date) {
 	return {
 		scheduledCount,
 		stackedGroupCount: 0,
-		checkedDebtCount: rows.length,
+		checkedDebtCount: candidates.length,
 	};
 }
