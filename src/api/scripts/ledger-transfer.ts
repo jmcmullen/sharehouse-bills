@@ -21,25 +21,63 @@ const ledgerTables = [
 	"ledger_entries",
 	"ledger_sources",
 	"ledger_bank_transactions",
+	"ledger_bank_allocations",
+	"ledger_payment_evidence",
+	"ledger_bill_allocations",
+	"ledger_allocation_history",
+	"ledger_allocation_reviews",
 ] as const;
 const valueSchema = z.union([z.string(), z.number().finite(), z.null()]);
 const rowSchema = z.record(z.string(), valueSchema);
 const snapshotSchema = z.object({
-	version: z.literal(1),
+	version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
 	legacyHash: z.string(),
 	ledger_entries: z.array(rowSchema),
 	ledger_sources: z.array(rowSchema),
 	ledger_bank_transactions: z.array(rowSchema),
+	ledger_bank_allocations: z.array(rowSchema).default([]),
+	ledger_payment_evidence: z.array(rowSchema).default([]),
+	ledger_bill_allocations: z.array(rowSchema).default([]),
+	ledger_allocation_history: z.array(rowSchema).default([]),
+	ledger_allocation_reviews: z.array(rowSchema).default([]),
 	events: z.array(
 		z.object({ kind: z.string(), source_id: z.string(), payload: z.string() }),
 	),
 });
 
+function tableKeyExpression(table: (typeof ledgerTables)[number]): string {
+	if (table === "ledger_bank_allocations")
+		return "json_array(transaction_id,housemate_id)";
+	if (table === "ledger_payment_evidence")
+		return "json_array(transaction_id,source_key)";
+	if (table === "ledger_bill_allocations")
+		return "json_array(source_key,debt_id)";
+	if (table === "ledger_allocation_history") return "printf('%020d',id)";
+	return ["ledger_sources", "ledger_allocation_reviews"].includes(table)
+		? "source_key"
+		: "id";
+}
+
+function ledgerRowKey(
+	table: (typeof ledgerTables)[number],
+	row: Row | z.infer<typeof rowSchema>,
+): string {
+	if (table === "ledger_bank_allocations")
+		return JSON.stringify([row.transaction_id, row.housemate_id]);
+	if (table === "ledger_payment_evidence")
+		return JSON.stringify([row.transaction_id, row.source_key]);
+	if (table === "ledger_bill_allocations")
+		return JSON.stringify([row.source_key, row.debt_id]);
+	if (table === "ledger_allocation_history")
+		return String(row.id).padStart(20, "0");
+	return String(row[tableKeyExpression(table)]);
+}
+
 async function readLedgerRows(
 	client: Client,
 	table: (typeof ledgerTables)[number],
 ): Promise<Array<z.infer<typeof rowSchema>>> {
-	const primaryKey = table === "ledger_sources" ? "source_key" : "id";
+	const primaryKey = tableKeyExpression(table);
 	const rows: Array<z.infer<typeof rowSchema>> = [];
 	let cursor = "";
 	while (true) {
@@ -58,7 +96,7 @@ async function readLedgerRows(
 		);
 		const last = result.rows.at(-1);
 		if (!last) return rows;
-		cursor = String(last[primaryKey]);
+		cursor = ledgerRowKey(table, last);
 	}
 }
 
@@ -89,7 +127,15 @@ async function exportSnapshot(client: Client, path: string): Promise<void> {
 	)
 		throw new Error("Sync all ledger events before exporting");
 	const data = await Promise.all(
-		ledgerTables.map((table) => readLedgerRows(client, table)),
+		ledgerTables.map(async (table) => {
+			const installed = (
+				await client.execute({
+					sql: "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+					args: [table],
+				})
+			).rows.length;
+			return installed ? readLedgerRows(client, table) : [];
+		}),
 	);
 	const events = (
 		await client.execute(
@@ -97,11 +143,16 @@ async function exportSnapshot(client: Client, path: string): Promise<void> {
 		)
 	).rows;
 	const snapshot = snapshotSchema.parse({
-		version: 1,
+		version: 3,
 		legacyHash: await legacyHash(client),
 		ledger_entries: data[0],
 		ledger_sources: data[1],
 		ledger_bank_transactions: data[2],
+		ledger_bank_allocations: data[3],
+		ledger_payment_evidence: data[4],
+		ledger_bill_allocations: data[5],
+		ledger_allocation_history: data[6],
+		ledger_allocation_reviews: data[7],
 		events,
 	});
 	await writeFile(path, JSON.stringify(snapshot));
@@ -151,14 +202,15 @@ async function validateSnapshotTarget(
 			)
 		)
 			throw new Error(`Unexpected columns in ${table}`);
-		const primaryKey = table === "ledger_sources" ? "source_key" : "id";
 		const existing = new Map(
 			(await readLedgerRows(client, table)).map((row) => [
-				String(row[primaryKey]),
+				ledgerRowKey(table, row),
 				row,
 			]),
 		);
-		const expected = new Map(rows.map((row) => [String(row[primaryKey]), row]));
+		const expected = new Map(
+			rows.map((row) => [ledgerRowKey(table, row), row]),
+		);
 		for (const [key, row] of existing) {
 			const match = expected.get(key);
 			if (!match || !sameRow(row, match))
@@ -174,15 +226,14 @@ async function verifySnapshot(
 	snapshot: z.infer<typeof snapshotSchema>,
 ): Promise<void> {
 	for (const table of ledgerTables) {
-		const primaryKey = table === "ledger_sources" ? "source_key" : "id";
 		const expected = new Map(
-			snapshot[table].map((row) => [String(row[primaryKey]), row]),
+			snapshot[table].map((row) => [ledgerRowKey(table, row), row]),
 		);
 		const actual = await readLedgerRows(client, table);
 		if (
 			actual.length !== expected.size ||
 			actual.some((row) => {
-				const match = expected.get(String(row[primaryKey]));
+				const match = expected.get(ledgerRowKey(table, row));
 				return !match || !sameRow(row, match);
 			})
 		)

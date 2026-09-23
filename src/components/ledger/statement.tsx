@@ -34,34 +34,6 @@ interface VisibleEntry {
 	runningBalanceCents: number;
 	isReversal: boolean;
 }
-export function StatementSummary({
-	balanceCents,
-	dueNowCents,
-	upcomingCents,
-}: { balanceCents: number; dueNowCents: number; upcomingCents: number }) {
-	return (
-		<div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-			{[
-				{
-					label: balanceCents < 0 ? "Credit on account" : "Account balance",
-					amount: Math.abs(balanceCents),
-				},
-				{ label: "Due now", amount: dueNowCents },
-				{ label: "Upcoming", amount: upcomingCents },
-			].map((card, index) => (
-				<div
-					key={card.label}
-					className={`rounded-xl border bg-card p-5 ${index === 0 ? "col-span-2 sm:col-span-1" : ""}`}
-				>
-					<p className="text-muted-foreground text-sm">{card.label}</p>
-					<p className="mt-2 font-semibold text-2xl tabular-nums tracking-tight">
-						{ledgerMoney(card.amount)}
-					</p>
-				</div>
-			))}
-		</div>
-	);
-}
 export function StatementHistory({ entries }: { entries: VisibleEntry[] }) {
 	const [query, setQuery] = useState("");
 	const [kind, setKind] = useState("all");

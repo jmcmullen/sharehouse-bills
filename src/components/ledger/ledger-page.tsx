@@ -3,14 +3,18 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { getLedger, syncLedger } from "../../functions/ledger";
 import { Button } from "../ui/button";
+import { AllocateReceipt, RecordReceipt } from "./allocate-receipt";
+import { BillPayments, PaymentSummary } from "./bill-payments";
 import { ShareStatement } from "./share-statement";
-import { StatementHistory, StatementSummary } from "./statement";
+import { StatementHistory } from "./statement";
 
 export function LedgerPage() {
 	const initial = useLoaderData({ from: "/_app/ledger" });
 	const [data, setData] = useState(initial);
 	const [housemateId, setHousemateId] = useState("");
 	const [busy, setBusy] = useState(false);
+	const [receiptId, setReceiptId] = useState<string | null>(null);
+	const [recording, setRecording] = useState(false);
 	const [showCorrections, setShowCorrections] = useState(false);
 	async function refresh() {
 		setData(await getLedger({ data: { reviewPage: 0 } }));
@@ -38,7 +42,7 @@ export function LedgerPage() {
 						Housemate accounts
 					</h1>
 					<p className="mt-2 text-muted-foreground">
-						Every charge and approved payment, with a running balance.
+						See which bills are paid and the money that covered them.
 					</p>
 				</div>
 				<Button onClick={sync} disabled={busy}>
@@ -67,7 +71,11 @@ export function LedgerPage() {
 				<select
 					aria-label="Housemate statement"
 					value={account?.id ?? ""}
-					onChange={(e) => setHousemateId(e.target.value)}
+					onChange={(e) => {
+						setHousemateId(e.target.value);
+						setReceiptId(null);
+						setRecording(false);
+					}}
 					className="h-10 rounded-md border bg-background px-3"
 				>
 					{data.accounts.map((item) => (
@@ -88,29 +96,67 @@ export function LedgerPage() {
 			</div>
 			{account ? (
 				<>
-					<StatementSummary {...account} />
-					<p className="text-muted-foreground text-sm">
-						Credit covers charges due first and carries forward. Payments
-						awaiting approval are not counted as extra credit.
-					</p>
-					<StatementHistory
-						key={account.id}
-						entries={(showCorrections
-							? account.auditEntries
-							: account.entries
-						).map((entry) => ({
-							...entry,
-							isReversal: entry.reversesEntryId !== null,
-						}))}
+					<PaymentSummary
+						balanceCents={account.balanceCents}
+						{...account.billing}
 					/>
-					<label className="flex items-center gap-2 text-muted-foreground text-sm">
-						<input
-							type="checkbox"
-							checked={showCorrections}
-							onChange={(event) => setShowCorrections(event.target.checked)}
+					<div className="flex justify-end">
+						<Button onClick={() => setRecording(true)}>
+							Record money received
+						</Button>
+					</div>
+					<BillPayments
+						key={account.id}
+						billing={account.billing}
+						onAllocate={setReceiptId}
+					/>
+					<details className="rounded-lg border p-4">
+						<summary className="cursor-pointer text-sm">
+							Journal and running balance
+						</summary>
+						<p className="text-muted-foreground text-sm">
+							The journal retains the original records and corrections. Linked
+							manual entries appear as one receipt in Money received.
+						</p>
+						<StatementHistory
+							key={account.id}
+							entries={(showCorrections
+								? account.auditEntries
+								: account.entries
+							).map((entry) => ({
+								...entry,
+								isReversal: entry.reversesEntryId !== null,
+							}))}
 						/>
-						Include reversed entries and corrections
-					</label>
+						<label className="flex items-center gap-2 text-muted-foreground text-sm">
+							<input
+								type="checkbox"
+								checked={showCorrections}
+								onChange={(event) => setShowCorrections(event.target.checked)}
+							/>
+							Include reversed entries and corrections
+						</label>
+					</details>
+					{receiptId && (
+						<AllocateReceipt
+							key={`${account.id}:${receiptId}`}
+							housemateId={account.id}
+							receiptId={receiptId}
+							billing={account.billing}
+							onClose={() => setReceiptId(null)}
+							onSaved={refresh}
+						/>
+					)}
+					{recording && (
+						<RecordReceipt
+							key={account.id}
+							housemateId={account.id}
+							name={account.name}
+							revision={account.billing.revision}
+							onClose={() => setRecording(false)}
+							onSaved={refresh}
+						/>
+					)}
 				</>
 			) : (
 				<p>Add a housemate to start recording charges and payments.</p>

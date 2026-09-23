@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
 	index,
 	integer,
+	primaryKey,
 	sqliteTable,
 	text,
 	uniqueIndex,
@@ -61,6 +62,7 @@ export const ledgerBankTransactions = sqliteTable(
 		decision: text("decision").notNull().default("review"),
 		decisionOrigin: text("decision_origin").notNull().default("automatic"),
 		reason: text("reason").notNull().default(""),
+		reviewGroup: text("review_group"),
 		linkedSourceKey: text("linked_source_key"),
 		importedAt: integer("imported_at").notNull(),
 		updatedAt: integer("updated_at").notNull(),
@@ -87,3 +89,64 @@ export const ledgerEvents = sqliteTable(
 		pending: index("ledger_events_pending").on(table.processedAt, table.id),
 	}),
 );
+
+export const ledgerBankAllocations = sqliteTable(
+	"ledger_bank_allocations",
+	{
+		transactionId: text("transaction_id").notNull(),
+		housemateId: text("housemate_id").notNull(),
+		amountCents: integer("amount_cents").notNull(),
+	},
+	(table) => ({
+		pk: primaryKey({ columns: [table.transactionId, table.housemateId] }),
+	}),
+);
+
+export const ledgerPaymentEvidence = sqliteTable(
+	"ledger_payment_evidence",
+	{
+		transactionId: text("transaction_id").notNull(),
+		sourceKey: text("source_key").notNull().unique(),
+		amountCents: integer("amount_cents").notNull(),
+	},
+	(table) => ({
+		pk: primaryKey({ columns: [table.transactionId, table.sourceKey] }),
+	}),
+);
+
+export const ledgerBillAllocations = sqliteTable(
+	"ledger_bill_allocations",
+	{
+		sourceKey: text("source_key").notNull(),
+		debtId: text("debt_id").notNull(),
+		amountCents: integer("amount_cents").notNull(),
+		origin: text("origin").notNull(),
+	},
+	(table) => ({ pk: primaryKey({ columns: [table.sourceKey, table.debtId] }) }),
+);
+
+export const ledgerAllocationHistory = sqliteTable(
+	"ledger_allocation_history",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		sourceKey: text("source_key").notNull(),
+		debtId: text("debt_id").notNull(),
+		amountCents: integer("amount_cents").notNull(),
+		origin: text("origin").notNull(),
+		recordedAt: integer("recorded_at").notNull().default(sql`(unixepoch())`),
+	},
+);
+
+export const ledgerAllocationReviews = sqliteTable(
+	"ledger_allocation_reviews",
+	{
+		sourceKey: text("source_key").primaryKey(),
+		reviewedAt: integer("reviewed_at").notNull(),
+	},
+);
+
+export const ledgerAllocationIssues = sqliteTable("ledger_allocation_issues", {
+	sourceKey: text("source_key").primaryKey(),
+	reason: text("reason").notNull(),
+	recordedAt: integer("recorded_at").notNull().default(sql`(unixepoch())`),
+});

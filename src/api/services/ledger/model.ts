@@ -9,6 +9,7 @@ export const bankTransactionSchema = z
 				description: z.string(),
 				rawText: z.string().nullable().optional(),
 				message: z.string().nullable().optional(),
+				transactionType: z.string().nullable().optional(),
 				createdAt: z.iso.datetime({ offset: true }),
 				settledAt: z.iso.datetime({ offset: true }).nullable().optional(),
 				amount: z.object({
@@ -79,24 +80,59 @@ export function identifyHousemate(
 					name.split(" ").every((token) => tokens.has(token)),
 			);
 		});
+	const beneficiaries = namedBeneficiaries(transaction, housemates);
+	if (beneficiaries.length > 1) return null;
 	const explicit = matches(message);
 	if (explicit.length === 1) return explicit[0];
 	if (explicit.length > 1) return null;
-	const beneficiaries = housemates.filter(
-		(housemate) =>
-			!housemate.isOwner &&
-			` ${message} `.includes(` ${normalized(housemate.name).split(" ")[0]} `),
-	);
 	if (beneficiaries.length === 1) return beneficiaries[0];
-	if (beneficiaries.length > 1) return null;
 	const senders = matches(sender);
 	if (senders.length === 1) return senders[0];
 	if (senders.length > 1) return null;
 	return null;
 }
 
+export function namedBeneficiaries(
+	transaction: BankTransaction,
+	housemates: LedgerHousemate[],
+): LedgerHousemate[] {
+	const tokens = new Set(
+		normalized(transaction.attributes.message ?? "").split(" "),
+	);
+	return housemates.filter((housemate) => {
+		if (housemate.isOwner) return false;
+		const names = [
+			housemate.name,
+			...(housemate.bankAlias?.split(/[,;|\n]/) ?? []),
+		];
+		return names.some((name) => {
+			const first = normalized(name).split(" ")[0];
+			return first.length > 0 && tokens.has(first);
+		});
+	});
+}
+
+const utilityWords = [
+	"cleaners?",
+	"cleaning",
+	"bills?",
+	"gas",
+	"electricity",
+	"water",
+	"internets?",
+	"pool",
+];
+export const utilityPattern = new RegExp(
+	`\\b(${utilityWords.join("|")})\\b`,
+	"i",
+);
+export const householdPattern = new RegExp(
+	`\\b(rent|${utilityWords.join("|")})\\b`,
+	"i",
+);
+
 export function hasHouseholdReference(transaction: BankTransaction): boolean {
-	return /\b(bills|rent)\b/i.test(
+	return householdPattern.test(
 		`${transaction.attributes.message ?? ""} ${transaction.attributes.description}`,
 	);
 }
@@ -156,14 +192,12 @@ export function calculateStatement(
 				a.recordedAt - b.recordedAt ||
 				a.id.localeCompare(b.id),
 		);
-	const rows = ordered.reduce<StatementRow[]>((result, entry) => {
-		result.push({
-			...entry,
-			runningBalanceCents:
-				(result.at(-1)?.runningBalanceCents ?? 0) + entry.amountCents,
-		});
-		return result;
-	}, []);
+	const rows = ordered.map((entry, index) => ({
+		...entry,
+		runningBalanceCents: ordered
+			.slice(0, index + 1)
+			.reduce((sum, item) => sum + item.amountCents, 0),
+	}));
 	const balanceCents = rows.at(-1)?.runningBalanceCents ?? 0;
 	const scheduled = ordered.reduce(
 		(sum, entry) =>

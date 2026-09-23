@@ -15,7 +15,14 @@ test("private statement tokens isolate housemates, expire, rotate and revoke wit
    CREATE TABLE ledger_statement_links(housemate_id TEXT PRIMARY KEY,token_hash TEXT UNIQUE,created_at INTEGER,expires_at INTEGER);
    CREATE TABLE ledger_entries(id TEXT,housemate_id TEXT,source_key TEXT,kind TEXT,amount_cents INTEGER,description TEXT,bill_id TEXT,effective_at INTEGER,due_at INTEGER,recorded_at INTEGER,reverses_entry_id TEXT);
    INSERT INTO ledger_entries VALUES('1','oliver','bank:secret-bank-id','payment',-3000,'Private sender details',NULL,100,NULL,100,NULL),('2','sarah','bank:sarah','payment',-7000,'Sarah private details',NULL,100,NULL,100,NULL);
-   CREATE TABLE ledger_bank_transactions(housemate_id TEXT,decision TEXT,amount_cents INTEGER);
+   CREATE TABLE ledger_bank_transactions(id TEXT,housemate_id TEXT,decision TEXT,amount_cents INTEGER,effective_at INTEGER,message TEXT);
+   CREATE TABLE ledger_sources(source_key TEXT PRIMARY KEY,entry_id TEXT,snapshot TEXT);
+   INSERT INTO ledger_sources VALUES('bank:secret-bank-id','1','{"housemateId":"oliver","kind":"payment","amountCents":-3000,"description":"Private sender details","billId":null,"effectiveAt":100,"dueAt":null}');
+   CREATE TABLE ledger_bill_allocations(source_key TEXT,debt_id TEXT,amount_cents INTEGER);
+   CREATE TABLE ledger_allocation_issues(source_key TEXT PRIMARY KEY,reason TEXT,recorded_at INTEGER);
+   CREATE TABLE ledger_payment_evidence(source_key TEXT,transaction_id TEXT,amount_cents INTEGER);
+   CREATE TABLE bills(id TEXT,bill_type TEXT,stack_group TEXT);
+   CREATE TABLE debts(id TEXT,housemate_id TEXT,bill_id TEXT,amount_paid REAL);
    CREATE TABLE ledger_events(id INTEGER,kind TEXT,payload TEXT,processed_at INTEGER);`);
 		const link = await createStatementLink(client, "oliver", 1000);
 		const token = link.path.split("/").at(-1) ?? "";

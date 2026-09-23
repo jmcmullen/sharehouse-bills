@@ -1,4 +1,6 @@
 import { type Client, createClient } from "@libsql/client";
+import { deleteBankTransaction, ingestBankTransaction } from "./bank-ingest";
+import { withWriteTransaction } from "./sources";
 
 export function createLedgerClient(): Client {
 	return createClient({
@@ -10,9 +12,6 @@ export function createLedgerClient(): Client {
 export async function recordLedgerBankEvent(
 	transaction: unknown,
 ): Promise<void> {
-	const { ingestBankTransaction, withWriteTransaction } = await import(
-		"./store"
-	);
 	const client = createLedgerClient();
 	try {
 		await withWriteTransaction(client, (tx) =>
@@ -26,16 +25,11 @@ export async function recordLedgerBankEvent(
 export async function removeLedgerBankTransaction(
 	transactionId: string,
 ): Promise<void> {
-	const { applySource, withWriteTransaction } = await import("./store");
 	const client = createLedgerClient();
 	try {
-		await withWriteTransaction(client, async (tx) => {
-			await applySource(tx, `bank:${transactionId}`, null);
-			await tx.execute({
-				sql: "UPDATE ledger_bank_transactions SET bank_status='DELETED',decision='review',decision_origin='review',reason='Bank transaction deleted; verify any linked manual payment',updated_at=max(updated_at+1,?) WHERE id=?",
-				args: [Math.floor(Date.now() / 1000), transactionId],
-			});
-		});
+		await withWriteTransaction(client, (tx) =>
+			deleteBankTransaction(tx, transactionId),
+		);
 	} finally {
 		client.close();
 	}

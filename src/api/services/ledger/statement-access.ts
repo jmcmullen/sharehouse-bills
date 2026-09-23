@@ -1,9 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Client } from "@libsql/client";
+import { type AccountPayments, getAccountPayments } from "./account-payments";
+import { drainLedgerEvents } from "./events";
 import { type StatementRow, currentStatement } from "./model";
-import { drainLedgerEvents, getAccountStatement } from "./store";
+import { getAccountStatement } from "./sources";
 
 interface PrivateStatement {
+	billing: ReturnType<typeof privateBilling>;
 	name: string;
 	expiresAt: number;
 	asOf: number;
@@ -68,6 +71,9 @@ export async function getPrivateStatement(
 		await getAccountStatement(client, String(housemate.id), now),
 		now,
 	);
+	const billing = privateBilling(
+		await getAccountPayments(client, String(housemate.id), now),
+	);
 	const review = (
 		await client.execute({
 			sql: "SELECT count(*) AS count FROM ledger_bank_transactions WHERE housemate_id=? AND decision='review' AND amount_cents>0",
@@ -82,6 +88,7 @@ export async function getPrivateStatement(
 		).rows[0].count,
 	);
 	return {
+		billing,
 		name: String(housemate.name),
 		expiresAt: Number(housemate.expires_at),
 		asOf: now,
@@ -107,6 +114,38 @@ export async function getPrivateStatement(
 							].join(" · ")
 					: entry.description,
 			isReversal: entry.reversesEntryId !== null,
+		})),
+	};
+}
+
+function privateBilling(account: AccountPayments) {
+	const id = (value: string): string =>
+		createHash("sha256").update(value).digest("hex").slice(0, 24);
+	return {
+		unallocatedCents: account.unallocatedCents,
+		unpaidCents: account.unpaidCents,
+		allocationReviewCount: account.allocationReviewCount,
+		bills: account.bills.map((bill) => ({
+			...bill,
+			payments: bill.payments.map((payment) => ({
+				...payment,
+				receiptId: id(payment.receiptId),
+			})),
+		})),
+		receipts: account.receipts.map((receipt) => ({
+			id: id(receipt.id),
+			description:
+				receipt.amountCents >= 0 ? "Payment received" : "Payment adjustment",
+			amountCents: receipt.amountCents,
+			receivedAt: receipt.receivedAt,
+			receivedDateKnown: receipt.receivedDateKnown,
+			recordedAt: receipt.recordedAt,
+			bankMatched: receipt.bankMatched,
+			manual: receipt.manual,
+			rentOnly: receipt.rentOnly,
+			allocations: receipt.allocations,
+			unallocatedCents: receipt.unallocatedCents,
+			allocationIssue: receipt.allocationIssue,
 		})),
 	};
 }

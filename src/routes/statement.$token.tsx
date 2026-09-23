@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
-	StatementHistory,
-	StatementSummary,
-	ledgerTime,
-} from "../components/ledger/statement";
+	BillPayments,
+	PaymentSummary,
+} from "../components/ledger/bill-payments";
+import { StatementHistory, ledgerTime } from "../components/ledger/statement";
 import { getHousemateStatement } from "../functions/ledger-statement";
 
 export const Route = createFileRoute("/statement/$token")({
@@ -55,10 +55,11 @@ function HousemateStatement() {
 					statement before relying on this balance.
 				</output>
 			)}
-			<StatementSummary {...data} />
+			<PaymentSummary balanceCents={data.balanceCents} {...data.billing} />
+			<BillPayments billing={data.billing} />
 			<p className="text-muted-foreground text-sm">
-				Payments reduce your account balance. Credit covers charges due first
-				and carries forward to future bills.
+				Money received reduces your balance once. Bill status shows where that
+				money has been allocated.
 			</p>
 			{data.reviewCount > 0 && (
 				<p className="rounded-lg border p-4 text-sm">
@@ -67,7 +68,12 @@ function HousemateStatement() {
 					already be recorded manually.
 				</p>
 			)}
-			<StatementHistory entries={data.entries} />
+			<details className="rounded-lg border p-4">
+				<summary className="cursor-pointer text-sm">
+					Journal and running balance
+				</summary>
+				<StatementHistory entries={data.entries} />
+			</details>
 			<footer className="border-t pt-4 text-muted-foreground text-xs">
 				<p>Viewed {ledgerTime(data.asOf)}. All times are Sydney time.</p>
 				<p className="mt-2">

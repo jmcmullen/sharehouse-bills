@@ -1,340 +1,205 @@
-![Screenshot](./docs/screenshot.png)
-
 # Sharehouse Bills
 
-A modern bill management system for shared housing, built with a simplified TanStack Start architecture. Automatically processes bill PDFs via email, splits costs among housemates, and tracks payments.
-
-## 🏗️ Architecture
-
-- **Frontend & Backend**: TanStack Start with React 19
-- **Database**: Drizzle ORM with SQLite/Turso
-- **Authentication**: Better Auth with session management
-- **AI Processing**: Google Gemini 2.5 Flash for PDF parsing
-- **Payment Integration**: Up Bank webhooks for automatic reconciliation
-- **UI Components**: shadcn/ui with Tailwind CSS
-- **Type Safety**: End-to-end TypeScript
-
-## ✨ Features
-
-### 📧 Email Bill Processing
-
-- Receive or manually upload bill emails through Resend/webhook ingestion
-- AI automatically extracts bill details (amount, due date, biller)
-- Creates bills and splits costs among active housemates
-- Sends email notifications with processing results
-- Posts in a WhatsApp group telling housemates about the new bill
-
-For local webhook testing with Cloudflare Tunnel, see [docs/local-webhooks.md](./docs/local-webhooks.md).
-
-### 🔄 Recurring Bills
-
-- Automated recurring bill generation for rent and other repeating charges
-- Recurring bill management UI
-- Customizable recurring bill templates
-- Weekly, monthly, and yearly schedules
-- Equal or custom split strategies
-- Cron job integration for automation
-
-## 🔄 Recurring Bills
-
-Recurring bills are first-class templates in the app. They are used for rent
-and any other repeating household charge that should generate bills on a
-schedule.
-
-### What a recurring bill template contains
-
-Each template stores:
-
-- template name
-- biller name
-- total amount
-- frequency: weekly, fortnightly, monthly, or yearly
-- schedule details such as day of week or day of month
-- start date and optional end date
-- active/paused state
-- split strategy
-- assigned housemates
-
-### Split strategies
-
-Recurring bills support two split modes:
-
-- `equal`  
-  the total amount is divided evenly across all included housemates in the
-  template
-- `custom`  
-  each non-owner housemate can be assigned an explicit amount
-
-For custom splits, owner share is treated as the remainder when applicable.
-
-### Generation behavior
-
-When a recurring bill becomes due:
-
-- the system creates a new `bill` row
-- debt rows are created for the relevant non-owner housemates
-- the bill is linked back to the originating recurring bill template
-- any existing housemate credit is automatically applied to the new debts
-
-Duplicate generation is prevented for the same template and due date.
-
-### Rent
-
-Weekly rent is now managed through the recurring bill system rather than a
-special separate flow. That means rent uses the same template, schedule,
-assignment, preview, and generation logic as any other recurring bill.
-
-### UI management
-
-Recurring bills can be managed from the app UI:
-
-- create a recurring bill template
-- edit schedule and amount
-- change included housemates
-- switch between equal and custom splits
-- pause or resume a template
-- delete a template
-- manually generate the next bill
-- preview the next due date and expected split
-
-### Automation
-
-Recurring bills can be generated in two ways:
-
-- manually from the UI using "Generate now"
-- automatically from the cron endpoint
-
-The cron flow only generates bills that are currently due and active.
-
-### 👥 Housemate Management
-
-- Add/edit/deactivate housemates
-- Track individual debt history and payment statistics
-- Assign custom amounts for specific bills
-- View payment rates and outstanding balances
-
-### 💰 Payment Tracking
-
-- Mark individual debts as paid
-- Bill status tracking (pending, partially paid, paid)
-- Summary dashboard with payment statistics
-- Individual housemate debt views
-- Up Bank webhook reconciliation for incoming transfers
-- Oldest-first allocation across unpaid debts for matching housemates
-- Partial payment support and automatic credit carry-forward
-- Opt-in payment parsing so non-bill transfers can be ignored safely
-
-### 🚧 Planned Features
-
-- **Smart Payment Matching**: AI-powered transaction-to-debt matching
-
-## 💸 Up Bank Payment Reconciliation
-
-Incoming Up Bank transfers are processed by the `/api/up-webhook` endpoint.
-The webhook verifies Up's request signature, fetches the full transaction from
-the Up API, and then decides whether the transfer should affect bill balances.
-
-### Opt-in parsing
-
-The system is intentionally opt-in.
-
-A transfer is only treated as a bill payment if the note contains at least one
-billing keyword:
-
-- `rent`
-- `bill`
-- `bills`
-
-If none of those words are present, the payment is ignored by the bill
-reconciliation system and recorded as an ignored transfer.
-
-Examples that are ignored:
-
-- `iou`
-- `dinner`
-- `movie tickets`
-- `jay`
-
-This prevents normal transfers between housemates from being accidentally
-applied to rent or bills.
-
-### Case-insensitive matching
-
-Payment note parsing is case-insensitive.
-
-These are treated the same way:
-
-- `rent jay`
-- `Rent Jay`
-- `RENT JAY`
-- `Bills For Jay`
-
-### Beneficiary-first matching
-
-If a billing keyword is present, the parser tries to find the beneficiary:
-the person whose debts should be paid.
-
-Supported natural variants include:
-
-- `rent jay`
-- `bills jay`
-- `for jay rent`
-- `rent for jay`
-- `jay bills`
-- `paying jay rent`
-- `jay's rent`
-- `jay bill`
-
-The parser uses normalized housemate names plus `bankAlias` values, and only
-accepts a match when exactly one housemate is identified.
-
-### Fallback matching
-
-If the note contains a billing keyword but does not clearly name a beneficiary,
-the system falls back to sender inference using the transaction text from Up:
-
-- description
-- message
-- raw text
-
-It tries to match a unique housemate by:
-
-- alias
-- full name
-- first name
-
-If that fallback is still ambiguous, the payment is left unreconciled for
-manual review instead of being guessed.
-
-### Allocation rules
-
-Once a beneficiary is identified, the payment is applied to that housemate's
-debts using these rules:
-
-- the system first tries to match debts whose remaining amounts add up to the transfer amount
-- if there is no exact amount match, it falls back to oldest unpaid debts first
-- payments can be split across multiple debts automatically
-- partial payments are supported
-- debts track both `amountOwed` and `amountPaid`
-- bill status updates automatically to `pending`, `partially_paid`, or `paid`
-
-This means a single transfer can:
-
-- fully pay one debt
-- fully pay several debts
-- partially pay the next debt if the amount runs out partway through
-
-### Credit carry-forward
-
-If a housemate pays more than they currently owe, the leftover amount is stored
-as housemate credit.
-
-That credit is then automatically applied to future debts for the same
-housemate when new bills are created.
-
-### Practical examples
-
-- `iou`  
-  ignored
-- `rent jay`  
-  applies to Jay's oldest debts
-- `bills for jay`  
-  applies to Jay's oldest debts
-- `rent` from a uniquely identifiable housemate  
-  applies to that housemate
-- `rent sam alex`  
-  unreconciled because the beneficiary is ambiguous
-- `bills jay` with an amount larger than Jay's outstanding balance  
-  pays Jay's debts and stores the remainder as credit
-
-### Current limitation
-
-The webhook currently reconciles on Up's `TRANSACTION_CREATED` event. That
-means settlement/reversal handling is still a separate hardening step if you
-want bank-state reconciliation to wait for final settlement.
-
-## 🚀 Getting Started
+Sharehouse Bills is a full-stack household billing app. It turns emailed,
+uploaded, and recurring bills into per-housemate debts, reconciles matching Up
+Bank transfers, and keeps the house updated through WhatsApp.
+
+## WhatsApp integration
+
+New and settled bills are shared as rich link previews, so the house can see the
+important details without opening the app.
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="./docs/whatsapp-bill-created.jpg" alt="WhatsApp preview for a newly created cleaners bill">
+    </td>
+    <td width="50%">
+      <img src="./docs/whatsapp-bill-paid.jpg" alt="WhatsApp preview for a cleaners bill that has been paid in full">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><strong>New bill</strong></td>
+    <td align="center"><strong>Paid in full</strong></td>
+  </tr>
+</table>
+
+The WAHA-powered integration:
+
+- posts a bill card to the configured group when a bill is created
+- posts a settled card when a shared bill is paid in full
+- sends private reminders, pay links, and payment receipts to housemates
+- answers private natural-language questions about balances, bill breakdowns,
+  overdue and upcoming bills, payment history, receipts, and pay links
+- responds to group commands such as `due` while ignoring ordinary group chat
+- generates custom Open Graph cards for bill, pay, and receipt links
+- verifies inbound webhook HMACs and runs delivery through tracked, retryable
+  workflows
+
+Inbound WhatsApp events are handled at `POST /api/hooks/whatsapp`.
+
+## Features
+
+### Bill ingestion and management
+
+- Receive PDF bills through a verified Resend inbound webhook at
+  `POST /api/hooks/email`.
+- Upload PDF bills manually from the dashboard.
+- Extract known AGL, Hudson McHugh, and Neptune bill formats directly, with
+  Vertex AI/Gemini as the general PDF fallback.
+- Store source PDFs in Vercel Blob and avoid duplicate bill imports.
+- Split bills across selected housemates using equal or custom amounts.
+- Track pending, partially paid, and paid bills, including each housemate's
+  outstanding balance and payment history.
+- Manage housemates, bank aliases, WhatsApp numbers, credit balances, and active
+  status.
+
+### Recurring bills and reminders
+
+- Create reusable weekly, fortnightly, monthly, or yearly bill templates.
+- Use equal or custom splits and choose the participating housemates.
+- Pause, resume, edit, delete, preview, or manually generate templates.
+- Generate due templates automatically through the authenticated cron route.
+- Configure individual or stacked WhatsApp reminders before and after a due
+  date.
+- Apply existing housemate credit automatically when a new debt is created.
+
+The cron route, `GET /api/cron`, generates due recurring bills and queues due
+reminders. It requires `CRON_SECRET` as a bearer token or `secret` query
+parameter.
+
+### Up Bank payment reconciliation
+
+Incoming transfers are handled at `POST /api/hooks/up`. The route verifies Up's
+request signature, fetches the complete transaction, and processes incoming
+`TRANSACTION_CREATED` events.
+
+Reconciliation is deliberately conservative:
+
+- a transfer note must contain `rent`, `bill`, or `bills`
+- the beneficiary is resolved from an explicit name or bank alias, then from
+  sender details when there is one unambiguous match
+- the amount must exactly match one open debt or an exact combination of open
+  debts
+- unmatched or ambiguous transfers are recorded as unreconciled instead of
+  being guessed
+- non-billing transfers are recorded as ignored
+- successful matches update debts and bill status and can trigger WhatsApp
+  receipt and paid-in-full notifications
+
+The current webhook reacts to transaction creation. Settlement, reversal, and
+deletion events are not yet applied to bill state.
+
+### Public payment views
+
+- Public bill pages show the total, per-person split, due date, and payment
+  progress.
+- Signed housemate pay links group outstanding bills and show what remains.
+- Signed receipt links confirm a settled debt and link back to any remaining
+  balance.
+- Dedicated Open Graph image routes produce the WhatsApp cards shown above.
+
+## Architecture
+
+- **Application:** TanStack Start, React 19, Vite, and Nitro
+- **UI:** Tailwind CSS 4, shadcn/ui, Radix UI, and Recharts
+- **Database:** Drizzle ORM with SQLite/Turso
+- **Authentication:** Better Auth
+- **Bill extraction and assistant:** Google Vertex AI/Gemini
+- **Email:** Resend inbound webhooks and result notifications
+- **Payments:** Up Bank API and signed webhooks
+- **WhatsApp:** WAHA plus durable workflow jobs
+- **File storage:** Vercel Blob
+- **Observability:** evlog structured request and workflow logging
+
+## Getting started
+
+### Prerequisites
+
+- [Bun](https://bun.sh/) 1.2 or newer
+- a Turso/libSQL database
+- the provider credentials for whichever integrations you enable
 
 ### Installation
-
-1. **Clone and install dependencies:**
 
 ```bash
 git clone https://github.com/jmcmullen/sharehouse-bills.git
 cd sharehouse-bills
 bun install
-```
-
-2. **Set up environment variables:**
-
-```bash
 cp .env.example .env
 ```
 
-3. **Set up the database:**
+Configure `.env` before starting the app. The main groups are:
+
+| Capability | Environment variables |
+| --- | --- |
+| App and database | `VITE_BASE_URL`, `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `BETTER_AUTH_SECRET` |
+| Bill PDFs and AI | `BLOB_READ_WRITE_TOKEN`, `GOOGLE_CLOUD_REGION`, `GOOGLE_VERTEX_PROJECT`, `GOOGLE_CLIENT_EMAIL`, `GOOGLE_PRIVATE_KEY` |
+| Resend email | `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `WEBHOOK_EMAIL_TO`, `WEBHOOK_EMAIL_FROM` |
+| Up Bank | `UP_BANK_API_TOKEN`, `UP_BANK_WEBHOOK_SECRET`, `PAY_ID` |
+| WhatsApp/WAHA | `WAHA_BASE_URL`, `WAHA_API_KEY`, `WAHA_SESSION_NAME`, `WAHA_WEBHOOK_SECRET`, `WHATSAPP_GROUP_CHAT_ID`, `WHATSAPP_ADMIN` |
+| Public links and automation | `REMINDER_LINK_SECRET`, `CRON_SECRET`, `RECURRING_BILL_GENERATION_LEAD_DAYS` |
+
+Push the schema and start the development server:
 
 ```bash
 bun db:push
-```
-
-4. **Start the development server:**
-
-```bash
 bun dev
 ```
 
-Open [http://localhost:3001](http://localhost:3001) to view the application.
+The app runs at [http://localhost:4000](http://localhost:4000). For local Resend
+webhook setup with Cloudflare Tunnel, see
+[docs/local-webhooks.md](./docs/local-webhooks.md).
 
-## 📁 Project Structure
+## Available scripts
 
-```
+| Command | Purpose |
+| --- | --- |
+| `bun dev` | Start Vite on port 4000 |
+| `bun run build` | Create a production build |
+| `bun serve` | Preview the production build |
+| `bun typecheck` | Run TypeScript without emitting files |
+| `bun check` | Run Biome formatting, linting, and import organization |
+| `bun tunnel` | Run the configured Cloudflare tunnel |
+| `bun db:push` | Push the current Drizzle schema |
+| `bun db:generate` | Generate Drizzle migrations |
+| `bun db:migrate` | Apply database migrations |
+| `bun db:studio` | Open Drizzle Studio |
+| `bun db:seed` | Seed local development data |
+| `bun db:repair-recurring` | Repair recurring-bill generation dates |
+
+## Project structure
+
+```text
 sharehouse-bills/
 ├── src/
-│   ├── api/                    # Database & server-side logic
-│   │   ├── db/                 # Database schema & connection
-│   │   │   └── schema/         # Drizzle schema files
-│   │   ├── services/           # Business logic services
-│   │   └── lib/                # Auth & utilities
-│   ├── functions/              # TanStack Start server functions
-│   │   ├── bills.ts            # Bill management functions
-│   │   ├── housemates.ts       # Housemate management functions
-│   │   └── todo.ts             # Test functionality
-│   ├── routes/                 # File-based routing
-│   │   ├── api.*.ts            # API route handlers
-│   │   ├── bills.tsx           # Bills dashboard
-│   │   ├── housemates.tsx      # Housemates management
-│   │   └── login.tsx           # Authentication
-│   ├── components/             # Reusable UI components
-│   └── lib/                    # Client utilities
-├── package.json                # Single package configuration
-├── drizzle.config.ts          # Database configuration
-└── vite.config.ts             # Build configuration
+│   ├── api/
+│   │   ├── db/                 # Drizzle connection, schema, and migrations
+│   │   └── services/           # Domain logic and external integrations
+│   ├── components/             # Feature components and UI primitives
+│   ├── functions/              # Authenticated TanStack server functions
+│   ├── lib/                    # Shared application utilities
+│   └── routes/                 # App pages, public views, and API handlers
+├── workflows/                  # Retryable WhatsApp delivery workflows
+├── docs/                       # Screenshots and local webhook notes
+├── public/                     # Static assets
+├── drizzle.config.ts
+├── vite.config.ts
+└── package.json
 ```
 
-## 🛠️ Available Scripts
+`src/routeTree.gen.ts` is generated by TanStack Router and should not be edited
+manually.
 
-### Development
+## Contributing
+
+Before opening a pull request, run:
 
 ```bash
-bun dev                   # Start development server (port 3001)
-bun build                 # Build for production
-bun typecheck             # Check TypeScript types
-bun check                 # Run Biome formatting and linting
+bun check
+bun typecheck
+bun run build
 ```
 
-### Database
-
-```bash
-bun db:push               # Push schema changes to database
-bun db:studio             # Open Drizzle Studio
-bun db:generate           # Generate database migrations
-bun db:migrate            # Run database migrations
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Run `bun check` for linting
-4. Run `bun typecheck` for type checking
-5. Submit a pull request
+Use concise Conventional Commit subjects such as `fix: handle duplicate bill`
+or `feat: add payment receipt`.

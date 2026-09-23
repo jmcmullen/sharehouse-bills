@@ -1,5 +1,15 @@
 # Housemate ledger migration
 
+The latest implementation and migration results are in [Payments and bill allocations](payment-bill-allocations-2026-09-11.md). All 19 manual payments now retain their bill assignments, and matched bank evidence confirms the same money. Earlier figures below are historical snapshots.
+
+Current review rules and the 11 September cleanup are documented in [Housemate-only payment review](payment-review-housemates-only-2026-09-11.md). The live queue now contains 25 housemate payments. Unmatched personal receipts are ignored. Earlier reconciliation figures below are historical snapshots.
+
+## Latest update: simpler payment review
+
+The approved simplification was applied on 8 September 2026. The live queue is now **39 current cases** and Oliver's ledger balance is **$1,746.87**, after crediting the seven receipts totalling **$424.28**. Missing references remain reviewable; cleaning, bill/rent and utility references are accepted. Other housemate balances and legacy financial records are unchanged. The $776 exclusion remains in place.
+
+See [payment review simplification](payment-review-simplification-2026-09-08.md) for current rules, remaining cases, split/batch workflows and verification. Migration 0011 is applied live; the accompanying application changes are not yet committed or deployed. The stricter Bills/Rent-only policy and its queue counts below are superseded historical records.
+
 The new ledger is implemented alongside the existing payment system. Migration `0009_housemate_ledger` and the historical import were applied to the live database on 8 September 2026. Full read-back verification passed, the seven legacy financial tables were unchanged, and no ledger events remained pending at verification.
 
 The application changes are local and have not been deployed. After deployment, the authenticated `/ledger` page provides account statements and a bank-payment review queue. Existing payment links, bill paid flags and reminders still use the legacy system during this review period.

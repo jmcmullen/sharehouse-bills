@@ -1,7 +1,8 @@
 import type { Client } from "@libsql/client";
 import { z } from "zod";
+import { ingestBankTransaction } from "./bank-ingest";
 import { bankTransactionSchema } from "./model";
-import { ingestBankTransaction, withWriteTransaction } from "./store";
+import { withWriteTransaction } from "./sources";
 
 const pageSchema = z.object({
 	data: z.array(bankTransactionSchema),

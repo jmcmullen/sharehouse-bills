@@ -10,6 +10,7 @@ import {
 	updateBillReminderSettingsAction,
 	uploadBillAction,
 } from "./actions";
+import { BillVerificationSection } from "./bill-verification";
 import { BillsTable } from "./bills-table";
 import { useBillModals } from "./hooks/use-bill-modals";
 import { useFileUpload } from "./hooks/use-file-upload";
@@ -30,7 +31,7 @@ import {
 } from "./utils";
 
 export function BillsPage() {
-	const { billsData } = useLoaderData({ from: "/_app/bills" });
+	const { billsData, verification } = useLoaderData({ from: "/_app/bills" });
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();
 
@@ -216,6 +217,8 @@ export function BillsPage() {
 				deletingBill={isPending}
 				billToDelete={billToDelete}
 			/>
+
+			<BillVerificationSection data={verification} />
 
 			<DeleteBillModal
 				open={deleteModalOpen}
