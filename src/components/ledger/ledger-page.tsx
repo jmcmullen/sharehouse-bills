@@ -1,29 +1,44 @@
-import { Link, useLoaderData } from "@tanstack/react-router";
+import {
+	Link,
+	useLoaderData,
+	useNavigate,
+	useRouter,
+	useSearch,
+} from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { getLedger, syncLedger } from "../../functions/ledger";
+import { getLedgerAccount, syncLedger } from "../../functions/ledger";
 import { Button } from "../ui/button";
 import { AllocateReceipt, RecordReceipt } from "./allocate-receipt";
 import { BillPayments, PaymentSummary } from "./bill-payments";
 import { ShareStatement } from "./share-statement";
 import { StatementHistory } from "./statement";
 
+type Account = Awaited<ReturnType<typeof getLedgerAccount>>;
+
 export function LedgerPage() {
-	const initial = useLoaderData({ from: "/_app/ledger" });
-	const [data, setData] = useState(initial);
-	const [housemateId, setHousemateId] = useState("");
+	const loaded = useLoaderData({ from: "/_app/ledger" });
+	const { housemateId } = useSearch({ from: "/_app/ledger" });
+	const navigate = useNavigate({ from: "/ledger" });
+	const router = useRouter();
+	const [patch, setPatch] = useState<{
+		source: typeof loaded;
+		accounts: Record<string, Account>;
+	}>({ source: loaded, accounts: {} });
 	const [busy, setBusy] = useState(false);
 	const [receiptId, setReceiptId] = useState<string | null>(null);
 	const [recording, setRecording] = useState(false);
 	const [showCorrections, setShowCorrections] = useState(false);
-	async function refresh() {
-		setData(await getLedger({ data: { reviewPage: 0 } }));
+	const patches = patch.source === loaded ? patch.accounts : {};
+	async function reload(id: string) {
+		const account = await getLedgerAccount({ data: { housemateId: id } });
+		setPatch({ source: loaded, accounts: { ...patches, [id]: account } });
 	}
 	async function sync() {
 		setBusy(true);
 		try {
 			await syncLedger();
-			await refresh();
+			await router.invalidate();
 			toast.success("Statement is up to date");
 		} catch {
 			toast.error("Could not refresh the statement");
@@ -31,9 +46,11 @@ export function LedgerPage() {
 			setBusy(false);
 		}
 	}
-	if (!data.available) return <p>The ledger migration is not installed yet.</p>;
+	if (!loaded.available)
+		return <p>The ledger migration is not installed yet.</p>;
+	const accounts = loaded.accounts.map((item) => patches[item.id] ?? item);
 	const account =
-		data.accounts.find((item) => item.id === housemateId) ?? data.accounts[0];
+		accounts.find((item) => item.id === housemateId) ?? accounts[0];
 	return (
 		<div className="mx-auto max-w-5xl space-y-6">
 			<header className="flex flex-wrap items-start justify-between gap-4">
@@ -58,27 +75,21 @@ export function LedgerPage() {
 					to="/payment-review"
 					className="font-medium underline underline-offset-4"
 				>
-					Review payments ({data.totalReviewCount})
+					Review payments
 				</Link>
 			</div>
-			{data.pendingEvents > 0 && (
-				<output className="block rounded-lg border p-4 text-sm">
-					{data.pendingEvents} changes are waiting to be synced. Refresh
-					accounts to update the balances.
-				</output>
-			)}
 			<div className="flex flex-wrap justify-between gap-3">
 				<select
 					aria-label="Housemate statement"
 					value={account?.id ?? ""}
 					onChange={(e) => {
-						setHousemateId(e.target.value);
 						setReceiptId(null);
 						setRecording(false);
+						void navigate({ search: { housemateId: e.target.value } });
 					}}
 					className="h-10 rounded-md border bg-background px-3"
 				>
-					{data.accounts.map((item) => (
+					{accounts.map((item) => (
 						<option key={item.id} value={item.id}>
 							{item.name}
 						</option>
@@ -90,7 +101,7 @@ export function LedgerPage() {
 						housemateId={account.id}
 						name={account.name}
 						expiresAt={account.linkExpiresAt}
-						onChanged={refresh}
+						onChanged={() => reload(account.id)}
 					/>
 				)}
 			</div>
@@ -144,7 +155,7 @@ export function LedgerPage() {
 							receiptId={receiptId}
 							billing={account.billing}
 							onClose={() => setReceiptId(null)}
-							onSaved={refresh}
+							onSaved={() => reload(account.id)}
 						/>
 					)}
 					{recording && (
@@ -154,7 +165,7 @@ export function LedgerPage() {
 							name={account.name}
 							revision={account.billing.revision}
 							onClose={() => setRecording(false)}
-							onSaved={refresh}
+							onSaved={() => reload(account.id)}
 						/>
 					)}
 				</>

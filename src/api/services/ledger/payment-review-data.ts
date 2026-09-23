@@ -19,7 +19,7 @@ export const reviewFiltersSchema = z.object({
 	query: z.string().max(100).default(""),
 });
 
-export async function getPaymentReview(
+export async function loadPaymentReview(
 	client: Pick<Client, "execute">,
 	input: z.input<typeof reviewFiltersSchema>,
 ) {

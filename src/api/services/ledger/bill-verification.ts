@@ -23,8 +23,6 @@ export interface BillShare {
 	amountCents: number;
 	paidCents: number;
 	remainingCents: number;
-	legacyPaidCents: number;
-	mismatch: boolean;
 	receipts: ShareReceipt[];
 }
 export type BillVerificationStatus = "paid" | "part" | "unpaid" | "check";
@@ -63,7 +61,7 @@ interface Housemate {
 	name: string;
 }
 
-export async function getBillVerification(
+export async function loadBillVerification(
 	client: Executor,
 ): Promise<BillVerification> {
 	const installed = await client.execute(
@@ -147,8 +145,6 @@ function toShare(
 		amountCents: view.amountCents,
 		paidCents: view.paidCents,
 		remainingCents: view.remainingCents,
-		legacyPaidCents: view.legacyPaidCents,
-		mismatch: view.legacyPaidCents !== view.paidCents,
 		receipts: view.payments.flatMap((payment) => {
 			const receipt = receipts.find((item) => item.id === payment.receiptId);
 			if (!receipt) return [];
@@ -186,10 +182,7 @@ function finalise(bill: VerifiedBill): VerifiedBill {
 function statusOf(shares: BillShare[]): BillVerificationStatus {
 	if (
 		shares.some(
-			(share) =>
-				share.mismatch ||
-				share.paidCents > share.amountCents ||
-				share.paidCents < 0,
+			(share) => share.paidCents > share.amountCents || share.paidCents < 0,
 		)
 	)
 		return "check";

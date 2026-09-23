@@ -1,4 +1,7 @@
+import type { Client } from "@libsql/client";
 import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { settleLedger } from "../api/services/ledger-sync.server";
 import { getAccountPayments } from "../api/services/ledger/account-payments";
 import {
 	allocateReceipt,
@@ -10,7 +13,7 @@ import { createLedgerClient } from "../api/services/ledger/client.server";
 import { drainLedgerEvents } from "../api/services/ledger/events";
 import { currentStatement } from "../api/services/ledger/model";
 import {
-	getPaymentReview,
+	loadPaymentReview,
 	reviewFiltersSchema,
 } from "../api/services/ledger/payment-review-data";
 import {
@@ -19,126 +22,162 @@ import {
 	reviewBankTransactions,
 	reviewDecisionSchema,
 } from "../api/services/ledger/review-decisions";
-import { getAccountStatement } from "../api/services/ledger/sources";
+import {
+	type Executor,
+	getAccountStatement,
+	nowSeconds,
+} from "../api/services/ledger/sources";
+import { startPendingPaidNotifications } from "../api/services/whatsapp-notification-events";
 import { authMiddleware } from "../lib/auth-middleware";
 
-export const getLedger = createServerFn({ method: "GET" })
+interface Housemate {
+	id: string;
+	name: string;
+}
+
+async function ledgerAvailable(client: Executor): Promise<boolean> {
+	const tables = await client.execute(
+		"SELECT name FROM sqlite_master WHERE type='table' AND name='ledger_entries'",
+	);
+	return tables.rows.length > 0;
+}
+
+async function loadHousemates(
+	client: Executor,
+	housemateId?: string,
+): Promise<Housemate[]> {
+	const result = await client.execute({
+		sql: "SELECT id,name FROM housemates WHERE is_owner=0 AND (?1 IS NULL OR id=?1) ORDER BY name",
+		args: [housemateId ?? null],
+	});
+	return result.rows.map((row) => ({
+		id: String(row.id),
+		name: String(row.name),
+	}));
+}
+
+async function loadAccount(client: Executor, housemate: Housemate) {
+	const [statement, billing, links] = await Promise.all([
+		getAccountStatement(client, housemate.id),
+		getAccountPayments(client, housemate.id),
+		client.execute({
+			sql: "SELECT expires_at FROM ledger_statement_links WHERE housemate_id=?",
+			args: [housemate.id],
+		}),
+	]);
+	const link = links.rows[0];
+	return {
+		...housemate,
+		...currentStatement(statement, nowSeconds()),
+		auditEntries: statement.entries,
+		billing,
+		linkExpiresAt: link ? Number(link.expires_at) : null,
+	};
+}
+
+async function withClient<T>(
+	operation: (client: Client) => Promise<T>,
+): Promise<T> {
+	const client = createLedgerClient();
+	try {
+		return await operation(client);
+	} finally {
+		client.close();
+	}
+}
+
+export const getLedgerAccounts = createServerFn({ method: "GET" })
+	.middleware([authMiddleware])
+	.handler(() =>
+		withClient(async (client) => {
+			if (!(await ledgerAvailable(client)))
+				return { available: false as const };
+			await drainLedgerEvents(client);
+			const housemates = await loadHousemates(client);
+			const accounts = await Promise.all(
+				housemates.map((housemate) => loadAccount(client, housemate)),
+			);
+			return { available: true as const, accounts };
+		}),
+	);
+
+export const getLedgerAccount = createServerFn({ method: "GET" })
+	.middleware([authMiddleware])
+	.inputValidator(z.object({ housemateId: z.string().min(1) }))
+	.handler(({ data }) =>
+		withClient(async (client) => {
+			await drainLedgerEvents(client);
+			const [housemate] = await loadHousemates(client, data.housemateId);
+			if (!housemate) throw new Error("Housemate not found");
+			return loadAccount(client, housemate);
+		}),
+	);
+
+export const getPaymentReview = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
 	.inputValidator(reviewFiltersSchema)
-	.handler(async ({ data }) => {
-		const client = createLedgerClient();
-		try {
-			const available =
-				(
-					await client.execute(
-						"SELECT name FROM sqlite_master WHERE type='table' AND name='ledger_entries'",
-					)
-				).rows.length > 0;
-			if (!available) return { available: false as const };
-			await drainLedgerEvents(client);
-			const housemates = (
-				await client.execute(
-					"SELECT id,name FROM housemates WHERE is_owner=0 ORDER BY name",
-				)
-			).rows.map((row) => ({ id: String(row.id), name: String(row.name) }));
+	.handler(({ data }) =>
+		withClient(async (client) => {
+			if (!(await ledgerAvailable(client)))
+				return { available: false as const };
+			const [review, housemates] = await Promise.all([
+				loadPaymentReview(client, data),
+				loadHousemates(client),
+			]);
 			const accounts = await Promise.all(
-				housemates.map(async (housemate) => {
-					const statement = await getAccountStatement(client, housemate.id);
-					const link = (
-						await client.execute({
-							sql: "SELECT expires_at FROM ledger_statement_links WHERE housemate_id=?",
-							args: [housemate.id],
-						})
-					).rows[0];
-					return {
-						...housemate,
-						...currentStatement(statement, Math.floor(Date.now() / 1000)),
-						auditEntries: statement.entries,
-						billing: await getAccountPayments(client, housemate.id),
-						linkExpiresAt: link ? Number(link.expires_at) : null,
-					};
-				}),
+				housemates.map(async (housemate) => ({
+					...housemate,
+					billing: await getAccountPayments(client, housemate.id),
+				})),
 			);
-
-			const review = await getPaymentReview(client, data);
-
-			const pendingEvents = Number(
-				(
-					await client.execute(
-						"SELECT count(*) AS count FROM ledger_events WHERE processed_at IS NULL",
-					)
-				).rows[0].count,
-			);
-			return {
-				available: true as const,
-				accounts,
-				...review,
-				pendingEvents,
-			};
-		} finally {
-			client.close();
-		}
-	});
+			return { available: true as const, ...review, accounts };
+		}),
+	);
 
 export const syncLedger = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.handler(async () => {
-		const client = createLedgerClient();
-		try {
-			return { processed: await drainLedgerEvents(client) };
-		} finally {
-			client.close();
-		}
-	});
+	.handler(async () => ({ processed: await settleLedger() }));
 
 export const decideLedgerTransaction = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
 	.inputValidator(reviewDecisionSchema)
-	.handler(async ({ data }) => {
-		const client = createLedgerClient();
-		try {
+	.handler(({ data }) =>
+		withClient(async (client) => {
 			await reviewBankTransaction(client, data);
+			await startPendingPaidNotifications();
 			return { success: true };
-		} finally {
-			client.close();
-		}
-	});
+		}),
+	);
 
 export const decideLedgerBatch = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
 	.inputValidator(batchReviewSchema)
-	.handler(async ({ data }) => {
-		const client = createLedgerClient();
-		try {
+	.handler(({ data }) =>
+		withClient(async (client) => {
 			await reviewBankTransactions(client, data);
+			await startPendingPaidNotifications();
 			return { success: true };
-		} finally {
-			client.close();
-		}
-	});
+		}),
+	);
 
 export const allocateLedgerReceipt = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
 	.inputValidator(allocateReceiptSchema)
-	.handler(async ({ data }) => {
-		const client = createLedgerClient();
-		try {
+	.handler(({ data }) =>
+		withClient(async (client) => {
 			await allocateReceipt(client, data);
+			await startPendingPaidNotifications();
 			return { success: true };
-		} finally {
-			client.close();
-		}
-	});
+		}),
+	);
 
 export const recordLedgerReceipt = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
 	.inputValidator(recordReceiptSchema)
-	.handler(async ({ data }) => {
-		const client = createLedgerClient();
-		try {
+	.handler(({ data }) =>
+		withClient(async (client) => {
 			await recordReceipt(client, data);
+			await startPendingPaidNotifications();
 			return { success: true };
-		} finally {
-			client.close();
-		}
-	});
+		}),
+	);

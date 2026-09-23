@@ -17,7 +17,7 @@ import {
 	currentStatement,
 	identifyHousemate,
 } from "../model";
-import { getPaymentReview } from "../payment-review-data";
+import { loadPaymentReview } from "../payment-review-data";
 import {
 	reviewBankTransaction,
 	reviewBankTransactions,
@@ -28,6 +28,7 @@ import {
 	withWriteTransaction,
 } from "../sources";
 import { importUpHistory } from "../up-import";
+import { legacyTables } from "./legacy-tables";
 
 const migration = await readFile(
 	new URL("../../../db/migrations/0009_housemate_ledger.sql", import.meta.url),
@@ -69,12 +70,9 @@ async function fixture(run: (client: Client) => Promise<void>): Promise<void> {
 	const directory = await mkdtemp(join(tmpdir(), "ledger-test-"));
 	const client = createClient({ url: `file:${join(directory, "ledger.db")}` });
 	try {
-		await client.executeMultiple(`CREATE TABLE housemates(id TEXT PRIMARY KEY,name TEXT,bank_alias TEXT,is_owner INTEGER,credit_balance REAL DEFAULT 0);
-		CREATE TABLE bills(id TEXT PRIMARY KEY,biller_name TEXT,due_date INTEGER,created_at INTEGER);
-		CREATE TABLE debts(id TEXT PRIMARY KEY,housemate_id TEXT,bill_id TEXT,amount_owed REAL,amount_paid REAL DEFAULT 0,created_at INTEGER);
-		CREATE TABLE payment_transactions(id TEXT PRIMARY KEY,transaction_id TEXT UNIQUE,housemate_id TEXT,amount REAL,status TEXT,source TEXT,description TEXT,raw_data TEXT,settled_at INTEGER,up_created_at INTEGER,created_at INTEGER,matched_debt_ids TEXT,credit_amount REAL DEFAULT 0);
-		INSERT INTO housemates VALUES('oliver','Oliver Caprile','OLIVER WILLIAM CAPRIL',0,0),('sarah','Sarah O Dwyer',NULL,0,0),('jay','Jay McMullen',NULL,1,0);
-		INSERT INTO bills VALUES('bill','Gas',${time - 10},${time - 1000});`);
+		await client.executeMultiple(`${legacyTables}
+		INSERT INTO housemates VALUES('oliver','Oliver Caprile','OLIVER WILLIAM CAPRIL',0),('sarah','Sarah O Dwyer',NULL,0),('jay','Jay McMullen',NULL,1);
+		INSERT INTO bills(id,biller_name,due_date,created_at) VALUES('bill','Gas',${time - 10},${time - 1000});`);
 		await client.executeMultiple(migration);
 		await client.executeMultiple(
 			await readFile(
@@ -113,9 +111,6 @@ async function fixture(run: (client: Client) => Promise<void>): Promise<void> {
 			),
 		);
 		await drainLedgerEvents(client);
-		await client.executeMultiple(
-			"ALTER TABLE bills ADD COLUMN bill_type TEXT; ALTER TABLE bills ADD COLUMN stack_group TEXT;",
-		);
 		await run(client);
 	} finally {
 		client.close();
@@ -417,7 +412,7 @@ test("a deleted bank transaction cannot be recredited from its stored receipt", 
 test("legacy charge edits and deletion create immutable corrections, retaining money received", async () =>
 	fixture(async (client) => {
 		await client.execute(
-			`INSERT INTO debts VALUES('d','oliver','bill',100,0,${time - 100})`,
+			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('d','oliver','bill',100,0,${time - 100})`,
 		);
 		await drainLedgerEvents(client);
 		await ingest(client);
@@ -702,7 +697,7 @@ test("own-account movements, interest and merchant refunds never become housemat
 test("Matt aliases identify receipts but Matt plus Sarah requires a beneficiary split", async () =>
 	fixture(async (client) => {
 		await client.execute(
-			"INSERT INTO housemates VALUES('matt','Matthew Blair','MATTHEW BLAIR,Matt Blair,Matt',0,0)",
+			"INSERT INTO housemates VALUES('matt','Matthew Blair','MATTHEW BLAIR,Matt Blair,Matt',0)",
 		);
 		const shared = receipt("shared", 76000, "Rent Matt + Sarah");
 		shared.attributes.description = "Sarah O Dwyer";
@@ -928,7 +923,7 @@ test("a legacy match cannot bypass the manual-payment duplicate check", async ()
 async function recordedBillPayments(client: Client): Promise<void> {
 	await client.executeMultiple(`
 		INSERT INTO bills(id,biller_name,due_date,created_at,bill_type) VALUES('cleaning','Cleaners',${time},${time - 1000},'cleaning');
-		INSERT INTO debts VALUES('gas-share','oliver','bill',60,60,${time}),('clean-share','oliver','cleaning',30,30,${time});
+		INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,60,${time}),('clean-share','oliver','cleaning',30,30,${time});
 		INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,created_at,matched_debt_ids)
 		VALUES('m-gas','m-gas','oliver',60,'matched','manual_admin','Manual gas',${time + 90 * 86400},'["gas-share"]'),('m-clean','m-clean','oliver',30,'matched','manual_admin','Manual cleaning',${time + 90 * 86400},'["clean-share"]');
 	`);
@@ -1021,7 +1016,7 @@ test("a recorded payment cannot verify two transfers and a changed manual paymen
 test("allocations conserve money, reject stale edits and other housemates, and leave excess unallocated", async () =>
 	fixture(async (client) => {
 		await client.execute(
-			`INSERT INTO debts VALUES('gas-share','oliver','bill',60,0,${time})`,
+			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,0,${time})`,
 		);
 		await drainLedgerEvents(client);
 		await ingest(client, receipt("extra", 9000));
@@ -1158,7 +1153,7 @@ test("review includes possible duplicates already credited, preserves their bala
 		personal.attributes.rawText = "Personal contact";
 		await ingest(client, personal);
 		const before = await getAccountStatement(client, "oliver");
-		const queue = await getPaymentReview(client, {
+		const queue = await loadPaymentReview(client, {
 			group: "duplicate",
 			recentOnly: true,
 		});
@@ -1174,9 +1169,9 @@ test("review includes possible duplicates already credited, preserves their bala
 			housemateId: "oliver",
 			reason: "Confirmed this is additional money",
 		});
-		assert.equal((await getPaymentReview(client, {})).totalReviewCount, 0);
+		assert.equal((await loadPaymentReview(client, {})).totalReviewCount, 0);
 		assert.equal(
-			(await getPaymentReview(client, { status: "credit" })).reviewCount,
+			(await loadPaymentReview(client, { status: "credit" })).reviewCount,
 			1,
 		);
 	}));
@@ -1184,7 +1179,7 @@ test("review includes possible duplicates already credited, preserves their bala
 test("legacy allocation restores a multi-bill payment after single-bill partial payments and retains excess credit", async () =>
 	fixture(async (client) => {
 		await client.executeMultiple(
-			`INSERT INTO bills(id,biller_name,due_date,created_at) VALUES('second','Water',${time},${time - 1000}); INSERT INTO debts VALUES('first','oliver','bill',100,100,${time}),('second','oliver','second',50,50,${time});`,
+			`INSERT INTO bills(id,biller_name,due_date,created_at) VALUES('second','Water',${time},${time - 1000}); INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('first','oliver','bill',100,100,${time}),('second','oliver','second',50,50,${time});`,
 		);
 		const multi = receipt("multi-legacy", 10000);
 		const single = receipt("single-legacy", 5000);
@@ -1255,7 +1250,7 @@ test("recording money rejects likely repeats, requires explicit confirmation for
 			(await getAccountPayments(client, "oliver")).receipts.length,
 			2,
 		);
-		assert.equal((await getPaymentReview(client, {})).reviewCount, 1);
+		assert.equal((await loadPaymentReview(client, {})).reviewCount, 1);
 	}));
 
 test("an explicit removal of a legacy bill allocation survives later backfills", async () =>
@@ -1283,7 +1278,7 @@ test("legacy backfill records why a payment stayed unallocated and clears the no
 	fixture(async (client) => {
 		await client.executeMultiple(`
 			INSERT INTO bills(id,biller_name,due_date,created_at,bill_type) VALUES('water','Water',${time},${time - 1000},'water');
-			INSERT INTO debts VALUES('gas-share','oliver','bill',60,60,${time}),('water-share','oliver','water',40,40,${time}),('sarah-gas','sarah','bill',60,60,${time});
+			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,60,${time}),('water-share','oliver','water',40,40,${time}),('sarah-gas','sarah','bill',60,60,${time});
 			INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,created_at,matched_debt_ids)
 			VALUES('m-short','m-short','oliver',80,'matched','manual_admin','Manual gas and water',${time + 86400},'["gas-share","water-share"]'),
 			('m-other','m-other','oliver',60,'matched','manual_admin','Manual gas',${time + 86400},'["sarah-gas"]');
@@ -1322,4 +1317,219 @@ test("legacy backfill records why a payment stayed unallocated and clears the no
 				.rows[0].n,
 			1,
 		);
+	}));
+
+const debtState = async (client: Client, id: string) =>
+	(
+		await client.execute({
+			sql: "SELECT amount_paid,is_paid,paid_at FROM debts WHERE id=?",
+			args: [id],
+		})
+	).rows[0];
+const billStatus = async (client: Client, id: string) =>
+	(
+		await client.execute({
+			sql: "SELECT status FROM bills WHERE id=?",
+			args: [id],
+		})
+	).rows[0].status;
+const allocations = async (client: Client) =>
+	(
+		await client.execute(
+			"SELECT source_key,debt_id,amount_cents,origin FROM ledger_bill_allocations ORDER BY debt_id,source_key",
+		)
+	).rows.map((row) => [
+		String(row.source_key),
+		String(row.debt_id),
+		Number(row.amount_cents),
+		String(row.origin),
+	]);
+
+test("allocations write the legacy paid state through and releasing them reverts it", async () =>
+	fixture(async (client) => {
+		await client.execute(
+			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,0,${time}),('sarah-gas','sarah','bill',40,0,${time})`,
+		);
+		await drainLedgerEvents(client);
+		await ingest(client, receipt("pay", 6000));
+		const oliver = await getAccountPayments(client, "oliver");
+		await allocateReceipt(client, {
+			housemateId: "oliver",
+			receiptId: "bank:pay",
+			allocations: [{ debtId: "gas-share", amountCents: 6000 }],
+			expectedRevision: oliver.revision,
+		});
+		const paid = await debtState(client, "gas-share");
+		assert.equal(paid.amount_paid, 60);
+		assert.equal(paid.is_paid, 1);
+		assert.ok(Number(paid.paid_at) > 0);
+		assert.equal(await billStatus(client, "bill"), "partially_paid");
+		assert.equal(
+			(await client.execute("SELECT count(*) n FROM whatsapp_notifications"))
+				.rows[0].n,
+			1,
+		);
+
+		const sarahBefore = await getAccountPayments(client, "sarah");
+		await recordReceipt(client, {
+			housemateId: "sarah",
+			amountCents: 4000,
+			receivedAt: time,
+			description: "Cash",
+			expectedRevision: sarahBefore.revision,
+		});
+		const sarah = await getAccountPayments(client, "sarah");
+		await allocateReceipt(client, {
+			housemateId: "sarah",
+			receiptId: sarah.receipts[0].id,
+			allocations: [{ debtId: "sarah-gas", amountCents: 4000 }],
+			expectedRevision: sarah.revision,
+		});
+		assert.equal(await billStatus(client, "bill"), "paid");
+		assert.deepEqual(
+			(
+				await client.execute(
+					"SELECT event_key,event_type,status,bill_id,debt_id FROM whatsapp_notifications ORDER BY event_key",
+				)
+			).rows.map((row) => [
+				row.event_key,
+				row.event_type,
+				row.status,
+				row.bill_id,
+				row.debt_id,
+			]),
+			[
+				["bill-paid:bill", "bill_paid", "pending", "bill", null],
+				["debt-paid:gas-share", "debt_paid", "pending", null, "gas-share"],
+				["debt-paid:sarah-gas", "debt_paid", "pending", null, "sarah-gas"],
+			],
+		);
+
+		const after = await getAccountPayments(client, "oliver");
+		await allocateReceipt(client, {
+			housemateId: "oliver",
+			receiptId: "bank:pay",
+			allocations: [],
+			expectedRevision: after.revision,
+		});
+		const reverted = await debtState(client, "gas-share");
+		assert.equal(reverted.amount_paid, 0);
+		assert.equal(reverted.is_paid, 0);
+		assert.equal(reverted.paid_at, null);
+		assert.equal(await billStatus(client, "bill"), "partially_paid");
+	}));
+
+test("a credited receipt pays open debts oldest first and excess stays unallocated", async () =>
+	fixture(async (client) => {
+		await client.executeMultiple(`
+			INSERT INTO bills(id,biller_name,due_date,created_at) VALUES('water','Water',${time + 100},${time - 1000});
+			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('water-share','oliver','water',40,0,${time}),('gas-share','oliver','bill',60,0,${time});`);
+		await drainLedgerEvents(client);
+		await ingest(client, receipt("pay", 12000));
+		assert.deepEqual(await allocations(client), [
+			["bank:pay", "gas-share", 6000, "auto"],
+			["bank:pay", "water-share", 4000, "auto"],
+		]);
+		const account = await getAccountPayments(client, "oliver");
+		assert.equal(account.unallocatedCents, 2000);
+		assert.equal(account.unpaidCents, 0);
+		assert.equal((await debtState(client, "gas-share")).is_paid, 1);
+		assert.equal(await billStatus(client, "water"), "paid");
+
+		await client.execute(
+			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('late','oliver','water',15,0,${time + 1})`,
+		);
+		await drainLedgerEvents(client);
+		assert.equal((await debtState(client, "late")).is_paid, 1);
+		assert.equal(
+			(await getAccountPayments(client, "oliver")).unallocatedCents,
+			500,
+		);
+
+		await ingest(client, receipt("pay", 12000));
+		await ingest(client, receipt("pay", 12000));
+		assert.equal((await allocations(client)).length, 3);
+		assert.equal(
+			(await getAccountPayments(client, "oliver")).unallocatedCents,
+			500,
+		);
+	}));
+
+test("a partial receipt leaves the rest of the oldest debt open and a short receipt pays part", async () =>
+	fixture(async (client) => {
+		await client.executeMultiple(`
+			INSERT INTO bills(id,biller_name,due_date,created_at) VALUES('water','Water',${time + 100},${time - 1000});
+			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,0,${time}),('water-share','oliver','water',40,0,${time});`);
+		await drainLedgerEvents(client);
+		await ingest(client, receipt("part", 7000));
+		assert.deepEqual(await allocations(client), [
+			["bank:part", "gas-share", 6000, "auto"],
+			["bank:part", "water-share", 1000, "auto"],
+		]);
+		const water = await debtState(client, "water-share");
+		assert.equal(water.amount_paid, 10);
+		assert.equal(water.is_paid, 0);
+		assert.equal(await billStatus(client, "water"), "partially_paid");
+		assert.equal(await billStatus(client, "bill"), "paid");
+	}));
+
+test("reviewed receipts and receipts with allocation issues are left alone", async () =>
+	fixture(async (client) => {
+		await ingest(client, receipt("reviewed", 5000));
+		const account = await getAccountPayments(client, "oliver");
+		await allocateReceipt(client, {
+			housemateId: "oliver",
+			receiptId: "bank:reviewed",
+			allocations: [],
+			expectedRevision: account.revision,
+		});
+		await client.execute(
+			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,0,${time})`,
+		);
+		await drainLedgerEvents(client);
+		assert.deepEqual(await allocations(client), []);
+		assert.equal((await debtState(client, "gas-share")).is_paid, 0);
+		assert.equal(
+			(await getAccountPayments(client, "oliver")).unallocatedCents,
+			5000,
+		);
+	}));
+
+test("rent-only money waits for a rent debt instead of paying utilities", async () =>
+	fixture(async (client) => {
+		await client.execute(
+			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,0,${time})`,
+		);
+		await drainLedgerEvents(client);
+		await ingest(client, receipt("rent", 12000, "Rent"));
+		assert.deepEqual(await allocations(client), []);
+		await client.executeMultiple(`
+			INSERT INTO bills(id,biller_name,due_date,created_at,stack_group) VALUES('rent','Weekly Rent',${time + 7 * 86400},${time},'rent');
+			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('rent-share','oliver','rent',100,0,${time + 1})`);
+		await drainLedgerEvents(client);
+		assert.deepEqual(await allocations(client), [
+			["bank:rent", "rent-share", 10000, "auto"],
+		]);
+		assert.equal((await debtState(client, "gas-share")).is_paid, 0);
+		assert.equal((await debtState(client, "rent-share")).is_paid, 1);
+	}));
+
+test("a manual paid mark recorded as an admin payment settles the debt through the ledger", async () =>
+	fixture(async (client) => {
+		await client.execute(
+			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,0,${time})`,
+		);
+		await drainLedgerEvents(client);
+		await client.execute({
+			sql: "INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,created_at,matched_debt_ids) VALUES ('m','manual-admin-1','oliver',60,'matched','manual_admin','Manual payment for Gas',?,'[\"gas-share\"]')",
+			args: [time],
+		});
+		await drainLedgerEvents(client);
+		const paid = await debtState(client, "gas-share");
+		assert.equal(paid.amount_paid, 60);
+		assert.equal(paid.is_paid, 1);
+		assert.equal(await billStatus(client, "bill"), "paid");
+		assert.deepEqual(await allocations(client), [
+			["manual:manual-admin-1", "gas-share", 6000, "legacy"],
+		]);
 	}));

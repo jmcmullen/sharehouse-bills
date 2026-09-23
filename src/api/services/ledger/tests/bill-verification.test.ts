@@ -7,10 +7,11 @@ import { type Client, createClient } from "@libsql/client";
 import { getAccountPayments } from "../account-payments";
 import { allocateReceipt, recordReceipt } from "../allocation-actions";
 import { ingestBankTransaction } from "../bank-ingest";
-import { getBillVerification } from "../bill-verification";
+import { loadBillVerification } from "../bill-verification";
 import { drainLedgerEvents } from "../events";
 import { type BankTransaction, bankTransactionSchema } from "../model";
 import { withWriteTransaction } from "../sources";
+import { legacyTables } from "./legacy-tables";
 
 const time = 1780000000;
 const migrations = [
@@ -43,11 +44,8 @@ async function fixture(run: (client: Client) => Promise<void>): Promise<void> {
 	const directory = await mkdtemp(join(tmpdir(), "bill-verification-"));
 	const client = createClient({ url: `file:${join(directory, "ledger.db")}` });
 	try {
-		await client.executeMultiple(`CREATE TABLE housemates(id TEXT PRIMARY KEY,name TEXT,bank_alias TEXT,is_owner INTEGER,credit_balance REAL DEFAULT 0);
-		CREATE TABLE bills(id TEXT PRIMARY KEY,biller_name TEXT,due_date INTEGER,created_at INTEGER,bill_type TEXT,stack_group TEXT);
-		CREATE TABLE debts(id TEXT PRIMARY KEY,housemate_id TEXT,bill_id TEXT,amount_owed REAL,amount_paid REAL DEFAULT 0,created_at INTEGER);
-		CREATE TABLE payment_transactions(id TEXT PRIMARY KEY,transaction_id TEXT UNIQUE,housemate_id TEXT,amount REAL,status TEXT,source TEXT,description TEXT,raw_data TEXT,settled_at INTEGER,up_created_at INTEGER,created_at INTEGER,matched_debt_ids TEXT,credit_amount REAL DEFAULT 0);
-		INSERT INTO housemates VALUES('oliver','Oliver Caprile','OLIVER WILLIAM CAPRIL',0,0),('sarah','Sarah O Dwyer',NULL,0,0),('jay','Jay McMullen',NULL,1,0);`);
+		await client.executeMultiple(`${legacyTables}
+		INSERT INTO housemates VALUES('oliver','Oliver Caprile','OLIVER WILLIAM CAPRIL',0),('sarah','Sarah O Dwyer',NULL,0),('jay','Jay McMullen',NULL,1);`);
 		for (const name of migrations)
 			await client.executeMultiple(
 				await readFile(
@@ -66,7 +64,7 @@ async function fixture(run: (client: Client) => Promise<void>): Promise<void> {
 test("reports unavailable when ledger tables are missing", async () => {
 	const client = createClient({ url: ":memory:" });
 	try {
-		assert.deepEqual(await getBillVerification(client), { available: false });
+		assert.deepEqual(await loadBillVerification(client), { available: false });
 	} finally {
 		client.close();
 	}
@@ -75,8 +73,8 @@ test("reports unavailable when ledger tables are missing", async () => {
 test("pivots housemate payments into bills with shares, receipts, status and summary", async () =>
 	fixture(async (client) => {
 		await client.executeMultiple(`
-			INSERT INTO bills VALUES('gas','AGL Gas',${time - 10},${time - 1000},'gas',NULL),('clean','Cleaners',${time + 100},${time - 500},NULL,'cleaning');
-			INSERT INTO debts VALUES('gas-o','oliver','gas',100,100,${time - 100}),('gas-s','sarah','gas',50,50,${time - 100}),('clean-o','oliver','clean',30,0,${time - 50});`);
+			INSERT INTO bills(id,biller_name,due_date,created_at,bill_type,stack_group) VALUES('gas','AGL Gas',${time - 10},${time - 1000},'gas',NULL),('clean','Cleaners',${time + 100},${time - 500},NULL,'cleaning');
+			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-o','oliver','gas',100,100,${time - 100}),('gas-s','sarah','gas',50,50,${time - 100}),('clean-o','oliver','clean',30,0,${time - 50});`);
 		await drainLedgerEvents(client);
 
 		await withWriteTransaction(client, (tx) =>
@@ -106,13 +104,13 @@ test("pivots housemate payments into bills with shares, receipts, status and sum
 			expectedRevision: sarah.revision,
 		});
 
-		const result = await getBillVerification(client);
+		const result = await loadBillVerification(client);
 		assert.ok(result.available);
 		assert.deepEqual(
 			result.bills.map((bill) => [bill.id, bill.status]),
 			[
 				["clean", "unpaid"],
-				["gas", "check"],
+				["gas", "part"],
 			],
 		);
 		const gas = result.bills[1];
@@ -127,8 +125,6 @@ test("pivots housemate payments into bills with shares, receipts, status and sum
 		assert.equal(oliverShare.housemateName, "Oliver Caprile");
 		assert.equal(oliverShare.paidCents, 10000);
 		assert.equal(oliverShare.remainingCents, 0);
-		assert.equal(oliverShare.legacyPaidCents, 10000);
-		assert.equal(oliverShare.mismatch, false);
 		assert.equal(oliverShare.receipts.length, 1);
 		assert.equal(oliverShare.receipts[0].receiptId, "bank:bank-1");
 		assert.equal(oliverShare.receipts[0].amountCents, 10000);
@@ -138,8 +134,6 @@ test("pivots housemate payments into bills with shares, receipts, status and sum
 		assert.equal(sarahShare.housemateName, "Sarah O Dwyer");
 		assert.equal(sarahShare.paidCents, 2000);
 		assert.equal(sarahShare.remainingCents, 3000);
-		assert.equal(sarahShare.legacyPaidCents, 5000);
-		assert.equal(sarahShare.mismatch, true);
 		assert.equal(sarahShare.receipts.length, 1);
 		assert.equal(sarahShare.receipts[0].description, "Cash from Sarah");
 		assert.equal(sarahShare.receipts[0].amountCents, 2000);
@@ -151,13 +145,12 @@ test("pivots housemate payments into bills with shares, receipts, status and sum
 		assert.equal(clean.category, "cleaning");
 		assert.equal(clean.shares.length, 1);
 		assert.equal(clean.shares[0].receipts.length, 0);
-		assert.equal(clean.shares[0].mismatch, false);
 
 		assert.deepEqual(result.summary, {
 			paid: 0,
-			part: 0,
+			part: 1,
 			unpaid: 1,
-			check: 1,
+			check: 0,
 			remainingCents: 6000,
 		});
 	}));
@@ -165,8 +158,8 @@ test("pivots housemate payments into bills with shares, receipts, status and sum
 test("a bill whose shares are all covered is paid and a partly covered bill is part", async () =>
 	fixture(async (client) => {
 		await client.executeMultiple(`
-			INSERT INTO bills VALUES('water','Water',${time},${time - 1000},'water',NULL);
-			INSERT INTO debts VALUES('water-o','oliver','water',40,40,${time - 100}),('water-s','sarah','water',40,0,${time - 100});`);
+			INSERT INTO bills(id,biller_name,due_date,created_at,bill_type,stack_group) VALUES('water','Water',${time},${time - 1000},'water',NULL);
+			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('water-o','oliver','water',40,40,${time - 100}),('water-s','sarah','water',40,0,${time - 100});`);
 		await drainLedgerEvents(client);
 		await withWriteTransaction(client, (tx) =>
 			ingestBankTransaction(tx, receipt("bank-2", 4000)),
@@ -178,7 +171,7 @@ test("a bill whose shares are all covered is paid and a partly covered bill is p
 			allocations: [{ debtId: "water-o", amountCents: 4000 }],
 			expectedRevision: oliver.revision,
 		});
-		const part = await getBillVerification(client);
+		const part = await loadBillVerification(client);
 		assert.ok(part.available);
 		assert.equal(part.bills[0].status, "part");
 
@@ -197,8 +190,7 @@ test("a bill whose shares are all covered is paid and a partly covered bill is p
 			allocations: [{ debtId: "water-s", amountCents: 4000 }],
 			expectedRevision: sarah.revision,
 		});
-		await client.execute("UPDATE debts SET amount_paid=40 WHERE id='water-s'");
-		const paid = await getBillVerification(client);
+		const paid = await loadBillVerification(client);
 		assert.ok(paid.available);
 		assert.equal(paid.bills[0].status, "paid");
 		assert.equal(paid.summary.paid, 1);

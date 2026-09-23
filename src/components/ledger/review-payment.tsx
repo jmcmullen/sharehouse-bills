@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { reviewHint } from "../../api/services/ledger/review-policy";
 import {
 	decideLedgerTransaction,
-	type getLedger,
+	type getPaymentReview,
 } from "../../functions/ledger";
 import { Button } from "../ui/button";
 import {
@@ -19,7 +19,7 @@ import { SplitPayment } from "./split-payment";
 import { ledgerDate, ledgerMoney, ledgerTime } from "./statement";
 
 type Ready = Extract<
-	Awaited<ReturnType<typeof getLedger>>,
+	Awaited<ReturnType<typeof getPaymentReview>>,
 	{ available: true }
 >;
 export type Payment = Ready["reviews"][number];

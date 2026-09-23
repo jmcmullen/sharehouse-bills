@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getBillVerification as loadBillVerification } from "../api/services/ledger/bill-verification";
+import { loadBillVerification } from "../api/services/ledger/bill-verification";
 import { createLedgerClient } from "../api/services/ledger/client.server";
 import { authMiddleware } from "../lib/auth-middleware";
 
