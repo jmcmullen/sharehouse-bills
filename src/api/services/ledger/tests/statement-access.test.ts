@@ -21,7 +21,8 @@ test("private statement tokens isolate housemates, expire, rotate and revoke wit
    CREATE TABLE ledger_bill_allocations(source_key TEXT,debt_id TEXT,amount_cents INTEGER,origin TEXT);
    CREATE TABLE ledger_allocation_issues(source_key TEXT PRIMARY KEY,reason TEXT,recorded_at INTEGER);
    CREATE TABLE ledger_payment_evidence(source_key TEXT,transaction_id TEXT,amount_cents INTEGER);
-   CREATE TABLE bills(id TEXT,bill_type TEXT,stack_group TEXT);
+   CREATE TABLE bills(id TEXT,bill_type TEXT,stack_group TEXT,recurring_bill_id TEXT);
+   CREATE TABLE recurringBills(id TEXT,templateName TEXT,billerName TEXT);
    CREATE TABLE debts(id TEXT,housemate_id TEXT,bill_id TEXT,amount_paid REAL);
    CREATE TABLE ledger_events(id INTEGER,kind TEXT,payload TEXT,processed_at INTEGER);`);
 		const link = await createStatementLink(client, "oliver", 1000);

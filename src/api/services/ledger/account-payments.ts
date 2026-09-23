@@ -61,7 +61,7 @@ export async function getAccountPayments(
 			args: [housemateId],
 		}),
 		client.execute({
-			sql: "SELECT d.id,b.bill_type,b.stack_group FROM debts d JOIN bills b ON b.id=d.bill_id WHERE d.housemate_id=?",
+			sql: "SELECT d.id,coalesce(b.bill_type,b.stack_group,r.templateName,'bill') AS category FROM debts d JOIN bills b ON b.id=d.bill_id LEFT JOIN recurringBills r ON r.id=b.recurring_bill_id WHERE d.housemate_id=?",
 			args: [housemateId],
 		}),
 		client.execute({
@@ -117,7 +117,7 @@ export async function getAccountPayments(
 			return {
 				id,
 				name: source.description,
-				category: String(bill?.bill_type ?? bill?.stack_group ?? "bill"),
+				category: String(bill?.category ?? "bill"),
 				dueAt: source.dueAt,
 				amountCents: source.amountCents,
 				paidCents,

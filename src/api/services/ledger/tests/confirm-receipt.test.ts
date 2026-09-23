@@ -128,6 +128,28 @@ test("migration 0018 remaps stored groups and queues automatic credits for revie
 		);
 	}));
 
+test("a rent reference confirms onto a template-generated rent bill with no bill type", async () =>
+	fixture(async (client) => {
+		await client.executeMultiple(
+			`INSERT INTO recurringBills(id,templateName,billerName) VALUES('weekly','Weekly Rent','Agent');
+		INSERT INTO bills(id,biller_name,due_date,created_at,recurring_bill_id) VALUES('rent','Agent',${time + 86400},${time - 1000},'weekly');
+		INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('rent-share','oliver','rent',420,0,${time});`,
+		);
+		await drainLedgerEvents(client);
+		await ingest(client, receipt("rent", 42000, "Rent"));
+		await confirmReceipt(client, {
+			transactionId: "rent",
+			housemateId: "oliver",
+			allocations: [{ debtId: "rent-share", amountCents: 42000 }],
+			expectedRevision: await revision(client, "rent"),
+		});
+		const bill = (await getAccountPayments(client, "oliver")).bills.find(
+			(item) => item.id === "rent-share",
+		);
+		assert.equal(bill?.category, "Weekly Rent");
+		assert.equal(bill?.paidCents, 42000);
+	}));
+
 test("a rent reference pays rent only unless it names a utility too", () => {
 	assert.equal(isRentReference("Rent"), true);
 	assert.equal(isRentReference("rent for May"), true);
