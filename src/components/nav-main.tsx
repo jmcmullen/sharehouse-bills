@@ -8,6 +8,7 @@ import {
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
+	useSidebar,
 } from "@/components/ui/sidebar";
 
 export function NavMain({
@@ -21,6 +22,8 @@ export function NavMain({
 	}[];
 	title?: string;
 }) {
+	const { setOpenMobile } = useSidebar();
+
 	return (
 		<SidebarGroup>
 			<SidebarGroupLabel>{title}</SidebarGroupLabel>
@@ -29,7 +32,7 @@ export function NavMain({
 					{items.map((item) => (
 						<SidebarMenuItem key={item.title}>
 							<SidebarMenuButton tooltip={item.title} asChild>
-								<Link to={item.url}>
+								<Link to={item.url} onClick={() => setOpenMobile(false)}>
 									{item.icon && <item.icon />}
 									<span>{item.title}</span>
 								</Link>

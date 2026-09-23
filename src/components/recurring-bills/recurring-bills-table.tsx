@@ -114,7 +114,7 @@ export function RecurringBillsTable({
 								<TableCell>{item.preview.assignments.length}</TableCell>
 								<TableCell>{item.generatedCount}</TableCell>
 								<TableCell className="text-right">
-									<div className="flex items-center justify-end gap-2">
+									<div className="flex flex-wrap items-center justify-end gap-2">
 										<Button
 											variant="outline"
 											size="sm"

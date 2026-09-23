@@ -18,12 +18,14 @@ import {
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
+	useSidebar,
 } from "@/components/ui/sidebar";
 import { authClient } from "@/lib/auth-client";
 import { Link, useNavigate } from "@tanstack/react-router";
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 	const navigate = useNavigate();
+	const { setOpenMobile } = useSidebar();
 
 	const handleLogout = () => {
 		authClient.signOut({
@@ -87,7 +89,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 							asChild
 							className="data-[slot=sidebar-menu-button]:!p-1.5"
 						>
-							<Link to="/">
+							<Link to="/" onClick={() => setOpenMobile(false)}>
 								<IconHome className="!size-7" />
 								<span className="font-semibold text-base">
 									Sharehouse Bills

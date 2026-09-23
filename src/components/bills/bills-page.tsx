@@ -182,14 +182,14 @@ export function BillsPage() {
 
 	return (
 		<div className="space-y-6">
-			<div className="flex items-center justify-between">
+			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div>
 					<h1 className="font-bold text-3xl">Bills</h1>
 					<p className="text-muted-foreground">
 						Manage household bills and track payments
 					</p>
 				</div>
-				<Button onClick={openAddBillModal}>
+				<Button className="self-start sm:self-auto" onClick={openAddBillModal}>
 					<IconPlus className="mr-2 h-4 w-4" />
 					Add Bill
 				</Button>

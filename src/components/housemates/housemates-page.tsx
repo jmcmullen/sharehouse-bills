@@ -138,14 +138,14 @@ export function HousematesPage() {
 
 	return (
 		<div className="space-y-6">
-			<div className="flex items-center justify-between">
+			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div>
 					<h1 className="font-bold text-3xl">Housemates</h1>
 					<p className="text-muted-foreground">
 						Manage household members and track their payment history
 					</p>
 				</div>
-				<Button onClick={openAddModal}>
+				<Button className="self-start sm:self-auto" onClick={openAddModal}>
 					<IconPlus className="mr-2 h-4 w-4" />
 					Add Housemate
 				</Button>
