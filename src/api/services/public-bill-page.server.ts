@@ -1,6 +1,7 @@
 // fallow-ignore-file code-duplication
 import { and, asc, eq } from "drizzle-orm";
 import { distributeCurrencyAmount, roundCurrency } from "../../lib/equal-split";
+import { paidPercentage } from "../../lib/payment-progress";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
@@ -211,10 +212,7 @@ export async function getPublicBillPageData(
 		paymentProgress: {
 			settledCount,
 			remainingCount: Math.max(0, participantCount - settledCount),
-			percentage:
-				participantCount === 0
-					? 0
-					: Math.round((settledCount / participantCount) * 100),
+			percentage: paidPercentage(settledAmount, rows[0].totalAmount),
 			settledAmount,
 			remainingAmount: Math.max(0, rows[0].totalAmount - settledAmount),
 		},

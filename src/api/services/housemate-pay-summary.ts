@@ -1,3 +1,4 @@
+import { paidPercentage } from "../../lib/payment-progress";
 import type { ShareCover } from "./bill-reminder-credit";
 
 export interface PayShare {
@@ -56,10 +57,7 @@ export function buildPaySummary(items: PayShare[], heldAmount: number) {
 		},
 		paymentProgress: {
 			settledAmount,
-			percentage:
-				totalAmount <= 0
-					? 100
-					: Math.round((settledAmount / totalAmount) * 100),
+			percentage: paidPercentage(settledAmount, totalAmount),
 		},
 		credit: {
 			heldAmount,

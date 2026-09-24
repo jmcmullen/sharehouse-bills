@@ -278,15 +278,18 @@ function BillProgressSection({
 	);
 }
 
-function ParticipantStatus({ isPaid }: { isPaid: boolean }) {
-	return isPaid ? (
+function ParticipantStatus({
+	participant,
+}: { participant: PublicBillParticipant }) {
+	const left = participant.amountOwed - participant.amountPaid;
+	return participant.isPaid ? (
 		<span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success-muted px-2.5 py-1 font-semibold text-[11.5px] text-success-muted-foreground tracking-tight">
 			<span aria-hidden className="h-1.5 w-1.5 rounded-full bg-success" />
 			Paid
 		</span>
 	) : (
-		<span className="inline-flex shrink-0 items-center rounded-full bg-muted px-2.5 py-1 font-semibold text-[11.5px] text-muted-foreground tracking-tight">
-			Due
+		<span className="inline-flex shrink-0 items-center rounded-full bg-muted px-2.5 py-1 font-semibold text-[11.5px] text-muted-foreground tabular-nums tracking-tight">
+			{participant.amountPaid > 0.005 ? `${formatCurrency(left)} left` : "Due"}
 		</span>
 	);
 }
@@ -313,7 +316,7 @@ function ParticipantRow({
 					)}
 				</p>
 			</div>
-			<ParticipantStatus isPaid={participant.isPaid} />
+			<ParticipantStatus participant={participant} />
 		</li>
 	);
 }
