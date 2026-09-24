@@ -154,7 +154,7 @@ export function currentStatement(
 	);
 }
 
-function dayInSydney(seconds: number): string {
+export function dayInSydney(seconds: number): string {
 	return new Intl.DateTimeFormat("en-CA", {
 		timeZone: "Australia/Sydney",
 		year: "numeric",
@@ -182,22 +182,25 @@ export function calculateStatement(
 			.reduce((sum, item) => sum + item.amountCents, 0),
 	}));
 	const balanceCents = rows.at(-1)?.runningBalanceCents ?? 0;
-	const scheduled = ordered.reduce(
-		(sum, entry) =>
-			sum +
-			(entry.kind === "charge" &&
-			entry.dueAt !== null &&
-			dayInSydney(entry.dueAt) > dayInSydney(now)
-				? entry.amountCents
-				: 0),
-		0,
-	);
-	const dueNowCents = Math.max(0, balanceCents - scheduled);
 	return {
 		entries: rows,
 		balanceCents,
-		dueNowCents,
-		upcomingCents: Math.max(0, balanceCents - dueNowCents),
+		dueNowCents: Math.max(0, balanceCents),
+		upcomingCents: 0,
 		creditCents: Math.max(0, -balanceCents),
+	};
+}
+
+// Money owed on bills not yet due is upcoming, not due now. The caller knows
+// how much of those bills is still unpaid, since paid future bills owe nothing.
+export function withUpcoming(
+	statement: AccountStatement,
+	upcomingCents: number,
+): AccountStatement {
+	const dueNowCents = Math.max(0, statement.balanceCents - upcomingCents);
+	return {
+		...statement,
+		dueNowCents,
+		upcomingCents: Math.max(0, statement.balanceCents - dueNowCents),
 	};
 }

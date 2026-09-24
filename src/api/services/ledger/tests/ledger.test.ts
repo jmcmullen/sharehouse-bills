@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import type { Client } from "@libsql/client";
-import { getAccountPayments } from "../account-payments";
+import { getAccountPayments, upcomingUnpaidCents } from "../account-payments";
 import { allocateReceipt, recordReceipt } from "../allocation-actions";
 import { deleteBankTransaction } from "../bank-ingest";
 import { restoreLegacyAllocations } from "../bill-allocations";
@@ -11,6 +11,7 @@ import {
 	calculateStatement,
 	currentStatement,
 	identifyHousemate,
+	withUpcoming,
 } from "../model";
 import { loadPaymentReview } from "../payment-review-data";
 import {
@@ -416,8 +417,33 @@ test("due now and upcoming use account credit without exact invoice matching", (
 	];
 	const statement = calculateStatement(entries, time);
 	assert.equal(statement.balanceCents, 5000);
-	assert.equal(statement.dueNowCents, 0);
-	assert.equal(statement.upcomingCents, 5000);
+	assert.equal(statement.dueNowCents, 5000);
+	const bill = (remainingCents: number, dueAt: number | null) => ({
+		id: "2",
+		name: "Gas",
+		category: "gas",
+		dueAt,
+		amountCents: 10000,
+		paidCents: 10000 - remainingCents,
+		remainingCents,
+		payments: [],
+	});
+	const unpaid = withUpcoming(
+		statement,
+		upcomingUnpaidCents({ bills: [bill(10000, time + 86400)] }, time),
+	);
+	assert.equal(unpaid.dueNowCents, 0);
+	assert.equal(unpaid.upcomingCents, 5000);
+	const paid = withUpcoming(
+		statement,
+		upcomingUnpaidCents({ bills: [bill(0, time + 86400)] }, time),
+	);
+	assert.equal(paid.dueNowCents, 5000);
+	assert.equal(paid.upcomingCents, 0);
+	assert.equal(
+		upcomingUnpaidCents({ bills: [bill(10000, time - 10)] }, time),
+		0,
+	);
 });
 
 test("explicit beneficiary takes precedence and middle names do not hide Oliver", () => {

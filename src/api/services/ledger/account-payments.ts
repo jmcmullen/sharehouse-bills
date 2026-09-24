@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import type { Client } from "@libsql/client";
-import { type LedgerSource, isRentReference, sourceSchema } from "./model";
+import {
+	type LedgerSource,
+	dayInSydney,
+	isRentReference,
+	sourceSchema,
+} from "./model";
 import {
 	type OpenShare,
 	type Suggestion,
@@ -247,4 +252,20 @@ function buildReceipts(
 			};
 		})
 		.sort((a, b) => b.receivedAt - a.receivedAt || a.id.localeCompare(b.id));
+}
+
+// Unpaid shares of bills whose due date is still ahead in Sydney time.
+export function upcomingUnpaidCents(
+	account: Pick<AccountPayments, "bills">,
+	now: number,
+): number {
+	const today = dayInSydney(now);
+	return account.bills.reduce(
+		(sum, bill) =>
+			sum +
+			(bill.dueAt !== null && dayInSydney(bill.dueAt) > today
+				? bill.remainingCents
+				: 0),
+		0,
+	);
 }

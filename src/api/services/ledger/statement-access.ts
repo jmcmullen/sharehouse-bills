@@ -1,8 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Client } from "@libsql/client";
-import { type AccountPayments, getAccountPayments } from "./account-payments";
+import {
+	type AccountPayments,
+	getAccountPayments,
+	upcomingUnpaidCents,
+} from "./account-payments";
 import { drainLedgerEvents } from "./events";
-import { type StatementRow, currentStatement } from "./model";
+import { type StatementRow, currentStatement, withUpcoming } from "./model";
 import { getAccountStatement } from "./sources";
 
 export type PrivateBilling = ReturnType<typeof privateBilling>;
@@ -68,13 +72,15 @@ export async function getPrivateStatement(
 	).rows[0];
 	if (!housemate) return null;
 	await drainLedgerEvents(client);
-	const statement = currentStatement(
-		await getAccountStatement(client, String(housemate.id), now),
-		now,
+	const account = await getAccountPayments(client, String(housemate.id), now);
+	const statement = withUpcoming(
+		currentStatement(
+			await getAccountStatement(client, String(housemate.id), now),
+			now,
+		),
+		upcomingUnpaidCents(account, now),
 	);
-	const billing = privateBilling(
-		await getAccountPayments(client, String(housemate.id), now),
-	);
+	const billing = privateBilling(account);
 	const review = (
 		await client.execute({
 			sql: "SELECT count(*) AS count FROM ledger_bank_transactions WHERE housemate_id=? AND decision='review' AND amount_cents>0",

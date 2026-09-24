@@ -2,7 +2,10 @@ import type { Client } from "@libsql/client";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { settleLedger } from "../api/services/ledger-sync.server";
-import { getAccountPayments } from "../api/services/ledger/account-payments";
+import {
+	getAccountPayments,
+	upcomingUnpaidCents,
+} from "../api/services/ledger/account-payments";
 import {
 	allocateReceipt,
 	allocateReceiptSchema,
@@ -15,7 +18,7 @@ import {
 	confirmReceiptSchema,
 } from "../api/services/ledger/confirm-receipt";
 import { drainLedgerEvents } from "../api/services/ledger/events";
-import { currentStatement } from "../api/services/ledger/model";
+import { currentStatement, withUpcoming } from "../api/services/ledger/model";
 import {
 	loadPaymentReview,
 	reviewFiltersSchema,
@@ -72,7 +75,10 @@ async function loadAccount(client: Executor, housemate: Housemate) {
 	const link = links.rows[0];
 	return {
 		...housemate,
-		...currentStatement(statement, nowSeconds()),
+		...withUpcoming(
+			currentStatement(statement, nowSeconds()),
+			upcomingUnpaidCents(billing, nowSeconds()),
+		),
 		auditEntries: statement.entries,
 		billing,
 		linkExpiresAt: link ? Number(link.expires_at) : null,
