@@ -26,11 +26,7 @@ export function suggestAllocations(input: SuggestionInput): Suggestion | null {
 				share.remainingCents > 0 &&
 				(!input.rentOnly || /rent/i.test(share.category)),
 		)
-		.sort(
-			(a, b) =>
-				distance(a, input.receivedAt) - distance(b, input.receivedAt) ||
-				a.debtId.localeCompare(b.debtId),
-		);
+		.sort((a, b) => age(a) - age(b) || a.debtId.localeCompare(b.debtId));
 	if (!open.length || input.amountCents <= 0) return null;
 	const exact = open.find(
 		(share) => share.remainingCents === input.amountCents,
@@ -56,14 +52,14 @@ export function suggestAllocations(input: SuggestionInput): Suggestion | null {
 	return partial(open, input.amountCents);
 }
 
-function distance(share: OpenShare, receivedAt: number): number {
-	return share.dueAt === null
-		? Number.POSITIVE_INFINITY
-		: Math.abs(share.dueAt - receivedAt);
+// Oldest debt first, so a payment that matches several open weeks settles the
+// longest-outstanding one; undated shares come last.
+function age(share: OpenShare): number {
+	return share.dueAt ?? Number.POSITIVE_INFINITY;
 }
 
-// Shares are already ordered by due-date proximity, so the first pair or
-// triple found is the nearest-due one of its size.
+// Shares are already ordered oldest first, so the first pair or triple found
+// is the oldest one of its size.
 function exactCombination(
 	shares: OpenShare[],
 	amount: number,

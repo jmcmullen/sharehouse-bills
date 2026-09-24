@@ -33,23 +33,38 @@ test("returns null without open shares or money", () => {
 	);
 });
 
-test("an exact single match wins and the nearest due date breaks ties", () => {
+test("an exact single match wins and the oldest open share breaks ties", () => {
 	const result = suggestAllocations({
 		amountCents: 5000,
 		receivedAt: received,
 		rentOnly: false,
 		shares: [
-			share("far", 5000, received + 30 * day, "water", "Water"),
-			share("near", 5000, received - 2 * day),
+			share("newer", 5000, received + day),
+			share("older", 5000, received - 30 * day),
 			share("pair-a", 2500),
 			share("pair-b", 2500),
 		],
 	});
 	assert.deepEqual(result?.allocations, [
-		{ debtId: "near", amountCents: 5000 },
+		{ debtId: "older", amountCents: 5000 },
 	]);
 	assert.equal(result?.confidence, "exact");
 	assert.match(result?.reason ?? "", /^Exactly matches Gas · \d+ \w+$/);
+});
+
+test("a weekly rent payment settles the oldest open week, not this week's", () => {
+	const weeks = [-27, -20, -13, -6, 1].map((offset) =>
+		share(`week${offset}`, 38800, received + offset * day, "Rent", "Rent"),
+	);
+	const result = suggestAllocations({
+		amountCents: 38800,
+		receivedAt: received,
+		rentOnly: true,
+		shares: weeks,
+	});
+	assert.deepEqual(result?.allocations, [
+		{ debtId: "week-27", amountCents: 38800 },
+	]);
 });
 
 test("a combination of up to three shares prefers fewer shares", () => {
@@ -93,7 +108,7 @@ test("a combination of up to three shares prefers fewer shares", () => {
 	);
 });
 
-test("partial suggestions cover nearest-due shares first and leave excess unallocated", () => {
+test("partial suggestions cover the oldest shares first and leave excess unallocated", () => {
 	const shares = [
 		share("later", 4000, received + 10 * day),
 		share("soon", 3000, received + day),
