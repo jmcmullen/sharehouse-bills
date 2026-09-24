@@ -6,11 +6,11 @@ import { PublicStatusBadge } from "@/components/public/status-badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { getPublicBillByPdfSha } from "@/functions/public-bill";
+import { formatReminderBillLabel } from "@/lib/reminder-preview";
 import {
 	type BillDueStatus,
+	buildBillPreview,
 	buildOpenGraphMeta,
-	formatBillPageDescription,
-	formatBillPageTitle,
 	formatCurrency,
 	getBillDueStatus,
 } from "@/lib/share-preview";
@@ -87,20 +87,15 @@ export const Route = createFileRoute("/bill/$pdfSha256")({
 			};
 		}
 
-		const isAllSorted = loaderData.paymentProgress.percentage === 100;
-		const dueStatus = getBillDueStatus(loaderData.bill.dueDateIso);
-		const title = formatBillPageTitle({
-			billerName: loaderData.bill.billerName,
+		const { title, description } = buildBillPreview({
+			billLabel: formatReminderBillLabel(loaderData.bill),
+			dueDate: loaderData.bill.dueDateIso,
+			settledAt: loaderData.bill.settledAtIso,
 			totalAmount: loaderData.bill.totalAmount,
-			isAllSorted,
-			dueStatus,
-		});
-		const description = formatBillPageDescription({
 			hasEvenShares: loaderData.shareSummary.hasEvenShares,
 			amountEach: loaderData.shareSummary.amountEach,
 			participantCount: loaderData.shareSummary.participantCount,
-			isAllSorted,
-			dueStatus,
+			isAllSorted: loaderData.paymentProgress.percentage === 100,
 		});
 		const previewDate = loaderData.previewDate;
 		const sharePageUrl = BillPdfStorageService.getAbsoluteViewerUrl(
@@ -135,11 +130,12 @@ export const Route = createFileRoute("/bill/$pdfSha256")({
 type PublicBillPageData = Omit<PublicBillPageServerData, "bill"> & {
 	bill: Omit<
 		PublicBillPageServerData["bill"],
-		"billPeriodEnd" | "billPeriodStart" | "dueDate"
+		"billPeriodEnd" | "billPeriodStart" | "dueDate" | "settledAt"
 	> & {
 		billPeriodEndIso: string | null;
 		billPeriodStartIso: string | null;
 		dueDateIso: string;
+		settledAtIso: string | null;
 	};
 	payId: string | null;
 	previewDate: string | null;

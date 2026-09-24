@@ -1,12 +1,5 @@
+import { formatDueDate } from "./bill-timing";
 import { formatCurrency } from "./share-preview";
-
-function formatReminderDate(date: Date | string) {
-	return new Intl.DateTimeFormat("en-AU", {
-		weekday: "short",
-		day: "numeric",
-		month: "short",
-	}).format(new Date(date));
-}
 
 export function formatReminderBillLabel(input: {
 	billerName: string;
@@ -27,7 +20,7 @@ export function formatReminderDueLine(input: {
 	dueDate: Date | string;
 	isOverdue: boolean;
 }) {
-	return `${input.isOverdue ? "Was due" : "Due"} ${formatReminderDate(input.dueDate)}`;
+	return `${input.isOverdue ? "Was due" : "Due"} ${formatDueDate(input.dueDate)}`;
 }
 
 export function formatReminderMetaDescription(input: {
@@ -38,5 +31,5 @@ export function formatReminderMetaDescription(input: {
 	isOverdue: boolean;
 }) {
 	const label = formatReminderBillLabel(input);
-	return `${label} ${input.isOverdue ? "was" : "is"} due ${formatReminderDate(input.dueDate)} for ${formatCurrency(input.remainingAmount)}`;
+	return `${label} ${input.isOverdue ? "was" : "is"} due ${formatDueDate(input.dueDate)} for ${formatCurrency(input.remainingAmount)}`;
 }

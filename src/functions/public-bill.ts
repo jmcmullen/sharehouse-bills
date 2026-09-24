@@ -23,6 +23,7 @@ export const getPublicBillByPdfSha = createServerFn({ method: "GET" })
 			bill: {
 				...bill.bill,
 				dueDateIso: bill.bill.dueDate.toISOString(),
+				settledAtIso: bill.bill.settledAt?.toISOString() ?? null,
 				billPeriodStartIso: bill.bill.billPeriodStart?.toISOString() ?? null,
 				billPeriodEndIso: bill.bill.billPeriodEnd?.toISOString() ?? null,
 			},

@@ -1,9 +1,5 @@
-function formatCurrency(amount: number) {
-	return new Intl.NumberFormat("en-AU", {
-		style: "currency",
-		currency: "AUD",
-	}).format(amount);
-}
+import { formatDueDate, formatTiming } from "../../lib/bill-timing";
+import { formatCurrency } from "../../lib/share-preview";
 
 function getLowercaseFirstNames(names: string[]) {
 	return [
@@ -145,14 +141,6 @@ export function buildBillPaidSummary(input: { billUrl: string }) {
 	return input.billUrl;
 }
 
-function formatReminderDate(date: Date) {
-	return new Intl.DateTimeFormat("en-AU", {
-		weekday: "short",
-		day: "numeric",
-		month: "short",
-	}).format(date);
-}
-
 interface ReceiptLine {
 	billName: string;
 	dueDate: Date | null;
@@ -175,17 +163,18 @@ function cents(amount: number) {
 	return formatCurrency(amount / 100);
 }
 
-function formatDayMonth(date: Date) {
-	return new Intl.DateTimeFormat("en-AU", {
-		day: "numeric",
-		month: "short",
-	}).format(date);
+// The day money arrived, read against its own year.
+function formatReceivedDate(date: Date) {
+	return formatDueDate(date, date);
 }
 
-function receiptLines(lines: ReceiptLine[]) {
-	return lines.map(
-		(line) =>
-			`- ${line.billName}${line.dueDate ? ` (due ${formatDayMonth(line.dueDate)})` : ""} · ${cents(line.amountCents)}`,
+// "- Rent (due Fri 18 Sep) · $372.00 · 3 days early", timed against the day
+// this payment arrived.
+function receiptLines(lines: ReceiptLine[], receivedAt: Date) {
+	return lines.map(({ billName, dueDate, amountCents }) =>
+		dueDate
+			? `- ${billName} (due ${formatDueDate(dueDate, receivedAt)}) · ${cents(amountCents)} · ${formatTiming(dueDate, receivedAt)}`
+			: `- ${billName} · ${cents(amountCents)}`,
 	);
 }
 
@@ -202,7 +191,7 @@ function receiptFooter(input: Pick<PaymentReceiptInput, "balanceCents">) {
 export function buildPaymentReceiptSummary(input: PaymentReceiptInput) {
 	const header = [
 		`*Thanks ${input.firstName}, payment received*`,
-		`${cents(input.amountCents)} on ${formatReminderDate(input.receivedAt)}`,
+		`${cents(input.amountCents)} on ${formatReceivedDate(input.receivedAt)}`,
 		"",
 	];
 	if (!input.covered.length)
@@ -214,7 +203,7 @@ export function buildPaymentReceiptSummary(input: PaymentReceiptInput) {
 	return [
 		...header,
 		"Covers:",
-		...receiptLines(input.covered),
+		...receiptLines(input.covered, input.receivedAt),
 		"",
 		...(input.creditCents > 0
 			? [`${cents(input.creditCents)} is held as credit for your next bill.`]
@@ -226,16 +215,16 @@ export function buildPaymentReceiptSummary(input: PaymentReceiptInput) {
 export function buildPaymentCorrectionSummary(input: PaymentCorrectionInput) {
 	return [
 		`*${input.firstName}, a correction to your payment*`,
-		`${cents(input.amountCents)} on ${formatReminderDate(input.receivedAt)}`,
+		`${cents(input.amountCents)} on ${formatReceivedDate(input.receivedAt)}`,
 		"",
 		...(input.before.length
-			? ["Previously covered:", ...receiptLines(input.before)]
+			? ["Previously covered:", ...receiptLines(input.before, input.receivedAt)]
 			: ["Previously held as credit."]),
 		"",
 		...(input.after.length
 			? [
 					"Now covers:",
-					...receiptLines(input.after),
+					...receiptLines(input.after, input.receivedAt),
 					...(input.creditCents > 0
 						? [
 								`${cents(input.creditCents)} is held as credit for your next bill.`,
@@ -267,7 +256,7 @@ function arrivalHint(input: PaymentArrivedInput) {
 export function buildPaymentArrivedSummary(input: PaymentArrivedInput) {
 	return [
 		`*Payment arrived from ${input.senderName}*`,
-		`${cents(input.amountCents)} on ${formatReminderDate(input.receivedAt)} · ${
+		`${cents(input.amountCents)} on ${formatReceivedDate(input.receivedAt)} · ${
 			input.reference ? `"${input.reference}"` : "no reference"
 		}`,
 		"",

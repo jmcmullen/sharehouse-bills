@@ -8,6 +8,8 @@ import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
+import { withLedgerClient } from "./ledger/client.server";
+import { getBillSettledAt } from "./ledger/settled-at.server";
 
 type PublicBillDebtRecord = {
 	id: string;
@@ -32,6 +34,7 @@ export type PublicBillPageData = {
 		billType: string | null;
 		totalAmount: number;
 		dueDate: Date;
+		settledAt: Date | null;
 		billPeriodStart: Date | null;
 		billPeriodEnd: Date | null;
 		pdfSha256: string | null;
@@ -184,6 +187,13 @@ export async function getPublicBillPageData(
 		...ownerParticipants,
 		...debtParticipants,
 	];
+	const percentage = paidPercentage(settledAmount, rows[0].totalAmount);
+	const settledAt =
+		percentage === 100
+			? await withLedgerClient((client) =>
+					getBillSettledAt(client, rows[0].billId),
+				)
+			: null;
 	const pagePath = BillPdfStorageService.getViewerUrl(rows[0].billId);
 	const pdfPath = rows[0].pdfSha256
 		? BillPdfStorageService.getPdfUrl(rows[0].pdfSha256)
@@ -197,6 +207,7 @@ export async function getPublicBillPageData(
 			billType: rows[0].billType,
 			totalAmount: rows[0].totalAmount,
 			dueDate: rows[0].dueDate,
+			settledAt,
 			billPeriodStart: rows[0].billPeriodStart,
 			billPeriodEnd: rows[0].billPeriodEnd,
 			pdfSha256: rows[0].pdfSha256,
@@ -212,7 +223,7 @@ export async function getPublicBillPageData(
 		paymentProgress: {
 			settledCount,
 			remainingCount: Math.max(0, participantCount - settledCount),
-			percentage: paidPercentage(settledAmount, rows[0].totalAmount),
+			percentage,
 			settledAmount,
 			remainingAmount: Math.max(0, rows[0].totalAmount - settledAmount),
 		},

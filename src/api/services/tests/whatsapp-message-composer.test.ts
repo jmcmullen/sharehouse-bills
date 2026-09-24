@@ -29,13 +29,41 @@ test("payment receipt names the bills covered, leftover credit and balance", () 
 		balanceCents: 12000,
 	}).split("\n");
 	assert.equal(lines[0], "*Thanks Oliver, payment received*");
-	assert.equal(lines[1], "$249.00 on Sat, 12 Sep");
+	assert.equal(lines[1], "$249.00 on Sat 12 Sep");
 	assert.equal(lines[3], "Covers:");
-	assert.equal(lines[4], "- Gas (due 12 Sep) · $100.00");
-	assert.equal(lines[5], "- Cleaners (due 15 Sep) · $99.00");
+	assert.equal(lines[4], "- Gas (due Sat 12 Sep) · $100.00 · on the due date");
+	assert.equal(lines[5], "- Cleaners (due Tue 15 Sep) · $99.00 · 3 days early");
 	assert.equal(lines[7], "$50.00 is held as credit for your next bill.");
 	assert.equal(lines[8], "You still owe $120.00.");
 	assert.equal(lines.length, 9);
+});
+
+test("receipt lines time each bill against the day the money arrived", () => {
+	const lines = buildPaymentReceiptSummary({
+		firstName: "Oliver",
+		amountCents: 60000,
+		receivedAt: received,
+		covered: [
+			{
+				billName: "Rent",
+				dueDate: new Date("2026-08-21T00:00:00Z"),
+				amountCents: 37200,
+			},
+			{
+				billName: "Water",
+				dueDate: new Date("2025-12-01T00:00:00Z"),
+				amountCents: 12800,
+			},
+			{ billName: "Pool", dueDate: null, amountCents: 10000 },
+		],
+		creditCents: 0,
+		balanceCents: 0,
+	}).split("\n");
+	assert.deepEqual(lines.slice(4, 7), [
+		"- Rent (due Fri 21 Aug) · $372.00 · 3 weeks late",
+		"- Water (due Mon 1 Dec 2025) · $128.00 · 9 months late",
+		"- Pool · $100.00",
+	]);
 });
 
 test("credit-held receipt says the money waits for the next bill", () => {
@@ -51,7 +79,7 @@ test("credit-held receipt says the money waits for the next bill", () => {
 		message,
 		[
 			"*Thanks Oliver, payment received*",
-			"$50.00 on Sat, 12 Sep",
+			"$50.00 on Sat 12 Sep",
 			"",
 			"This payment is held as credit for your next bill.",
 			"You're $50.00 in credit.",
@@ -73,10 +101,10 @@ test("payment correction lists the bills before and after the change", () => {
 		message,
 		[
 			"*Oliver, a correction to your payment*",
-			"$100.00 on Sat, 12 Sep",
+			"$100.00 on Sat 12 Sep",
 			"",
 			"Previously covered:",
-			"- Gas (due 12 Sep) · $100.00",
+			"- Gas (due Sat 12 Sep) · $100.00 · on the due date",
 			"",
 			"Now held as credit for your next bill.",
 			"You're all settled up.",
@@ -93,7 +121,10 @@ test("payment correction lists the bills before and after the change", () => {
 	}).split("\n");
 	assert.equal(reallocated[3], "Previously held as credit.");
 	assert.equal(reallocated[5], "Now covers:");
-	assert.equal(reallocated[6], "- Cleaners (due 15 Sep) · $99.00");
+	assert.equal(
+		reallocated[6],
+		"- Cleaners (due Tue 15 Sep) · $99.00 · 3 days early",
+	);
 });
 
 test("payment arrived tells the owner who paid, what it looks like and where to review", () => {
@@ -107,7 +138,7 @@ test("payment arrived tells the owner who paid, what it looks like and where to 
 		reviewUrl: "https://bills.example/payment-review?query=bank-1",
 	}).split("\n");
 	assert.equal(lines[0], "*Payment arrived from Oliver*");
-	assert.equal(lines[1], '$420.00 on Sat, 12 Sep · "Rent"');
+	assert.equal(lines[1], '$420.00 on Sat 12 Sep · "Rent"');
 	assert.equal(lines[3], "Looks like Rent · 12 Sep, $420.00");
 	assert.equal(
 		lines[4],
@@ -126,7 +157,7 @@ test("payment arrived without a match or reference says so, and shared payments 
 		suggestion: null,
 		reviewUrl: "https://bills.example/payment-review?query=bank-2",
 	}).split("\n");
-	assert.equal(none[1], "$10.00 on Sat, 12 Sep · no reference");
+	assert.equal(none[1], "$10.00 on Sat 12 Sep · no reference");
 	assert.equal(none[3], "No matching bill");
 	const shared = buildPaymentArrivedSummary({
 		senderName: "Oliver + Sarah",

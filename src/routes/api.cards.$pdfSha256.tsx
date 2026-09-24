@@ -6,21 +6,22 @@ import {
 	createOgHeadResponse,
 	createOgRouteHandler,
 } from "../lib/og-route.server";
+import { formatReminderBillLabel } from "../lib/reminder-preview";
 import {
-	type BillDueStatus,
-	formatCurrency,
-	getBillDueStatus,
+	type BillPreview,
+	buildBillPreview,
 	truncate,
 } from "../lib/share-preview";
 
-type BillOgCardProps = {
-	backgroundColor: string;
-	primaryValue: string;
-	secondaryColor: string;
-	secondaryValue?: string | null;
-	tertiaryColor?: string;
-	tertiaryValue?: string | null;
-	titleColor: string;
+type CardTone = BillPreview["card"]["tone"];
+
+// Background, title, secondary and tertiary colours per preview tone.
+const CARD_COLOURS: Record<CardTone, [string, string, string, string]> = {
+	paid: ["#0d1f14", "#f0fbf4", "#b9e4c9", "#8fc6a5"],
+	overdue: ["#291717", "#fff2f1", "#e0b5b8", "#c99599"],
+	today: ["#2b2212", "#fff4d7", "#e7c37d", "#c59b50"],
+	soon: ["#2a2824", "#e8e3d6", "#b8b0a0", "#938b7d"],
+	later: ["#2a2824", "#e8e3d6", "#b8b0a0", "#938b7d"],
 };
 
 const billCardFontSetupPromise = resolveFontSetup({
@@ -30,71 +31,17 @@ const billCardFontSetupPromise = resolveFontSetup({
 	}),
 });
 
-function getBillOgTitle(input: {
-	billerName: string;
-	recurringTemplateName: string | null;
-}) {
-	const templateName = input.recurringTemplateName?.trim();
-	if (!templateName) {
-		return input.billerName;
-	}
-
-	return input.billerName.toLowerCase().includes(templateName.toLowerCase())
-		? input.billerName
-		: `${input.billerName} ${templateName}`;
-}
-
-function getBillOgCardProps(input: {
-	isAllSorted: boolean;
-	dueStatus: BillDueStatus;
-	primaryValue: string;
-	secondaryValue: string | null;
-	tertiaryValue: string | null;
-}): BillOgCardProps {
-	if (input.isAllSorted) {
-		return {
-			backgroundColor: "#0d1f14",
-			primaryValue: "Paid in full",
-			secondaryColor: "#b9e4c9",
-			secondaryValue: "Thanks everyone",
-			tertiaryColor: "#8fc6a5",
-			tertiaryValue: input.tertiaryValue,
-			titleColor: "#f0fbf4",
-		};
-	}
-
-	if (input.dueStatus.tone === "overdue") {
-		return {
-			backgroundColor: "#291717",
-			primaryValue: input.primaryValue,
-			secondaryColor: "#e0b5b8",
-			secondaryValue: input.dueStatus.label,
-			tertiaryColor: "#c99599",
-			tertiaryValue: input.tertiaryValue ?? input.secondaryValue,
-			titleColor: "#fff2f1",
-		};
-	}
-
-	if (input.dueStatus.tone === "today") {
-		return {
-			backgroundColor: "#2b2212",
-			primaryValue: input.primaryValue,
-			secondaryColor: "#e7c37d",
-			secondaryValue: "Due today",
-			tertiaryColor: "#c59b50",
-			tertiaryValue: input.tertiaryValue ?? input.secondaryValue,
-			titleColor: "#fff4d7",
-		};
-	}
-
+function getBillOgCardProps(card: BillPreview["card"]) {
+	const [backgroundColor, titleColor, secondaryColor, tertiaryColor] =
+		CARD_COLOURS[card.tone];
 	return {
-		backgroundColor: "#2a2824",
-		primaryValue: input.primaryValue,
-		secondaryColor: "#b8b0a0",
-		secondaryValue: input.secondaryValue,
-		tertiaryColor: "#938b7d",
-		tertiaryValue: input.tertiaryValue,
-		titleColor: "#e8e3d6",
+		backgroundColor,
+		titleColor,
+		secondaryColor,
+		tertiaryColor,
+		primaryValue: card.primary,
+		secondaryValue: card.secondary,
+		tertiaryValue: card.tertiary,
 	};
 }
 
@@ -111,44 +58,25 @@ export const Route = createFileRoute("/api/cards/$pdfSha256")({
 				}
 
 				const fontSetup = await billCardFontSetupPromise;
-				const isAllSorted = bill.paymentProgress.percentage === 100;
-				const dueStatus = getBillDueStatus(bill.bill.dueDate);
-				const primaryValue = bill.shareSummary.hasEvenShares
-					? bill.shareSummary.amountEach !== null
-						? `${formatCurrency(bill.shareSummary.amountEach)} each`
-						: formatCurrency(bill.bill.totalAmount)
-					: formatCurrency(bill.bill.totalAmount);
-				const splitValue =
-					!bill.shareSummary.hasEvenShares &&
-					bill.shareSummary.participantCount > 0
-						? `Split across ${bill.shareSummary.participantCount} ${bill.shareSummary.participantCount === 1 ? "housemate" : "housemates"}`
-						: null;
-				const totalValue = `Total ${formatCurrency(bill.bill.totalAmount)}`;
-				const cardProps = getBillOgCardProps({
-					isAllSorted,
-					dueStatus,
-					primaryValue,
-					secondaryValue:
-						bill.shareSummary.hasEvenShares &&
-						bill.shareSummary.amountEach !== null
-							? totalValue
-							: null,
-					tertiaryValue: isAllSorted ? totalValue : splitValue,
+				const billLabel = formatReminderBillLabel(bill.bill);
+				const { card } = buildBillPreview({
+					billLabel,
+					dueDate: bill.bill.dueDate,
+					settledAt: bill.bill.settledAt,
+					totalAmount: bill.bill.totalAmount,
+					hasEvenShares: bill.shareSummary.hasEvenShares,
+					amountEach: bill.shareSummary.amountEach,
+					participantCount: bill.shareSummary.participantCount,
+					isAllSorted: bill.paymentProgress.percentage === 100,
 				});
 
 				const getOg = createOgRouteHandler({
 					baseFonts: fontSetup.fonts,
 					component: (
 						<OgCard
-							{...cardProps}
+							{...getBillOgCardProps(card)}
 							fontFamily={fontSetup.families.base}
-							title={truncate(
-								getBillOgTitle({
-									billerName: bill.bill.billerName,
-									recurringTemplateName: bill.bill.recurringTemplateName,
-								}),
-								40,
-							)}
+							title={truncate(billLabel, 40)}
 						/>
 					),
 				});

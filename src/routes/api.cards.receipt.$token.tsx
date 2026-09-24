@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getPublicDebtReceiptPageData } from "../api/services/debt-receipt-page.server";
-import { getReceiptBillLabel } from "../lib/debt-receipt";
+import { formatReceiptTiming, getReceiptBillLabel } from "../lib/debt-receipt";
 import { OgCard } from "../lib/og-card";
 import { loadGoogleFonts, resolveFontSetup } from "../lib/og-fonts.server";
 import {
@@ -39,6 +39,7 @@ export const Route = createFileRoute("/api/cards/receipt/$token")({
 							fontFamily={fontSetup.families.base}
 							primaryValue={formatCurrency(receipt.receipt.amountPaid)}
 							secondaryColor="#bbcfad"
+							secondaryValue={formatReceiptTiming(receipt.receipt)}
 							tertiaryColor="#8fa083"
 							tertiaryValue={truncate(billLabel, 42)}
 							title={truncate(`${receipt.housemate.name} paid`, 40)}

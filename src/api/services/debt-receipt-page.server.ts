@@ -6,6 +6,8 @@ import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
+import { withLedgerClient } from "./ledger/client.server";
+import { getDebtSettledAt } from "./ledger/settled-at.server";
 import { createPayPath } from "./pay-token.server";
 import {
 	createSignedPublicLinkToken,
@@ -133,15 +135,18 @@ export async function getPublicDebtReceiptPageData(
 		return null;
 	}
 
-	const outstandingRows = await db
-		.select({
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-		})
-		.from(debts)
-		.where(
-			and(eq(debts.housemateId, row.housemateId), eq(debts.isPaid, false)),
-		);
+	const [outstandingRows, settledAt] = await Promise.all([
+		db
+			.select({
+				amountOwed: debts.amountOwed,
+				amountPaid: debts.amountPaid,
+			})
+			.from(debts)
+			.where(
+				and(eq(debts.housemateId, row.housemateId), eq(debts.isPaid, false)),
+			),
+		withLedgerClient((client) => getDebtSettledAt(client, row.debtId)),
+	]);
 
 	const remainingAmount = outstandingRows.reduce(
 		(sum, debt) => sum + Math.max(0, debt.amountOwed - (debt.amountPaid ?? 0)),
@@ -167,7 +172,8 @@ export async function getPublicDebtReceiptPageData(
 		receipt: {
 			debtId: row.debtId,
 			amountPaid: row.amountPaid,
-			paidAt: row.paidAt,
+			// When the money arrived, not when the ledger recorded it.
+			paidAt: settledAt ?? row.paidAt,
 			billId: row.billId,
 			billerName: row.billerName,
 			recurringTemplateName: row.recurringTemplateName,

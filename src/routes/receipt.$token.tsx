@@ -2,6 +2,7 @@
 import { BillPdfStorageService } from "@/api/services/bill-pdf-storage";
 import { Button } from "@/components/ui/button";
 import { getPublicDebtReceipt } from "@/functions/public-debt-receipt";
+import { formatDueDate, formatPaidTiming } from "@/lib/bill-timing";
 import { getReceiptBillLabel } from "@/lib/debt-receipt";
 import { buildOpenGraphMeta, formatCurrency } from "@/lib/share-preview";
 import { createFileRoute } from "@tanstack/react-router";
@@ -39,7 +40,7 @@ function formatBillPeriod(input: {
 	if (input.billPeriodEndIso) {
 		return `Until ${formatCompactDate(input.billPeriodEndIso)}`;
 	}
-	return `Due ${formatDate(input.dueDateIso)}`;
+	return `Due ${formatDueDate(input.dueDateIso)}`;
 }
 
 export const Route = createFileRoute("/receipt/$token")({
@@ -76,7 +77,7 @@ export const Route = createFileRoute("/receipt/$token")({
 
 		const title = `${loaderData.housemate.name} paid ${formatCurrency(loaderData.receipt.amountPaid)}`;
 		const billLabel = getReceiptBillLabel(loaderData.receipt);
-		const description = `Paid ${formatDate(loaderData.receipt.paidAtIso)} for ${billLabel}.`;
+		const description = `${billLabel} due ${formatDueDate(loaderData.receipt.dueDateIso)}. ${formatPaidTiming(loaderData.receipt.dueDateIso, loaderData.receipt.paidAtIso)}.`;
 		const previewDate = loaderData.previewDate;
 		const token = loaderData.links.pagePath.split("/").pop() ?? "";
 		const sharePageUrl = BillPdfStorageService.getAbsoluteDebtReceiptUrl(
@@ -154,7 +155,10 @@ function PublicReceiptPage() {
 						</h1>
 						<div>
 							<span className="inline-flex items-center rounded-full bg-success-muted px-2.5 py-1 font-semibold text-[11.5px] text-success-muted-foreground tracking-tight">
-								Payment confirmed
+								{formatPaidTiming(
+									loaderData.receipt.dueDateIso,
+									loaderData.receipt.paidAtIso,
+								)}
 							</span>
 						</div>
 					</div>
@@ -188,7 +192,7 @@ function PublicReceiptPage() {
 						<div className="flex items-center justify-between gap-4 py-3">
 							<p className="text-[13px] text-muted-foreground">Bill due</p>
 							<p className="text-right font-medium text-[13px]">
-								{formatDate(loaderData.receipt.dueDateIso)}
+								{formatDueDate(loaderData.receipt.dueDateIso)}
 							</p>
 						</div>
 					</div>

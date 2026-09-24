@@ -5,7 +5,7 @@ import {
 	suggestBankReceipt,
 } from "./ledger/account-payments";
 import { paymentArrivedPayloadSchema } from "./ledger/arrival-notifications";
-import { createLedgerClient } from "./ledger/client.server";
+import { withLedgerClient } from "./ledger/client.server";
 
 type Executor = Pick<Client, "execute">;
 interface PaymentArrivedContext {
@@ -21,15 +21,6 @@ interface PaymentArrivedContext {
 	reviewUrl: string | null;
 }
 
-async function withLedger<T>(run: (client: Client) => Promise<T>): Promise<T> {
-	const client = createLedgerClient();
-	try {
-		return await run(client);
-	} finally {
-		client.close();
-	}
-}
-
 function paymentReviewPath(transactionId: string): string {
 	return `/payment-review?query=${encodeURIComponent(transactionId)}`;
 }
@@ -39,7 +30,7 @@ function paymentReviewPath(transactionId: string): string {
 export async function getPaymentArrivedNotificationContext(
 	notificationId: string,
 ): Promise<PaymentArrivedContext | null> {
-	return withLedger(async (client) => {
+	return withLedgerClient(async (client) => {
 		const row = (
 			await client.execute({
 				sql: "SELECT n.payload,h.id,h.name,h.whatsapp_number FROM whatsapp_notifications n JOIN housemates h ON h.id=n.housemate_id WHERE n.id=?",

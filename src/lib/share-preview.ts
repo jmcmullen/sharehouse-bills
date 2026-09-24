@@ -1,4 +1,11 @@
 // fallow-ignore-file code-duplication
+import {
+	formatDueDate,
+	formatPaidTiming,
+	formatTiming,
+	sydneyDaysBetween,
+} from "./bill-timing";
+
 export function formatCurrency(amount: number) {
 	return new Intl.NumberFormat("en-AU", {
 		style: "currency",
@@ -13,32 +20,12 @@ export type BillDueStatus = {
 	dueLabel: string;
 };
 
-const DAY_IN_MS = 1000 * 60 * 60 * 24;
-
-function startOfLocalDay(date: Date) {
-	const copy = new Date(date);
-	copy.setHours(0, 0, 0, 0);
-	return copy;
-}
-
-function formatBillDueDate(date: Date | string) {
-	return new Intl.DateTimeFormat("en-AU", {
-		weekday: "short",
-		day: "numeric",
-		month: "short",
-	}).format(new Date(date));
-}
-
 export function getBillDueStatus(
 	date: Date | string,
 	now: Date = new Date(),
 ): BillDueStatus {
-	const dueLabel = formatBillDueDate(date);
-	const daysUntilDue = Math.round(
-		(startOfLocalDay(new Date(date)).getTime() -
-			startOfLocalDay(now).getTime()) /
-			DAY_IN_MS,
-	);
+	const dueLabel = formatDueDate(date, now);
+	const daysUntilDue = sydneyDaysBetween(now, date);
 
 	if (daysUntilDue < 0) {
 		const daysOverdue = Math.abs(daysUntilDue);
@@ -51,21 +38,11 @@ export function getBillDueStatus(
 	}
 
 	if (daysUntilDue === 0) {
-		return {
-			label: "Due today",
-			tone: "today",
-			daysUntilDue,
-			dueLabel,
-		};
+		return { label: "Due today", tone: "today", daysUntilDue, dueLabel };
 	}
 
 	if (daysUntilDue === 1) {
-		return {
-			label: "Due tomorrow",
-			tone: "soon",
-			daysUntilDue,
-			dueLabel,
-		};
+		return { label: "Due tomorrow", tone: "soon", daysUntilDue, dueLabel };
 	}
 
 	if (daysUntilDue <= 7) {
@@ -77,67 +54,106 @@ export function getBillDueStatus(
 		};
 	}
 
-	return {
-		label: `Due ${dueLabel}`,
-		tone: "later",
-		daysUntilDue,
-		dueLabel,
+	return { label: `Due ${dueLabel}`, tone: "later", daysUntilDue, dueLabel };
+}
+
+export interface BillPreviewInput {
+	billLabel: string;
+	dueDate: Date | string;
+	settledAt: Date | string | null;
+	totalAmount: number;
+	hasEvenShares: boolean;
+	amountEach: number | null;
+	participantCount: number;
+	isAllSorted: boolean;
+}
+
+export interface BillPreview {
+	title: string;
+	description: string;
+	card: {
+		tone: "paid" | BillDueStatus["tone"];
+		primary: string;
+		secondary: string;
+		tertiary: string | null;
 	};
 }
 
-export function formatBillPageTitle(input: {
-	billerName: string;
-	totalAmount: number;
-	isAllSorted: boolean;
-	dueStatus: BillDueStatus;
-}) {
-	if (input.isAllSorted) {
-		return `${input.billerName} paid in full`;
-	}
-
-	if (input.dueStatus.tone === "overdue") {
-		return `${input.billerName} bill is overdue`;
-	}
-
-	if (input.dueStatus.tone === "today") {
-		return `${input.billerName} bill is due today`;
-	}
-
-	return `Bill from ${input.billerName} for ${formatCurrency(input.totalAmount)}`;
+function formatDueLine(status: BillDueStatus) {
+	if (status.tone === "overdue")
+		return `${status.label} · due ${status.dueLabel}`;
+	if (status.tone === "today") return `Due today · ${status.dueLabel}`;
+	return `Due ${status.dueLabel}`;
 }
 
-function formatBillShareDescription(input: {
-	hasEvenShares: boolean;
-	amountEach: number | null;
-	participantCount: number;
-}) {
-	return input.hasEvenShares && input.amountEach !== null
+function formatSplit(count: number) {
+	return `Split across ${count} ${count === 1 ? "housemate" : "housemates"}`;
+}
+
+function hasAmountEach(input: BillPreviewInput): input is BillPreviewInput & {
+	amountEach: number;
+} {
+	return input.hasEvenShares && input.amountEach !== null;
+}
+
+function buildPaidPreview(input: BillPreviewInput, now: Date): BillPreview {
+	const dueLabel = formatDueDate(input.dueDate, now);
+	const due = `Due ${dueLabel}`;
+	const { settledAt } = input;
+	return {
+		title: `${input.billLabel} due ${dueLabel} paid in full`,
+		description: settledAt
+			? `${formatPaidTiming(input.dueDate, settledAt)}. Thanks everyone for settling up.`
+			: "Thanks everyone for settling up.",
+		card: {
+			tone: "paid",
+			primary: "Paid in full",
+			secondary: settledAt
+				? `${due} · ${formatTiming(input.dueDate, settledAt)}`
+				: due,
+			tertiary: `Total ${formatCurrency(input.totalAmount)}`,
+		},
+	};
+}
+
+function formatUnpaidTitle(input: BillPreviewInput, status: BillDueStatus) {
+	if (status.tone === "overdue") return `${input.billLabel} bill is overdue`;
+	if (status.tone === "today") return `${input.billLabel} bill is due today`;
+	return `Bill from ${input.billLabel} for ${formatCurrency(input.totalAmount)}`;
+}
+
+function buildUnpaidPreview(input: BillPreviewInput, now: Date): BillPreview {
+	const status = getBillDueStatus(input.dueDate, now);
+	const dueLine = formatDueLine(status);
+	const shares = hasAmountEach(input)
 		? `${formatCurrency(input.amountEach)} each.`
-		: `Split across ${input.participantCount} ${input.participantCount === 1 ? "housemate" : "housemates"}.`;
+		: `${formatSplit(input.participantCount)}.`;
+	return {
+		title: formatUnpaidTitle(input, status),
+		description: `${dueLine}. ${shares}`,
+		card: {
+			tone: status.tone,
+			primary: hasAmountEach(input)
+				? `${formatCurrency(input.amountEach)} each`
+				: formatCurrency(input.totalAmount),
+			secondary: dueLine,
+			tertiary: hasAmountEach(input)
+				? `Total ${formatCurrency(input.totalAmount)}`
+				: input.participantCount > 0
+					? formatSplit(input.participantCount)
+					: null,
+		},
+	};
 }
 
-export function formatBillPageDescription(input: {
-	hasEvenShares: boolean;
-	amountEach: number | null;
-	participantCount: number;
-	isAllSorted: boolean;
-	dueStatus: BillDueStatus;
-}) {
-	if (input.isAllSorted) {
-		return "Thanks everyone for settling up.";
-	}
-
-	const shareDescription = formatBillShareDescription(input);
-
-	if (input.dueStatus.tone === "overdue") {
-		return `${input.dueStatus.label}. ${shareDescription}`;
-	}
-
-	if (input.dueStatus.tone === "today") {
-		return `Due today. ${shareDescription}`;
-	}
-
-	return `Due ${input.dueStatus.dueLabel}. ${shareDescription}`;
+// The WhatsApp link preview for a bill: page title, description and card text.
+export function buildBillPreview(
+	input: BillPreviewInput,
+	now: Date = new Date(),
+): BillPreview {
+	return input.isAllSorted
+		? buildPaidPreview(input, now)
+		: buildUnpaidPreview(input, now);
 }
 
 function escapeXml(value: string) {

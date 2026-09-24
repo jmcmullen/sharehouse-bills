@@ -7,3 +7,14 @@ export function createLedgerClient(): Client {
 		authToken: process.env.DATABASE_AUTH_TOKEN,
 	});
 }
+
+export async function withLedgerClient<T>(
+	run: (client: Client) => Promise<T>,
+): Promise<T> {
+	const client = createLedgerClient();
+	try {
+		return await run(client);
+	} finally {
+		client.close();
+	}
+}

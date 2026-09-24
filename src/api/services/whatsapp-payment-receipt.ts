@@ -1,5 +1,5 @@
 import type { Client } from "@libsql/client";
-import { createLedgerClient } from "./ledger/client.server";
+import { withLedgerClient } from "./ledger/client.server";
 import { currentStatement } from "./ledger/model";
 import {
 	type PaymentReceiptPayload,
@@ -29,21 +29,12 @@ interface PaymentReceiptContext {
 	balanceCents: number;
 }
 
-async function withLedger<T>(run: (client: Client) => Promise<T>): Promise<T> {
-	const client = createLedgerClient();
-	try {
-		return await run(client);
-	} finally {
-		client.close();
-	}
-}
-
 // Rebuilds the receipt message inputs from the decision snapshot the ledger
 // stored, plus the housemate's live balance.
 export async function getPaymentReceiptNotificationContext(
 	notificationId: string,
 ): Promise<PaymentReceiptContext | null> {
-	return withLedger(async (client) => {
+	return withLedgerClient(async (client) => {
 		const row = (
 			await client.execute({
 				sql: "SELECT n.event_type,n.payload,h.id AS housemate_id,h.name,h.whatsapp_number FROM whatsapp_notifications n JOIN housemates h ON h.id=n.housemate_id WHERE n.id=?",
