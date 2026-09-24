@@ -402,12 +402,11 @@ async function getAssistantPayPageData(input: {
 			summary: {
 				billCount: 0,
 				overdueCount: 0,
-				utilityBillCount: 0,
-				otherBillCount: 0,
+				remainingAmount: 0,
+				overdueAmount: 0,
 			},
 			paymentProgress: {
 				settledAmount: 0,
-				remainingAmount: 0,
 				percentage: 100,
 			},
 			recentlySettled: {
@@ -1171,7 +1170,7 @@ function createAssistantTools(context: AssistantToolContext) {
 				const page = await payPagePromise;
 				return {
 					housemateName: page.housemate.name,
-					totalOutstanding: page.paymentProgress.remainingAmount,
+					totalOutstanding: page.summary.remainingAmount,
 					unpaidBillCount: page.summary.billCount,
 					overdueBillCount: page.summary.overdueCount,
 					utilityGroups: page.utilityGroups.map((group) => ({
@@ -1263,7 +1262,7 @@ function createAssistantTools(context: AssistantToolContext) {
 				const page = await payPagePromise;
 				return {
 					housemateName: page.housemate.name,
-					totalOutstanding: page.paymentProgress.remainingAmount,
+					totalOutstanding: page.summary.remainingAmount,
 					bills: page.items.slice(0, BILL_BREAKDOWN_LIMIT).map((item) => ({
 						label: getBillLabel(item),
 						period: formatBillPeriod(item),
@@ -1467,7 +1466,7 @@ function createAssistantTools(context: AssistantToolContext) {
 				const page = await payPagePromise;
 				return {
 					housemateName: page.housemate.name,
-					totalOutstanding: page.paymentProgress.remainingAmount,
+					totalOutstanding: page.summary.remainingAmount,
 					payUrl: page.pageUrl,
 				};
 			},

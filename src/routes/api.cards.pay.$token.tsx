@@ -134,7 +134,7 @@ function getOutstandingPayCardProps(
 ) {
 	return {
 		backgroundColor: "#1f221b",
-		primaryValue: formatCurrency(payPage.paymentProgress.remainingAmount),
+		primaryValue: formatCurrency(payPage.summary.remainingAmount),
 		secondaryColor: "#c7d1be",
 		tertiaryValue: `${payPage.summary.billCount} unpaid ${payPage.summary.billCount === 1 ? "bill" : "bills"}`,
 		title: getPayCardTitle(payPage),

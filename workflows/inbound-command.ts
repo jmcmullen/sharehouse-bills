@@ -152,7 +152,7 @@ async function loadDueCommandSummaryDependencies() {
 	const { getNextBillReminderPreview: getNextReminderPreview } = await import(
 		"../src/api/services/bill-reminder-preview"
 	);
-	const { owingCents, reminderCredit } = await import(
+	const { reminderCredit } = await import(
 		"../src/api/services/bill-reminder-credit"
 	);
 	const { sendWhatsappTextMessage } = await import("../src/api/services/waha");
@@ -182,7 +182,6 @@ async function loadDueCommandSummaryDependencies() {
 		getRandomDebtPaidPreviewContext,
 		getNextReminderPreview,
 		housematePaymentNames,
-		owingCents,
 		previewDate,
 		reminderCredit,
 		sendWhatsappTextMessage,
@@ -331,10 +330,9 @@ async function sendReminderPreviewSummary({
 
 		return dependencies.buildBillReminderSummary({
 			payUrl,
-			credit: dependencies.reminderCredit(
-				reminderPreview.credit,
-				dependencies.owingCents([reminder.debt]),
-			),
+			credit: dependencies.reminderCredit(reminderPreview.credit, [
+				reminder.debt,
+			]),
 		});
 	});
 

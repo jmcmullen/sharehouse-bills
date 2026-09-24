@@ -53,10 +53,10 @@ async function sendBillReminderSummary(notificationId: string) {
 	const { buildBillReminderSummary } = await import(
 		"../src/api/services/whatsapp-message-composer"
 	);
-	const { getCredit } = await import(
-		"../src/api/services/ledger/credit.server"
+	const { getCoveredShares } = await import(
+		"../src/api/services/unpaid-shares.server"
 	);
-	const { owingCents, reminderCredit } = await import(
+	const { reminderCredit } = await import(
 		"../src/api/services/bill-reminder-credit"
 	);
 	const { getWahaChatIdForPhoneNumber, sendWhatsappTextMessage } = await import(
@@ -83,11 +83,13 @@ async function sendBillReminderSummary(notificationId: string) {
 		);
 	}
 
+	const billIds = new Set(context.debts.map((debt) => debt.billId));
+	const covered = await getCoveredShares(context.housemate.id);
 	const message = buildBillReminderSummary({
 		payUrl,
 		credit: reminderCredit(
-			await getCredit(context.housemate.id),
-			owingCents(context.debts),
+			covered.credit,
+			covered.shares.filter((share) => billIds.has(share.billId)),
 		),
 	});
 

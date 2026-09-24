@@ -14,13 +14,13 @@ import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
-import { uncoveredShares } from "./bill-reminder-credit";
+import { type ShareCover, uncoveredShares } from "./bill-reminder-credit";
 import { type Credit, getCredits } from "./ledger/credit.server";
 
 const NEXT_REMINDER_PREVIEW_LOOKAHEAD_DAYS = 31;
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
 
-type ReminderDebtPreview = {
+type ReminderDebtPreview = ShareCover & {
 	billId: string;
 	billerName: string;
 	recurringTemplateName: string | null;
@@ -90,7 +90,9 @@ export async function getReminderCandidateRows() {
 		.orderBy(asc(bills.dueDate), asc(debts.id));
 }
 
-function toReminderDebtPreview(row: ReminderCandidateRow): ReminderDebtPreview {
+function toReminderDebtPreview(
+	row: ReminderCandidateRow & ShareCover,
+): ReminderDebtPreview {
 	return {
 		billId: row.billId,
 		billerName: row.billerName,
@@ -98,6 +100,8 @@ function toReminderDebtPreview(row: ReminderCandidateRow): ReminderDebtPreview {
 		dueDate: row.dueDate,
 		amountOwed: row.amountOwed,
 		amountPaid: row.amountPaid,
+		coveredCents: row.coveredCents,
+		leftCents: row.leftCents,
 	};
 }
 
@@ -139,7 +143,7 @@ export function getReminderKindForRow(input: {
 }
 
 function collectReminderPreviewByHousemate(
-	rows: ReminderCandidateRow[],
+	rows: Array<ReminderCandidateRow & ShareCover>,
 	targetDate: Date,
 	credits: Map<string, Credit>,
 ) {

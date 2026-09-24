@@ -1,17 +1,21 @@
 // fallow-ignore-file code-duplication
-import { and, asc, eq, gte, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
-import { recurringBills } from "../db/schema/recurring-bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
-import { getCredit } from "./ledger/credit.server";
+import {
+	type PayShare,
+	buildPaySummary,
+	toPayShare,
+} from "./housemate-pay-summary";
 import {
 	createSignedPublicLinkToken,
 	publicLinkSignaturesMatch,
 	signPublicLinkPayload,
 } from "./public-link-token";
+import { type CoveredShare, getCoveredShares } from "./unpaid-shares.server";
 
 type UtilityBillType = "electricity" | "gas";
 
@@ -21,7 +25,7 @@ type PayTokenInput = {
 	billIds?: string[] | null;
 };
 
-type PayPageItem = {
+type PayPageItem = PayShare & {
 	billId: string;
 	billerName: string;
 	billType: string | null;
@@ -31,10 +35,6 @@ type PayPageItem = {
 	dueDate: Date;
 	billPeriodStart: Date | null;
 	billPeriodEnd: Date | null;
-	amountOwed: number;
-	amountPaid: number;
-	remainingAmount: number;
-	isOverdue: boolean;
 };
 
 type PayPageGroup = {
@@ -67,20 +67,20 @@ export type PublicHousematePayPageData = {
 	scope: PayScope & {
 		allBillsPath: string | null;
 	};
+	// Counts and totals cover only what is still to pay once credit is applied.
 	summary: {
 		billCount: number;
 		overdueCount: number;
-		utilityBillCount: number;
-		otherBillCount: number;
+		remainingAmount: number;
+		overdueAmount: number;
 	};
 	paymentProgress: {
 		settledAmount: number;
-		remainingAmount: number;
 		percentage: number;
 	};
 	credit: {
+		heldAmount: number;
 		appliedAmount: number;
-		receivedAtIso: string | null;
 	};
 	recentlySettled: {
 		amount: number;
@@ -361,31 +361,17 @@ export async function getPublicHousematePayPageData(token: string) {
 	}
 
 	const today = startOfUtcDay(new Date());
-	const items = (await getPayPageRows(housemate.id, parsedToken.scope)).map(
-		(row) => toPayPageItem(row, today),
-	);
+	const covered = await getCoveredShares(housemate.id);
+	const items = covered.shares
+		.filter((share) => isInPayScope(share, parsedToken.scope))
+		.map((share) => toPayPageItem(share, today));
 	const utilityGroups =
 		parsedToken.scope.kind === "all" ? groupUtilityItems(items) : [];
 	const nonUtilityItems =
 		parsedToken.scope.kind === "all"
 			? items.filter((item) => !isUtilityBillType(item.billType))
 			: items;
-
-	const totalAmount = items.reduce((total, item) => total + item.amountOwed, 0);
-	const owingAmount = items.reduce(
-		(total, item) => total + item.remainingAmount,
-		0,
-	);
-	// Money already received but not yet allocated counts towards what is owed,
-	// so the page never asks for it twice.
-	const credit = await getCredit(housemate.id);
-	const creditApplied = Math.min(owingAmount, credit.amountCents / 100);
-	const remainingAmount = Math.max(0, owingAmount - creditApplied);
-	const settledAmount = Math.max(0, totalAmount - remainingAmount);
-	const overdueCount = items.filter((item) => item.isOverdue).length;
-	const utilityBillCount = items.filter((item) =>
-		isUtilityBillType(item.billType),
-	).length;
+	const totals = buildPaySummary(items, covered.credit.amountCents / 100);
 	const canonicalToken = createPayToken({
 		housemateId: housemate.id,
 		billIds:
@@ -435,26 +421,7 @@ export async function getPublicHousematePayPageData(token: string) {
 			...parsedToken.scope,
 			allBillsPath,
 		},
-		summary: {
-			billCount: items.length,
-			overdueCount,
-			utilityBillCount,
-			otherBillCount: Math.max(0, items.length - utilityBillCount),
-		},
-		paymentProgress: {
-			settledAmount,
-			remainingAmount,
-			percentage:
-				totalAmount <= 0
-					? 100
-					: Math.round((settledAmount / totalAmount) * 100),
-		},
-		credit: {
-			appliedAmount: creditApplied,
-			receivedAtIso: credit.receivedAt
-				? new Date(credit.receivedAt * 1000).toISOString()
-				: null,
-		},
+		...totals,
 		recentlySettled: {
 			amount: recentlySettledAmount,
 			billCount: recentRows.length,
@@ -485,52 +452,25 @@ function getPayScopeConditions(scope: PayScope) {
 	return [];
 }
 
-async function getPayPageRows(housemateId: string, scope: PayScope) {
-	return await db
-		.select({
-			billId: bills.id,
-			billerName: bills.billerName,
-			billType: bills.billType,
-			recurringTemplateName: recurringBills.templateName,
-			stackGroup: bills.stackGroup,
-			dueDate: bills.dueDate,
-			billPeriodStart: bills.billPeriodStart,
-			billPeriodEnd: bills.billPeriodEnd,
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-		})
-		.from(debts)
-		.innerJoin(bills, eq(bills.id, debts.billId))
-		.leftJoin(recurringBills, eq(recurringBills.id, bills.recurringBillId))
-		.where(
-			and(
-				eq(debts.housemateId, housemateId),
-				eq(debts.isPaid, false),
-				...getPayScopeConditions(scope),
-			),
-		)
-		.orderBy(asc(bills.dueDate), asc(debts.id));
+function isInPayScope(share: CoveredShare, scope: PayScope) {
+	if (scope.kind === "stack") return share.stackGroup === scope.stackGroup;
+	if (scope.kind === "bills") return scope.billIds.includes(share.billId);
+	return true;
 }
 
-function toPayPageItem(
-	row: Awaited<ReturnType<typeof getPayPageRows>>[number],
-	today: Date,
-) {
-	const billPath = BillPdfStorageService.getViewerUrl(row.billId);
+function toPayPageItem(share: CoveredShare, today: Date): PayPageItem {
+	const billPath = BillPdfStorageService.getViewerUrl(share.billId);
 	return {
-		billId: row.billId,
-		billerName: row.billerName,
-		billType: row.billType,
-		recurringTemplateName: row.recurringTemplateName,
+		...toPayShare(share, share.dueDate.getTime() < today.getTime()),
+		billId: share.billId,
+		billerName: share.billerName,
+		billType: share.billType,
+		recurringTemplateName: share.recurringTemplateName,
 		billPath,
 		billUrl: BillPdfStorageService.getAbsoluteAppUrl(billPath),
-		dueDate: row.dueDate,
-		billPeriodStart: row.billPeriodStart,
-		billPeriodEnd: row.billPeriodEnd,
-		amountOwed: row.amountOwed,
-		amountPaid: row.amountPaid,
-		remainingAmount: Math.max(0, row.amountOwed - row.amountPaid),
-		isOverdue: row.dueDate.getTime() < today.getTime(),
+		dueDate: share.dueDate,
+		billPeriodStart: share.billPeriodStart,
+		billPeriodEnd: share.billPeriodEnd,
 	};
 }
 

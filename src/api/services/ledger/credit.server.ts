@@ -2,8 +2,8 @@ import type { Client } from "@libsql/client";
 import { getAccountPayments } from "./account-payments";
 import { createLedgerClient } from "./client.server";
 
-// Money received that no bill share has claimed yet, and when the latest of
-// it arrived so a message can name the payment.
+// Money received that no bill share has claimed yet, and when it arrived if
+// it all came in one payment so a message can name that payment.
 export interface Credit {
 	amountCents: number;
 	receivedAt: number | null;
@@ -16,9 +16,7 @@ async function creditFor(client: Client, housemateId: string): Promise<Credit> {
 	);
 	return {
 		amountCents: Math.max(0, account.unallocatedCents),
-		receivedAt: open.length
-			? Math.max(...open.map((receipt) => receipt.receivedAt))
-			: null,
+		receivedAt: open.length === 1 ? (open[0]?.receivedAt ?? null) : null,
 	};
 }
 

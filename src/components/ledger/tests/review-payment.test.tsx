@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import { JSDOM } from "jsdom";
+import "../../../lib/tests/dom";
 import { createElement } from "react";
 import type { AccountPayments } from "../../../api/services/ledger/account-payments";
 import type {
@@ -15,33 +15,6 @@ import type {
 type Ready = Parameters<typeof ReviewPaymentComponent>[0]["data"];
 type Decision = Parameters<typeof decideLedgerTransaction>[0];
 type Confirmation = Parameters<typeof confirmLedgerReceipt>[0];
-
-const dom = new JSDOM("<!doctype html><html><body></body></html>", {
-	url: "http://localhost",
-});
-for (const name of [
-	"window",
-	"document",
-	"navigator",
-	"HTMLElement",
-	"HTMLInputElement",
-	"HTMLSelectElement",
-	"Element",
-	"Node",
-	"NodeFilter",
-	"MutationObserver",
-	"CustomEvent",
-	"Event",
-]) {
-	Object.defineProperty(globalThis, name, {
-		configurable: true,
-		value: name === "window" ? dom.window : Reflect.get(dom.window, name),
-	});
-}
-Object.assign(globalThis, {
-	getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
-	IS_REACT_ACT_ENVIRONMENT: true,
-});
 
 const decide = mock(async (_input: Decision): Promise<void> => {});
 const confirm = mock(async (_input: Confirmation): Promise<void> => {});

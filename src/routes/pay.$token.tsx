@@ -1,6 +1,14 @@
 // fallow-ignore-file code-duplication
 import { BillPdfStorageService } from "@/api/services/bill-pdf-storage";
 import type { PublicHousematePayPageData } from "@/api/services/housemate-pay-page.server";
+import { isOwing } from "@/api/services/housemate-pay-summary";
+import { AllSortedPanel } from "@/components/public/all-sorted-panel";
+import {
+	CoveredBillsSection,
+	CreditNote,
+	SECTION_LABEL_CLASS,
+	formatBillCount,
+} from "@/components/public/pay-credit";
 import { PayNowDialog } from "@/components/public/pay-now-dialog";
 import { PublicStatusBadge } from "@/components/public/status-badge";
 import { Button } from "@/components/ui/button";
@@ -10,18 +18,13 @@ import {
 	formatReminderBillLabel,
 	formatReminderMetaDescription,
 } from "@/lib/reminder-preview";
-import { buildOpenGraphMeta, getBillDueStatus } from "@/lib/share-preview";
+import {
+	buildOpenGraphMeta,
+	formatCurrency,
+	getBillDueStatus,
+} from "@/lib/share-preview";
 import { createFileRoute } from "@tanstack/react-router";
-import confetti from "canvas-confetti";
 import { ExternalLink } from "lucide-react";
-import { useEffect, useRef } from "react";
-
-function formatCurrency(amount: number) {
-	return new Intl.NumberFormat("en-AU", {
-		style: "currency",
-		currency: "AUD",
-	}).format(amount);
-}
 
 function formatDate(dateIso: string) {
 	return new Intl.DateTimeFormat("en-AU", {
@@ -144,119 +147,6 @@ function formatPayPageDescription(input: {
 	return `${formatCurrency(input.remainingAmount)} across ${input.billCount} unpaid ${input.billCount === 1 ? "bill" : "bills"}.`;
 }
 
-const SECTION_LABEL_CLASS =
-	"font-semibold text-[11px] text-muted-foreground uppercase tracking-[0.12em]";
-
-const CELEBRATION_COLORS = ["#c87553", "#4fb377", "#dda94a", "#f0bfa2"];
-
-function firePopper(origin: { x: number; y: number }) {
-	if (typeof window === "undefined") return;
-	const prefersReducedMotion = window.matchMedia(
-		"(prefers-reduced-motion: reduce)",
-	).matches;
-	if (prefersReducedMotion) return;
-
-	const base = {
-		particleCount: 55,
-		startVelocity: 42,
-		spread: 55,
-		ticks: 200,
-		colors: CELEBRATION_COLORS,
-		scalar: 0.9,
-		disableForReducedMotion: true,
-	};
-	confetti({ ...base, origin, angle: 65 });
-	confetti({ ...base, origin, angle: 115 });
-	window.setTimeout(() => {
-		confetti({
-			particleCount: 30,
-			spread: 110,
-			startVelocity: 22,
-			origin,
-			colors: CELEBRATION_COLORS,
-			scalar: 0.7,
-			ticks: 160,
-			gravity: 0.9,
-			disableForReducedMotion: true,
-		});
-	}, 240);
-}
-
-function getAnchorOrigin(element: HTMLElement | null) {
-	if (typeof window === "undefined") return { x: 0.5, y: 0.35 };
-	const rect = element?.getBoundingClientRect();
-	if (!rect) return { x: 0.5, y: 0.35 };
-	return {
-		x: (rect.left + rect.width / 2) / window.innerWidth,
-		y: (rect.top + rect.height / 2) / window.innerHeight,
-	};
-}
-
-function useCelebration(active: boolean) {
-	const anchorRef = useRef<HTMLButtonElement | null>(null);
-	const firedRef = useRef(false);
-
-	useEffect(() => {
-		if (!active || firedRef.current) return;
-		firedRef.current = true;
-		firePopper(getAnchorOrigin(anchorRef.current));
-	}, [active]);
-
-	function replay() {
-		firePopper(getAnchorOrigin(anchorRef.current));
-	}
-
-	return { anchorRef, replay };
-}
-
-function AllSortedPanel({
-	housemateFirstName,
-	recentlySettled,
-}: {
-	housemateFirstName: string;
-	recentlySettled: {
-		amount: number;
-		billCount: number;
-	};
-}) {
-	const { anchorRef, replay } = useCelebration(true);
-	const hasRecap = recentlySettled.billCount > 0;
-	const isStreak = recentlySettled.billCount >= 3;
-
-	return (
-		<section className="motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 flex flex-col gap-2 motion-safe:animate-in motion-safe:duration-500">
-			<h2 className="font-semibold text-xl tracking-tight">
-				Thanks, {housemateFirstName}{" "}
-				<button
-					ref={anchorRef}
-					type="button"
-					onClick={replay}
-					aria-label="Celebrate again"
-					className="motion-safe:hover:-rotate-12 inline-block cursor-pointer select-none rounded-sm border-0 bg-transparent p-0 align-middle ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-safe:transition-transform motion-safe:duration-300 motion-safe:active:scale-95"
-				>
-					🎉
-				</button>
-			</h2>
-			{hasRecap ? (
-				<p className="text-muted-foreground text-sm leading-6">
-					You&apos;ve sorted{" "}
-					<span className="font-semibold text-success tabular-nums">
-						{formatCurrency(recentlySettled.amount)}
-					</span>{" "}
-					across {recentlySettled.billCount}{" "}
-					{recentlySettled.billCount === 1 ? "bill" : "bills"} in the last 30
-					days
-					{isStreak ? " — absolute legend." : "."}
-				</p>
-			) : (
-				<p className="text-muted-foreground text-sm leading-6">
-					Your tab&apos;s empty.
-				</p>
-			)}
-		</section>
-	);
-}
-
 export const Route = createFileRoute("/pay/$token")({
 	loader: async ({ params, location }) =>
 		await getPublicHousematePay({
@@ -319,7 +209,7 @@ export const Route = createFileRoute("/pay/$token")({
 				: null,
 		});
 		const description = formatPayPageDescription({
-			remainingAmount: loaderData.paymentProgress.remainingAmount,
+			remainingAmount: loaderData.summary.remainingAmount,
 			billCount: loaderData.summary.billCount,
 			isAllSorted,
 			reminderBill: reminderBill
@@ -442,11 +332,7 @@ type PayPageData = Omit<
 };
 
 function getItemsTotal(items: PayPageItem[]) {
-	return items.reduce((total, item) => total + item.remainingAmount, 0);
-}
-
-function formatBillCount(count: number) {
-	return `${count} ${count === 1 ? "bill" : "bills"}`;
+	return items.reduce((total, item) => total + item.remainingAfterCredit, 0);
 }
 
 function ExpiredPayPage() {
@@ -486,11 +372,16 @@ function getSingleReminderItem(data: PayPageData) {
 
 function getPayStatusBadge(input: {
 	isAllSorted: boolean;
+	isAllCovered: boolean;
 	singleReminderItem: PayPageItem | null;
 	summary: PayPageData["summary"];
 }) {
 	if (input.isAllSorted) {
 		return { label: "Nothing due", tone: "success" as const };
+	}
+
+	if (input.isAllCovered) {
+		return { label: "Nothing to pay", tone: "success" as const };
 	}
 
 	if (input.singleReminderItem) {
@@ -533,19 +424,31 @@ function getPayVerb(input: {
 	return "Pay all bills";
 }
 
+function getPayHeadline(input: {
+	isAllSorted: boolean;
+	isAllCovered: boolean;
+}) {
+	if (input.isAllSorted) return "All sorted";
+	if (input.isAllCovered) return "All covered";
+	return "You owe";
+}
+
 function PayHeader({
 	data,
 	isAllSorted,
+	isAllCovered,
 	stackGroupLabel,
 	singleReminderItem,
 }: {
 	data: PayPageData;
 	isAllSorted: boolean;
+	isAllCovered: boolean;
 	stackGroupLabel: string | null;
 	singleReminderItem: PayPageItem | null;
 }) {
 	const statusBadge = getPayStatusBadge({
 		isAllSorted,
+		isAllCovered,
 		singleReminderItem,
 		summary: data.summary,
 	});
@@ -557,10 +460,10 @@ function PayHeader({
 			</p>
 			<div className="flex flex-col gap-1">
 				<p className={SECTION_LABEL_CLASS}>
-					{isAllSorted ? "All sorted" : "You owe"}
+					{getPayHeadline({ isAllSorted, isAllCovered })}
 				</p>
 				<h1 className="font-bold text-[3.25rem] tabular-nums leading-[1.02] tracking-[-0.03em]">
-					{formatCurrency(data.paymentProgress.remainingAmount)}
+					{formatCurrency(data.summary.remainingAmount)}
 				</h1>
 			</div>
 			<div className="flex flex-wrap gap-2">
@@ -579,26 +482,12 @@ function PayHeader({
 	);
 }
 
-function CreditNote({ credit }: { credit: PayPageData["credit"] }) {
-	if (credit.appliedAmount <= 0.009) return null;
-	return (
-		<p className="rounded-lg border border-success/30 bg-success/10 px-3.5 py-3 text-[13.5px] leading-6">
-			<span className="font-semibold text-success tabular-nums">
-				{formatCurrency(credit.appliedAmount)}
-			</span>{" "}
-			credit
-			{credit.receivedAtIso
-				? ` from your ${formatCompactDate(credit.receivedAtIso)} payment`
-				: ""}{" "}
-			is applied. The amount above is what is left to pay.
-		</p>
-	);
-}
-
 function PaymentProgressSection({
 	paymentProgress,
+	remainingAmount,
 }: {
 	paymentProgress: PayPageData["paymentProgress"];
+	remainingAmount: number;
 }) {
 	return (
 		<section className="space-y-2.5">
@@ -609,9 +498,7 @@ function PaymentProgressSection({
 					</span>{" "}
 					of{" "}
 					<span className="tabular-nums">
-						{formatCurrency(
-							paymentProgress.settledAmount + paymentProgress.remainingAmount,
-						)}
+						{formatCurrency(paymentProgress.settledAmount + remainingAmount)}
 					</span>{" "}
 					sorted
 				</p>
@@ -635,10 +522,28 @@ function getPayBillSecondaryText(item: PayPageItem) {
 		dueDateIso: item.dueDateIso,
 	});
 	const urgency = getBillDueStatus(item.dueDateIso).label;
+	const base =
+		period === `Due ${formatDate(item.dueDateIso)}`
+			? urgency
+			: `${period} · ${urgency}`;
 
-	return period === `Due ${formatDate(item.dueDateIso)}`
-		? urgency
-		: `${period} · ${urgency}`;
+	return item.coveredAmount > 0.009
+		? `${base} · ${formatCurrency(item.remainingAfterCredit)} left after credit`
+		: base;
+}
+
+function toCoveredBill(item: PayPageItem) {
+	return {
+		billId: item.billId,
+		billerName: item.billerName || "Bill",
+		billPath: item.billPath,
+		amount: item.remainingAmount,
+		secondary: formatBillPeriod({
+			billPeriodStartIso: item.billPeriodStartIso,
+			billPeriodEndIso: item.billPeriodEndIso,
+			dueDateIso: item.dueDateIso,
+		}),
+	};
 }
 
 function getDueNowGroupLabel(items: PayPageItem[]) {
@@ -708,7 +613,7 @@ function PayBillListSection({
 								key={item.billId}
 								primary={item.billerName || "Bill"}
 								secondary={getPayBillSecondaryText(item)}
-								amount={item.remainingAmount}
+								amount={item.remainingAfterCredit}
 								billPath={item.billPath}
 							/>
 						))}
@@ -720,14 +625,14 @@ function PayBillListSection({
 }
 
 function PayFooterActions({
-	isAllSorted,
+	nothingToPay,
 	scope,
 	payVerb,
 	payId,
 	remainingAmount,
 	overdueAmount,
 }: {
-	isAllSorted: boolean;
+	nothingToPay: boolean;
 	scope: PayPageData["scope"];
 	payVerb: string;
 	payId: string | null;
@@ -739,7 +644,7 @@ function PayFooterActions({
 		Boolean(scope.allBillsPath);
 	const canPayOverdueOnly =
 		overdueAmount > 0.009 && remainingAmount - overdueAmount > 0.009;
-	if (isAllSorted && !canViewAllBills) {
+	if (nothingToPay && !canViewAllBills) {
 		return null;
 	}
 
@@ -751,7 +656,7 @@ function PayFooterActions({
 						<a href={scope.allBillsPath ?? ""}>View all bills</a>
 					</Button>
 				) : null}
-				{canPayOverdueOnly ? (
+				{canPayOverdueOnly && !nothingToPay ? (
 					<PayNowDialog
 						triggerLabel="Pay overdue only"
 						triggerVariant="outline"
@@ -761,7 +666,7 @@ function PayFooterActions({
 						descriptionValue="Bills"
 					/>
 				) : null}
-				{isAllSorted ? null : (
+				{nothingToPay ? null : (
 					<PayNowDialog
 						triggerLabel={payVerb}
 						title={payVerb}
@@ -782,7 +687,13 @@ function PublicPayPage() {
 		return <ExpiredPayPage />;
 	}
 
-	const isAllSorted = loaderData.summary.billCount === 0;
+	const isAllSorted = loaderData.items.length === 0;
+	const isAllCovered = !isAllSorted && loaderData.summary.billCount === 0;
+	const nothingToPay = isAllSorted || isAllCovered;
+	const owingItems = loaderData.items.filter(isOwing);
+	const coveredBills = loaderData.items
+		.filter((item) => !isOwing(item))
+		.map(toCoveredBill);
 	const stackGroupLabel =
 		loaderData.scope.kind === "stack"
 			? formatStackGroupLabel(loaderData.scope.stackGroup)
@@ -794,14 +705,9 @@ function PublicPayPage() {
 		billCount: loaderData.summary.billCount,
 	});
 	const hasFooterActions =
-		!isAllSorted ||
+		!nothingToPay ||
 		((loaderData.scope.kind === "stack" || loaderData.scope.kind === "bills") &&
 			Boolean(loaderData.scope.allBillsPath));
-	const overdueAmount = getItemsTotal(
-		loaderData.items.filter(
-			(item) => getBillDueStatus(item.dueDateIso).daysUntilDue < 0,
-		),
-	);
 
 	return (
 		<div className="min-h-screen bg-background text-foreground">
@@ -811,6 +717,7 @@ function PublicPayPage() {
 				<PayHeader
 					data={loaderData}
 					isAllSorted={isAllSorted}
+					isAllCovered={isAllCovered}
 					stackGroupLabel={stackGroupLabel}
 					singleReminderItem={singleReminderItem}
 				/>
@@ -824,21 +731,24 @@ function PublicPayPage() {
 
 				{isAllSorted ? null : <CreditNote credit={loaderData.credit} />}
 
-				{!isAllSorted && loaderData.paymentProgress.settledAmount > 0 ? (
+				{!nothingToPay && loaderData.paymentProgress.settledAmount > 0 ? (
 					<PaymentProgressSection
 						paymentProgress={loaderData.paymentProgress}
+						remainingAmount={loaderData.summary.remainingAmount}
 					/>
 				) : null}
 
-				<PayBillListSection items={loaderData.items} />
+				<PayBillListSection items={owingItems} />
+
+				<CoveredBillsSection items={coveredBills} />
 
 				<PayFooterActions
-					isAllSorted={isAllSorted}
+					nothingToPay={nothingToPay}
 					scope={loaderData.scope}
 					payVerb={payVerb}
 					payId={loaderData.payId}
-					remainingAmount={loaderData.paymentProgress.remainingAmount}
-					overdueAmount={overdueAmount}
+					remainingAmount={loaderData.summary.remainingAmount}
+					overdueAmount={loaderData.summary.overdueAmount}
 				/>
 			</div>
 		</div>

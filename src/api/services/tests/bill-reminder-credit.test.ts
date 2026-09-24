@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	coverShares,
 	owingCents,
 	reminderCredit,
 	uncoveredShares,
@@ -32,27 +33,64 @@ test("credit covers shares in order and only the uncovered ones are reminded", (
 	]);
 });
 
-test("reminder credit names the applied part and what is left", () => {
+test("each share knows how much credit it took and what is left", () => {
+	const cover = (amountCents: number) =>
+		coverShares(rows, credit(amountCents)).map((row) => [
+			row.id,
+			row.coveredCents,
+			row.leftCents,
+		]);
+	assert.deepEqual(cover(13000), [
+		["rent", 12000, 0],
+		["gas", 1000, 4000],
+		["sarah-gas", 0, 4000],
+	]);
+	assert.deepEqual(cover(297600), [
+		["rent", 12000, 0],
+		["gas", 5000, 0],
+		["sarah-gas", 0, 4000],
+	]);
+	assert.deepEqual(cover(0), [
+		["rent", 0, 12000],
+		["gas", 0, 5000],
+		["sarah-gas", 0, 4000],
+	]);
+	assert.deepEqual(rows[0], {
+		id: "rent",
+		housemateId: "oliver",
+		amountOwed: 120,
+		amountPaid: 0,
+	});
+});
+
+test("reminder credit sums the cover of the shares it names", () => {
 	assert.equal(owingCents(rows), 21000);
-	assert.equal(reminderCredit(null, 5000), null);
-	assert.equal(
-		reminderCredit({ amountCents: 0, receivedAt: null }, 5000),
-		null,
+	const gas = coverShares(rows, credit(13000)).filter(
+		(row) => row.id === "gas",
 	);
+	assert.equal(reminderCredit(null, gas), null);
+	assert.equal(reminderCredit({ amountCents: 0, receivedAt: null }, gas), null);
 	assert.deepEqual(
-		reminderCredit({ amountCents: 5000, receivedAt: 100 }, 12000),
+		reminderCredit({ amountCents: 13000, receivedAt: 100 }, gas),
 		{
-			creditCents: 5000,
+			creditCents: 1000,
 			receivedAt: new Date(100000),
-			toPayCents: 7000,
+			toPayCents: 4000,
 		},
 	);
+	const covered = coverShares(rows, credit(20000)).filter(
+		(row) => row.housemateId === "oliver",
+	);
 	assert.deepEqual(
-		reminderCredit({ amountCents: 20000, receivedAt: null }, 12000),
-		{
-			creditCents: 12000,
-			receivedAt: null,
-			toPayCents: 0,
-		},
+		reminderCredit({ amountCents: 20000, receivedAt: null }, covered),
+		{ creditCents: 17000, receivedAt: null, toPayCents: 0 },
+	);
+	// Credit spent on older bills says nothing about this one.
+	const sarah = coverShares(rows, credit(12000)).filter(
+		(row) => row.id === "sarah-gas",
+	);
+	assert.equal(
+		reminderCredit({ amountCents: 12000, receivedAt: null }, sarah),
+		null,
 	);
 });
