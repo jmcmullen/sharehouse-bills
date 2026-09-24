@@ -17,15 +17,8 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
-	Tooltip,
-	TooltipContent,
-	TooltipProvider,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-	IconBell,
-	IconBellOff,
 	IconCalendar,
 	IconChevronLeft,
 	IconChevronRight,
@@ -45,7 +38,6 @@ import {
 	formatDate,
 	getAmountPerPerson,
 	getDebtSummary,
-	getReminderSummaryLabel,
 } from "./utils";
 
 interface BillsTableProps {
@@ -61,7 +53,6 @@ interface BillsTableProps {
 	onRecordCash: (bill: GroupedBill) => void;
 	onDeleteBill: (billId: string) => void;
 	onViewPdf: (bill: GroupedBill) => void;
-	onEditReminders: (bill: GroupedBill) => void;
 	onAddBill: () => void;
 	processingPayments: boolean;
 	deletingBill: boolean;
@@ -81,7 +72,6 @@ export function BillsTable({
 	onRecordCash,
 	onDeleteBill,
 	onViewPdf,
-	onEditReminders,
 	onAddBill,
 	processingPayments,
 	deletingBill,
@@ -162,33 +152,12 @@ export function BillsTable({
 											<TableCell className="whitespace-normal font-medium">
 												<div className="flex min-w-0 items-center gap-2">
 													<IconReceipt className="h-4 w-4 shrink-0 text-muted-foreground" />
-													<div className="flex min-w-0 items-center gap-2">
-														<span
-															className="min-w-0 max-w-[40ch] truncate"
-															title={bill.billerName}
-														>
-															{bill.billerName}
-														</span>
-														<Tooltip>
-															<TooltipTrigger asChild>
-																<span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground text-xs">
-																	{bill.remindersEnabled ? (
-																		<>
-																			<IconBell className="h-3 w-3" />
-																			{bill.preDueOffsetsDays.length}
-																		</>
-																	) : (
-																		<IconBellOff className="h-3 w-3" />
-																	)}
-																</span>
-															</TooltipTrigger>
-															<TooltipContent>
-																{bill.remindersEnabled
-																	? getReminderSummaryLabel(bill)
-																	: "Reminders off"}
-															</TooltipContent>
-														</Tooltip>
-													</div>
+													<span
+														className="min-w-0 max-w-[40ch] truncate"
+														title={bill.billerName}
+													>
+														{bill.billerName}
+													</span>
 												</div>
 											</TableCell>
 											<TableCell>
@@ -261,12 +230,6 @@ export function BillsTable({
 																	View PDF
 																</DropdownMenuItem>
 															) : null}
-															<DropdownMenuItem
-																onClick={() => onEditReminders({ bill, debts })}
-															>
-																<IconBell className="h-4 w-4" />
-																Reminders
-															</DropdownMenuItem>
 															<DropdownMenuSeparator />
 															<DropdownMenuItem
 																variant="destructive"

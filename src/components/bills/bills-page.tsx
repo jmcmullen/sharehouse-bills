@@ -2,12 +2,11 @@
 import { Button } from "@/components/ui/button";
 import { IconPlus } from "@tabler/icons-react";
 import { useLoaderData, useRouter } from "@tanstack/react-router";
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { toast } from "sonner";
 import {
 	deleteBillAction,
 	recordCashAction,
-	updateBillReminderSettingsAction,
 	uploadBillAction,
 } from "./actions";
 import { BillVerificationSection } from "./bill-verification";
@@ -16,19 +15,12 @@ import { useBillModals } from "./hooks/use-bill-modals";
 import { useFileUpload } from "./hooks/use-file-upload";
 import { usePagination } from "./hooks/use-pagination";
 import { AddBillModal } from "./modals/add-bill-modal";
-import { BillReminderSettingsModal } from "./modals/bill-reminder-settings-modal";
 import { DeleteBillModal } from "./modals/delete-bill-modal";
 import { RecordCashModal } from "./modals/record-cash-modal";
 import { ViewBillPdfModal } from "./modals/view-bill-pdf-modal";
 import { SummaryCards } from "./summary-cards";
-import type { BillReminderFormData, CashReceiptData } from "./types";
-import {
-	buildBillReminderFormData,
-	calculateSummary,
-	getBillReminderFormPayload,
-	groupBillsByBillId,
-	validateBillReminderForm,
-} from "./utils";
+import type { CashReceiptData } from "./types";
+import { calculateSummary, groupBillsByBillId } from "./utils";
 
 export function BillsPage() {
 	const { billsData, verification } = useLoaderData({ from: "/_app/bills" });
@@ -51,20 +43,7 @@ export function BillsPage() {
 		billToViewPdf,
 		openViewPdfModal,
 		closeViewPdfModal,
-		reminderSettingsModalOpen,
-		billToEditReminders,
-		openReminderSettingsModal,
-		closeReminderSettingsModal,
 	} = useBillModals();
-	const [reminderFormData, setReminderFormData] =
-		useState<BillReminderFormData>({
-			remindersEnabled: true,
-			reminderMode: "individual",
-			stackGroup: "",
-			preDueOffsetsInput: "1, 0",
-			overdueCadence: "weekly",
-			overdueWeekday: "2",
-		});
 
 	const { selectedFile, handleFileSelect, resetFile } = useFileUpload();
 
@@ -146,39 +125,6 @@ export function BillsPage() {
 		});
 	};
 
-	const handleOpenReminderSettings = (bill: (typeof bills)[number]) => {
-		setReminderFormData(buildBillReminderFormData(bill.bill));
-		openReminderSettingsModal(bill);
-	};
-
-	const handleSaveReminderSettings = () => {
-		if (!billToEditReminders) {
-			return;
-		}
-
-		const validationError = validateBillReminderForm(reminderFormData);
-		if (validationError) {
-			toast.error(validationError);
-			return;
-		}
-
-		startTransition(async () => {
-			try {
-				await updateBillReminderSettingsAction({
-					billId: billToEditReminders.bill.id,
-					config: getBillReminderFormPayload(reminderFormData),
-				});
-				toast.success("Reminder settings updated");
-				closeReminderSettingsModal();
-				router.invalidate();
-			} catch (error) {
-				toast.error("Failed to update reminder settings", {
-					description: error instanceof Error ? error.message : "Unknown error",
-				});
-			}
-		});
-	};
-
 	return (
 		<div className="space-y-6">
 			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -209,7 +155,6 @@ export function BillsPage() {
 				onRecordCash={openCashModal}
 				onDeleteBill={openDeleteModal}
 				onViewPdf={openViewPdfModal}
-				onEditReminders={handleOpenReminderSettings}
 				onAddBill={openAddBillModal}
 				processingPayments={isPending}
 				deletingBill={isPending}
@@ -250,20 +195,6 @@ export function BillsPage() {
 				open={viewPdfModalOpen}
 				onOpenChange={closeViewPdfModal}
 				bill={billToViewPdf}
-			/>
-
-			<BillReminderSettingsModal
-				open={reminderSettingsModalOpen}
-				onOpenChange={(open) => {
-					if (!open) {
-						closeReminderSettingsModal();
-					}
-				}}
-				bill={billToEditReminders}
-				formData={reminderFormData}
-				onFormDataChange={setReminderFormData}
-				onSubmit={handleSaveReminderSettings}
-				isSaving={isPending}
 			/>
 		</div>
 	);

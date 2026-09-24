@@ -20,7 +20,7 @@ async function creditFor(client: Client, housemateId: string): Promise<Credit> {
 	};
 }
 
-export async function getCredits(
+async function getCredits(
 	housemateIds: string[],
 ): Promise<Map<string, Credit>> {
 	const ids = [...new Set(housemateIds)];

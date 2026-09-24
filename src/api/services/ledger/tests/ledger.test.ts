@@ -1220,7 +1220,8 @@ test("allocations write the legacy paid state through and releasing them reverts
 					"SELECT count(*) n FROM whatsapp_notifications WHERE event_type IN ('bill_paid','debt_paid')",
 				)
 			).rows[0].n,
-			1,
+			0,
+			"a settled share alone sends no private message",
 		);
 
 		const sarahBefore = await getAccountPayments(client, "sarah");
@@ -1251,11 +1252,7 @@ test("allocations write the legacy paid state through and releasing them reverts
 				row.bill_id,
 				row.debt_id,
 			]),
-			[
-				["bill-paid:bill", "bill_paid", "pending", "bill", null],
-				["debt-paid:gas-share", "debt_paid", "pending", null, "gas-share"],
-				["debt-paid:sarah-gas", "debt_paid", "pending", null, "sarah-gas"],
-			],
+			[["bill-paid:bill", "bill_paid", "pending", "bill", null]],
 		);
 
 		const after = await getAccountPayments(client, "oliver");

@@ -1,10 +1,6 @@
 // fallow-ignore-file code-duplication
 import { eq, or } from "drizzle-orm";
 import { createError } from "evlog";
-import {
-	getDefaultBillReminderConfig,
-	toBillReminderDbValues,
-} from "../../lib/bill-reminder-config";
 import { getEqualSplitAmounts } from "../../lib/equal-split";
 import { getRequestLogger } from "../../lib/request-logger";
 import { db } from "../db/index.server";
@@ -18,6 +14,11 @@ import {
 	PdfBillExtractorService,
 } from "./pdf-bill-extractor";
 import { enqueueBillCreatedNotification } from "./whatsapp-notification-events";
+
+// Electricity and gas share one pay link on the bills page.
+function utilityStackGroup(billType: string | null | undefined) {
+	return billType === "electricity" || billType === "gas" ? "utilities" : null;
+}
 
 export interface FileAttachment {
 	filename: string;
@@ -305,13 +306,7 @@ export class BillProcessorService {
 				sourceFingerprint: parsedData.sourceFingerprint,
 				pdfSha256: parsedData.pdfSha256,
 				pdfUrl,
-				...toBillReminderDbValues(
-					getDefaultBillReminderConfig({
-						billerName: parsedData.billerName,
-						billType: parsedData.billType,
-						templateName: parsedData.sourceFilename,
-					}),
-				),
+				stackGroup: utilityStackGroup(parsedData.billType),
 			})
 			.returning();
 

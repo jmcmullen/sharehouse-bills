@@ -56,15 +56,7 @@ export function coverShares<T extends ReminderShare & { housemateId: string }>(
 	).rows;
 }
 
-// Drops the shares that credit already covers, so nobody is reminded about
-// money that has arrived but is still waiting for the admin to allocate it.
-export function uncoveredShares<
-	T extends ReminderShare & { housemateId: string },
->(rows: T[], credits: CreditBalances) {
-	return coverShares(rows, credits).filter((row) => row.leftCents > 0);
-}
-
-// What a reminder should say about credit against the shares it names.
+// What a message should say about credit against the shares it names.
 export function reminderCredit(
 	credit: Credit | null | undefined,
 	shares: ShareCover[],

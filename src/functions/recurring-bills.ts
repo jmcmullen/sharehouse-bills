@@ -14,10 +14,6 @@ import {
 	previewRecurringBill,
 } from "../api/services/recurring-bill";
 import { authMiddleware } from "../lib/auth-middleware";
-import {
-	billReminderConfigInputSchema,
-	toBillReminderDbValues,
-} from "../lib/bill-reminder-config";
 import { entityIdSchema } from "../lib/id";
 
 const recurringBillAssignmentInputSchema = z.object({
@@ -37,7 +33,11 @@ const recurringBillInputObjectSchema = z.object({
 	endDate: z.string().nullable(),
 	isActive: z.boolean(),
 	splitStrategy: z.enum(["equal", "custom"]),
-	reminderConfig: billReminderConfigInputSchema,
+	stackGroup: z
+		.string()
+		.trim()
+		.nullable()
+		.transform((value) => value || null),
 	assignments: z.array(recurringBillAssignmentInputSchema).min(1),
 });
 
@@ -247,7 +247,7 @@ export const createRecurringBill = createServerFn({ method: "POST" })
 				endDate: parseDateInput(data.endDate),
 				isActive: data.isActive,
 				splitStrategy: data.splitStrategy,
-				...toBillReminderDbValues(data.reminderConfig),
+				stackGroup: data.stackGroup,
 			})
 			.returning();
 
@@ -276,7 +276,7 @@ export const updateRecurringBill = createServerFn({ method: "POST" })
 				endDate: parseDateInput(data.endDate),
 				isActive: data.isActive,
 				splitStrategy: data.splitStrategy,
-				...toBillReminderDbValues(data.reminderConfig),
+				stackGroup: data.stackGroup,
 				updatedAt: new Date(),
 			})
 			.where(eq(recurringBills.id, data.id))

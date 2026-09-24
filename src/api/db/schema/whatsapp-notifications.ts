@@ -20,13 +20,15 @@ export const whatsappNotifications = sqliteTable(
 			enum: [
 				"bill_created",
 				"bill_paid",
-				"debt_paid",
-				"bill_reminder",
+				"overdue_digest",
 				"due_command",
 				"assistant_message",
 				"payment_receipt",
 				"payment_correction",
 				"payment_arrived",
+				// Retired in migration 0019; historical rows still carry them.
+				"debt_paid",
+				"bill_reminder",
 			],
 		}).notNull(),
 		status: text("status", {

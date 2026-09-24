@@ -4,7 +4,6 @@ import {
 	coverShares,
 	owingCents,
 	reminderCredit,
-	uncoveredShares,
 } from "../bill-reminder-credit";
 
 const rows = [
@@ -14,24 +13,6 @@ const rows = [
 ];
 const credit = (amountCents: number) =>
 	new Map([["oliver", { amountCents, receivedAt: null }]]);
-const ids = (shares: typeof rows) => shares.map((row) => row.id);
-
-test("credit covers shares in order and only the uncovered ones are reminded", () => {
-	assert.deepEqual(ids(uncoveredShares(rows, credit(12000))), [
-		"gas",
-		"sarah-gas",
-	]);
-	assert.deepEqual(ids(uncoveredShares(rows, credit(13000))), [
-		"gas",
-		"sarah-gas",
-	]);
-	assert.deepEqual(ids(uncoveredShares(rows, credit(17000))), ["sarah-gas"]);
-	assert.deepEqual(ids(uncoveredShares(rows, new Map())), [
-		"rent",
-		"gas",
-		"sarah-gas",
-	]);
-});
 
 test("each share knows how much credit it took and what is left", () => {
 	const cover = (amountCents: number) =>

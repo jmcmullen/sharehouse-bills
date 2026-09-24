@@ -1,5 +1,3 @@
-import { formatReminderBillLabel } from "../../lib/reminder-preview";
-
 function formatCurrency(amount: number) {
 	return new Intl.NumberFormat("en-AU", {
 		style: "currency",
@@ -155,70 +153,6 @@ function formatReminderDate(date: Date) {
 	}).format(date);
 }
 
-interface ReminderCredit {
-	creditCents: number;
-	receivedAt: Date | null;
-	toPayCents: number;
-}
-
-// Names the money already received so the reminder never asks for it twice.
-export function buildCreditLine(input: ReminderCredit) {
-	const from = input.receivedAt
-		? ` from your ${formatDayMonth(input.receivedAt)} payment`
-		: "";
-	return input.toPayCents > 0
-		? `${cents(input.creditCents)} credit${from} is applied, ${cents(input.toPayCents)} to pay`
-		: `${cents(input.creditCents)} credit${from} covers this, nothing to pay`;
-}
-
-export function buildBillReminderSummary(input: {
-	payUrl: string;
-	credit: ReminderCredit | null;
-}) {
-	return input.credit && input.credit.creditCents > 0
-		? [buildCreditLine(input.credit), input.payUrl].join("\n")
-		: input.payUrl;
-}
-
-export function buildBillReminderPreviewSummary(input: {
-	asOf: Date;
-	housemateName: string;
-	reminders: Array<{
-		kind: "pre_due" | "overdue";
-		debt: {
-			billerName: string;
-			recurringTemplateName?: string | null;
-			dueDate: Date;
-		};
-	}>;
-}) {
-	const lines = [
-		`*Random reminder preview for ${input.housemateName}*`,
-		`Cron date: ${new Intl.DateTimeFormat("en-AU", {
-			weekday: "long",
-			day: "numeric",
-			month: "short",
-			year: "numeric",
-		}).format(input.asOf)}`,
-		"",
-		`${input.housemateName} would receive ${input.reminders.length} ${input.reminders.length === 1 ? "message" : "messages"}:`,
-	];
-
-	lines.push(
-		...input.reminders.map((reminder, index) => {
-			const label = reminder.kind === "pre_due" ? "pre-due" : "overdue";
-			return `${index + 1}. ${label}: ${formatReminderBillLabel({
-				billerName: reminder.debt.billerName,
-				recurringTemplateName: reminder.debt.recurringTemplateName,
-			})} due ${formatReminderDate(reminder.debt.dueDate)}`;
-		}),
-	);
-
-	lines.push("", "Exact WhatsApp message(s) below:");
-
-	return lines.join("\n");
-}
-
 interface ReceiptLine {
 	billName: string;
 	dueDate: Date | null;
@@ -339,5 +273,54 @@ export function buildPaymentArrivedSummary(input: PaymentArrivedInput) {
 		"",
 		arrivalHint(input),
 		`Review: ${input.reviewUrl}`,
+	].join("\n");
+}
+
+interface OverdueDigestInput {
+	firstName: string;
+	items: Array<{ label: string; amountCents: number; daysOverdue: number }>;
+	overdueCents: number;
+	creditCents: number;
+	payUrl: string;
+}
+
+const DIGEST_LINE_LIMIT = 8;
+
+function overdueLine(item: OverdueDigestInput["items"][number]) {
+	const days = `${item.daysOverdue} ${item.daysOverdue === 1 ? "day" : "days"}`;
+	return `- ${item.label} · ${cents(item.amountCents)} · ${days} overdue`;
+}
+
+// The one private message a housemate gets each day while anything is
+// overdue: what is late, by how much, and the link to pay it all.
+export function buildOverdueDigestSummary(input: OverdueDigestInput) {
+	const hidden = input.items.length - DIGEST_LINE_LIMIT;
+	return [
+		`*Hi ${input.firstName}, you have ${cents(input.overdueCents)} overdue*`,
+		"",
+		...input.items.slice(0, DIGEST_LINE_LIMIT).map(overdueLine),
+		...(hidden > 0 ? [`+${hidden} more`] : []),
+		"",
+		...(input.creditCents > 0
+			? [`${cents(input.creditCents)} of your credit is already applied.`]
+			: []),
+		input.payUrl,
+	].join("\n");
+}
+
+export function buildOverdueDigestPreviewSummary(input: {
+	date: string;
+	digests: Array<{ housemateName: string; overdueCents: number }>;
+}) {
+	if (!input.digests.length)
+		return `*No overdue digests would be sent on ${input.date}.*`;
+	return [
+		`*Overdue digests for ${input.date}*`,
+		"",
+		...input.digests.map(
+			(digest) => `- ${digest.housemateName} · ${cents(digest.overdueCents)}`,
+		),
+		"",
+		"Exact WhatsApp message(s) below:",
 	].join("\n");
 }

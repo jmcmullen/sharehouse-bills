@@ -1,5 +1,4 @@
 // fallow-ignore-file code-duplication
-import { sql } from "drizzle-orm";
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { generateEntityId } from "../../../lib/id";
@@ -20,25 +19,7 @@ export const recurringBills = sqliteTable("recurringBills", {
 	splitStrategy: text("splitStrategy", { enum: ["equal", "custom"] })
 		.notNull()
 		.default("equal"),
-	remindersEnabled: integer("remindersEnabled", { mode: "boolean" })
-		.notNull()
-		.default(true),
-	reminderMode: text("reminderMode", {
-		enum: ["individual", "stacked"],
-	})
-		.notNull()
-		.default("individual"),
-	stackGroup: text("stackGroup"),
-	preDueOffsetsDays: text("preDueOffsetsDays", { mode: "json" })
-		.$type<number[]>()
-		.notNull()
-		.default(sql`json_array(1, 0)`),
-	overdueCadence: text("overdueCadence", {
-		enum: ["none", "daily", "weekly"],
-	})
-		.notNull()
-		.default("weekly"),
-	overdueWeekday: integer("overdueWeekday").default(2),
+	stackGroup: text("stackGroup"), // Copied to each generated bill
 	lastGeneratedDate: integer("lastGeneratedDate", { mode: "timestamp" }), // Track last bill creation
 	createdAt: integer("createdAt", { mode: "timestamp" })
 		.notNull()

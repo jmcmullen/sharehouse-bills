@@ -1,7 +1,6 @@
 // fallow-ignore-file code-duplication
-import { and, asc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { createError } from "evlog";
-import type { BillReminderMode } from "../../lib/bill-reminder-config";
 import {
 	type InboundCommandType,
 	parseStoredInboundCommandType,
@@ -167,16 +166,10 @@ async function createNotification(input: {
 	eventKey: string;
 	eventType:
 		| "bill_created"
-		| "bill_paid"
-		| "debt_paid"
-		| "bill_reminder"
+		| "overdue_digest"
 		| "due_command"
-		| "assistant_message"
-		| "payment_receipt"
-		| "payment_correction"
-		| "payment_arrived";
+		| "assistant_message";
 	billId?: string | null;
-	debtId?: string | null;
 	housemateId?: string | null;
 	inboundMessageId?: string | null;
 	inboundChatId?: string | null;
@@ -190,7 +183,6 @@ async function createNotification(input: {
 			eventKey: input.eventKey,
 			eventType: input.eventType,
 			billId: input.billId ?? null,
-			debtId: input.debtId ?? null,
 			housemateId: input.housemateId ?? null,
 			inboundMessageId: input.inboundMessageId ?? null,
 			inboundChatId: input.inboundChatId ?? null,
@@ -239,23 +231,16 @@ export async function createBillCreatedNotification(
 	});
 }
 
-export async function createBillReminderNotification(input: {
+export async function createOverdueDigestNotification(input: {
 	eventKey: string;
-	billId?: string | null;
 	housemateId: string;
-	payload: {
-		mode: BillReminderMode;
-		kind: "pre_due" | "overdue";
-		scheduledForDate: string;
-		stackGroup?: string | null;
-	};
+	date: string;
 }) {
 	return await createNotification({
 		eventKey: input.eventKey,
-		eventType: "bill_reminder",
-		billId: input.billId ?? null,
+		eventType: "overdue_digest",
 		housemateId: input.housemateId,
-		payload: input.payload,
+		payload: { date: input.date },
 	});
 }
 
@@ -314,7 +299,6 @@ export async function getPendingPaidNotifications() {
 				eq(whatsappNotifications.status, "pending"),
 				inArray(whatsappNotifications.eventType, [
 					"bill_paid",
-					"debt_paid",
 					"payment_receipt",
 					"payment_correction",
 					"payment_arrived",
@@ -325,7 +309,7 @@ export async function getPendingPaidNotifications() {
 		.orderBy(asc(whatsappNotifications.createdAt));
 }
 
-async function getWhatsappNotificationById(notificationId: string) {
+export async function getWhatsappNotificationById(notificationId: string) {
 	const [notification] = await db
 		.select()
 		.from(whatsappNotifications)
@@ -623,111 +607,6 @@ export async function getRandomBillPreviewContext() {
 	return await getBillSummaryContextByBillId(randomBill.id, null);
 }
 
-async function getDebtPaidContextByDebtId(
-	debtId: string,
-	notification: WhatsappNotificationRecord | null,
-) {
-	const [row] = await db
-		.select({
-			debtId: debts.id,
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-			isPaid: debts.isPaid,
-			billId: bills.id,
-			billerName: bills.billerName,
-			recurringTemplateName: recurringBills.templateName,
-			dueDate: bills.dueDate,
-			billPeriodStart: bills.billPeriodStart,
-			billPeriodEnd: bills.billPeriodEnd,
-			housemateId: housemates.id,
-			housemateName: housemates.name,
-			whatsappNumber: housemates.whatsappNumber,
-		})
-		.from(debts)
-		.innerJoin(bills, eq(bills.id, debts.billId))
-		.leftJoin(recurringBills, eq(recurringBills.id, bills.recurringBillId))
-		.innerJoin(housemates, eq(housemates.id, debts.housemateId))
-		.where(eq(debts.id, debtId))
-		.limit(1);
-
-	if (!row) {
-		return null;
-	}
-
-	const outstandingRows = await db
-		.select({
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-		})
-		.from(debts)
-		.where(
-			and(eq(debts.housemateId, row.housemateId), eq(debts.isPaid, false)),
-		);
-
-	const remainingAmount = outstandingRows.reduce(
-		(sum, debt) => sum + Math.max(0, debt.amountOwed - (debt.amountPaid ?? 0)),
-		0,
-	);
-	const unpaidBillCount = outstandingRows.filter(
-		(debt) => debt.amountOwed - (debt.amountPaid ?? 0) > 0.009,
-	).length;
-	const payUrl = createAbsolutePayUrl({ housemateId: row.housemateId });
-
-	return {
-		notification,
-		debt: {
-			id: row.debtId,
-			amountOwed: row.amountOwed,
-			amountPaid: row.amountPaid,
-			isPaid: row.isPaid,
-		},
-		bill: {
-			id: row.billId,
-			billerName: row.billerName,
-			recurringTemplateName: row.recurringTemplateName,
-			dueDate: row.dueDate,
-			billPeriodStart: row.billPeriodStart,
-			billPeriodEnd: row.billPeriodEnd,
-		},
-		housemate: {
-			id: row.housemateId,
-			name: row.housemateName,
-			whatsappNumber: row.whatsappNumber,
-		},
-		outstanding: {
-			remainingAmount,
-			unpaidBillCount,
-		},
-		payUrl,
-	};
-}
-
-export async function getDebtPaidNotificationContext(notificationId: string) {
-	const notification = await getWhatsappNotificationById(notificationId);
-	if (!notification?.debtId) {
-		return null;
-	}
-
-	return await getDebtPaidContextByDebtId(notification.debtId, notification);
-}
-
-export async function getRandomDebtPaidPreviewContext() {
-	const [randomDebt] = await db
-		.select({
-			id: debts.id,
-		})
-		.from(debts)
-		.where(eq(debts.isPaid, true))
-		.orderBy(sql`random()`)
-		.limit(1);
-
-	if (!randomDebt) {
-		return null;
-	}
-
-	return await getDebtPaidContextByDebtId(randomDebt.id, null);
-}
-
 export async function getRandomBillPaidPreviewContext() {
 	const [randomBill] = await db
 		.select({
@@ -973,161 +852,6 @@ export async function getHousematePayLinkBatch(previewDate?: string | null) {
 	);
 }
 
-function getReminderNotificationPayload(
-	notification: WhatsappNotificationRecord,
-): {
-	mode: BillReminderMode;
-	kind: "pre_due" | "overdue";
-	scheduledForDate: Date;
-	stackGroup: string | null;
-} | null {
-	const payload = getNotificationPayload(notification.payload);
-	const mode = payload.mode === "stacked" ? "stacked" : "individual";
-	const kind = payload.kind === "overdue" ? "overdue" : "pre_due";
-	const scheduledForDate =
-		typeof payload.scheduledForDate === "string"
-			? new Date(payload.scheduledForDate)
-			: null;
-	if (!scheduledForDate || Number.isNaN(scheduledForDate.getTime())) {
-		return null;
-	}
-
-	return {
-		mode,
-		kind,
-		scheduledForDate,
-		stackGroup:
-			typeof payload.stackGroup === "string" && payload.stackGroup.trim()
-				? payload.stackGroup.trim()
-				: null,
-	};
-}
-
-export async function getBillReminderNotificationContext(
-	notificationId: string,
-) {
-	const notification = await getWhatsappNotificationById(notificationId);
-	if (!notification?.housemateId) {
-		return null;
-	}
-
-	const payload = getReminderNotificationPayload(notification);
-	if (!payload) {
-		return null;
-	}
-
-	const [housemate] = await db
-		.select({
-			id: housemates.id,
-			name: housemates.name,
-			whatsappNumber: housemates.whatsappNumber,
-		})
-		.from(housemates)
-		.where(eq(housemates.id, notification.housemateId))
-		.limit(1);
-
-	if (!housemate) {
-		return null;
-	}
-
-	const dateBoundary = new Date(payload.scheduledForDate);
-	if (payload.mode === "individual") {
-		if (!notification.billId) {
-			return null;
-		}
-
-		const [row] = await db
-			.select({
-				billId: bills.id,
-				billerName: bills.billerName,
-				recurringTemplateName: recurringBills.templateName,
-				dueDate: bills.dueDate,
-				amountOwed: debts.amountOwed,
-				amountPaid: debts.amountPaid,
-			})
-			.from(debts)
-			.innerJoin(bills, eq(bills.id, debts.billId))
-			.leftJoin(recurringBills, eq(recurringBills.id, bills.recurringBillId))
-			.where(
-				and(
-					eq(debts.billId, notification.billId),
-					eq(debts.housemateId, housemate.id),
-					eq(debts.isPaid, false),
-				),
-			)
-			.limit(1);
-
-		if (!row) {
-			return null;
-		}
-
-		return {
-			notification,
-			mode: payload.mode,
-			kind: payload.kind,
-			housemate,
-			bill: {
-				id: row.billId,
-				billerName: row.billerName,
-				recurringTemplateName: row.recurringTemplateName,
-				dueDate: row.dueDate,
-			},
-			debts: [
-				{
-					billId: row.billId,
-					billerName: row.billerName,
-					recurringTemplateName: row.recurringTemplateName,
-					dueDate: row.dueDate,
-					amountOwed: row.amountOwed,
-					amountPaid: row.amountPaid,
-				},
-			],
-			stackGroup: null,
-		};
-	}
-
-	if (!payload.stackGroup) {
-		return null;
-	}
-
-	const debtRows = await db
-		.select({
-			billId: bills.id,
-			billerName: bills.billerName,
-			recurringTemplateName: recurringBills.templateName,
-			dueDate: bills.dueDate,
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-		})
-		.from(debts)
-		.innerJoin(bills, eq(bills.id, debts.billId))
-		.leftJoin(recurringBills, eq(recurringBills.id, bills.recurringBillId))
-		.where(
-			and(
-				eq(debts.housemateId, housemate.id),
-				eq(debts.isPaid, false),
-				eq(bills.reminderMode, "stacked"),
-				eq(bills.stackGroup, payload.stackGroup),
-				lt(bills.dueDate, dateBoundary),
-			),
-		)
-		.orderBy(asc(bills.dueDate), asc(debts.id));
-
-	if (debtRows.length === 0) {
-		return null;
-	}
-
-	return {
-		notification,
-		mode: payload.mode,
-		kind: payload.kind,
-		housemate,
-		bill: null,
-		debts: debtRows,
-		stackGroup: payload.stackGroup,
-	};
-}
-
 export async function getDueCommandNotificationContext(notificationId: string) {
 	const notification = await getWhatsappNotificationById(notificationId);
 	if (!notification?.inboundSenderChatId || !notification.inboundMessageId) {
@@ -1180,7 +904,6 @@ export async function getDueCommandNotificationContext(notificationId: string) {
 			replyChatId: notification.inboundSenderChatId,
 			senderHousemate: senderHousemate ?? null,
 			housemate: senderHousemate ?? null,
-			debts: [],
 			inboundSenderWhatsappNumber: whatsappNumber,
 			requestedFirstName: null,
 		};
@@ -1193,7 +916,6 @@ export async function getDueCommandNotificationContext(notificationId: string) {
 			replyChatId: notification.inboundSenderChatId,
 			senderHousemate: senderHousemate ?? null,
 			housemate: null,
-			debts: [],
 			inboundSenderWhatsappNumber: whatsappNumber,
 			requestedFirstName: null,
 		};
@@ -1208,34 +930,10 @@ export async function getDueCommandNotificationContext(notificationId: string) {
 			replyChatId: notification.inboundSenderChatId,
 			senderHousemate: senderHousemate ?? null,
 			housemate: null,
-			debts: [],
 			inboundSenderWhatsappNumber: whatsappNumber,
 			requestedFirstName,
 		};
 	}
-
-	const debtRows = await db
-		.select({
-			billId: bills.id,
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-			billerName: bills.billerName,
-			recurringTemplateName: recurringBills.templateName,
-			dueDate: bills.dueDate,
-			remindersEnabled: bills.remindersEnabled,
-			reminderMode: bills.reminderMode,
-			stackGroup: bills.stackGroup,
-			preDueOffsetsDays: bills.preDueOffsetsDays,
-			overdueCadence: bills.overdueCadence,
-			overdueWeekday: bills.overdueWeekday,
-		})
-		.from(debts)
-		.innerJoin(bills, eq(bills.id, debts.billId))
-		.leftJoin(recurringBills, eq(recurringBills.id, bills.recurringBillId))
-		.where(
-			and(eq(debts.housemateId, targetHousemate.id), eq(debts.isPaid, false)),
-		)
-		.orderBy(asc(bills.dueDate), asc(debts.id));
 
 	return {
 		notification,
@@ -1243,7 +941,6 @@ export async function getDueCommandNotificationContext(notificationId: string) {
 		replyChatId: notification.inboundSenderChatId,
 		senderHousemate: senderHousemate ?? null,
 		housemate: targetHousemate,
-		debts: debtRows,
 		inboundSenderWhatsappNumber: whatsappNumber,
 		requestedFirstName,
 	};

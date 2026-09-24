@@ -6,7 +6,6 @@ import {
 	updateRecurringBill,
 } from "@/functions/recurring-bills";
 import type { RecurringBillFormData } from "./types";
-import { getRecurringReminderConfigPayload } from "./utils";
 
 function toServerPayload(formData: RecurringBillFormData) {
 	return {
@@ -28,7 +27,7 @@ function toServerPayload(formData: RecurringBillFormData) {
 		endDate: formData.endDate || null,
 		isActive: formData.isActive,
 		splitStrategy: formData.splitStrategy,
-		reminderConfig: getRecurringReminderConfigPayload(formData),
+		stackGroup: formData.stackGroup.trim() || null,
 		assignments: formData.assignments.map((assignment) => ({
 			housemateId: assignment.housemateId,
 			isActive: assignment.isActive,

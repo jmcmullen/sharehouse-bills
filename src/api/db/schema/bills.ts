@@ -1,5 +1,4 @@
 // fallow-ignore-file code-duplication
-import { sql } from "drizzle-orm";
 import {
 	index,
 	integer,
@@ -39,25 +38,8 @@ export const bills = sqliteTable(
 		sourceFingerprint: text("source_fingerprint"),
 		pdfSha256: text("pdf_sha256"),
 		pdfUrl: text("pdf_url"), // Optional URL to the original PDF invoice
-		remindersEnabled: integer("reminders_enabled", { mode: "boolean" })
-			.notNull()
-			.default(true),
-		reminderMode: text("reminder_mode", {
-			enum: ["individual", "stacked"],
-		})
-			.notNull()
-			.default("individual"),
+		// Groups bills that share one pay link (e.g. "utilities").
 		stackGroup: text("stack_group"),
-		preDueOffsetsDays: text("pre_due_offsets_days", { mode: "json" })
-			.$type<number[]>()
-			.notNull()
-			.default(sql`json_array(1, 0)`),
-		overdueCadence: text("overdue_cadence", {
-			enum: ["none", "daily", "weekly"],
-		})
-			.notNull()
-			.default("weekly"),
-		overdueWeekday: integer("overdue_weekday").default(2),
 		recurringBillId: text("recurring_bill_id").references(
 			() => recurringBills.id,
 			{ onDelete: "set null" },

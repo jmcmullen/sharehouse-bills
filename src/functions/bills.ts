@@ -19,11 +19,6 @@ import { getUnallocatedCredit } from "../api/services/ledger/credit.server";
 import { generateWeeklyRentBill } from "../api/services/recurring-bill";
 import { enqueueBillCreatedNotification } from "../api/services/whatsapp-notification-events";
 import { authMiddleware } from "../lib/auth-middleware";
-import {
-	billReminderConfigInputSchema,
-	getDefaultBillReminderConfig,
-	toBillReminderDbValues,
-} from "../lib/bill-reminder-config";
 import { getEqualSplitAmounts } from "../lib/equal-split";
 import { entityIdSchema } from "../lib/id";
 import { getRequestLogger } from "../lib/request-logger";
@@ -106,11 +101,6 @@ export const createBill = createServerFn({ method: "POST" })
 				totalAmount: data.totalAmount,
 				dueDate: data.dueDate,
 				pdfUrl: data.pdfUrl,
-				...toBillReminderDbValues(
-					getDefaultBillReminderConfig({
-						billerName: data.billerName,
-					}),
-				),
 			})
 			.returning();
 
@@ -206,11 +196,6 @@ export const createBillFromParsedData = createServerFn({ method: "POST" })
 				totalAmount: data.totalAmount,
 				dueDate: data.dueDate,
 				pdfUrl: data.pdfUrl,
-				...toBillReminderDbValues(
-					getDefaultBillReminderConfig({
-						billerName: data.billerName,
-					}),
-				),
 			})
 			.returning();
 
@@ -284,36 +269,6 @@ export const createBillFromParsedData = createServerFn({ method: "POST" })
 			.where(eq(bills.id, newBill.id));
 
 		return billWithDebts;
-	});
-
-export const updateBillReminderSettings = createServerFn({ method: "POST" })
-	.middleware([authMiddleware])
-	.inputValidator(
-		z.object({
-			billId: entityIdSchema,
-			config: billReminderConfigInputSchema,
-		}),
-	)
-	.handler(async ({ data }) => {
-		const [updatedBill] = await db
-			.update(bills)
-			.set({
-				...toBillReminderDbValues(data.config),
-				updatedAt: new Date(),
-			})
-			.where(eq(bills.id, data.billId))
-			.returning();
-
-		if (!updatedBill) {
-			throw createError({
-				message: "Bill not found",
-				status: 404,
-				why: `No bill exists with id ${data.billId}.`,
-				fix: "Refresh the page and retry with a valid bill.",
-			});
-		}
-
-		return updatedBill;
 	});
 
 // Delete a bill and all associated debts

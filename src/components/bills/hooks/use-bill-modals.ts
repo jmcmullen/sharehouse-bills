@@ -9,10 +9,6 @@ export function useBillModals() {
 	const [addBillModalOpen, setAddBillModalOpen] = useState(false);
 	const [viewPdfModalOpen, setViewPdfModalOpen] = useState(false);
 	const [billToViewPdf, setBillToViewPdf] = useState<GroupedBill | null>(null);
-	const [reminderSettingsModalOpen, setReminderSettingsModalOpen] =
-		useState(false);
-	const [billToEditReminders, setBillToEditReminders] =
-		useState<GroupedBill | null>(null);
 
 	const openDeleteModal = (billId: string) => {
 		setBillToDelete(billId);
@@ -52,16 +48,6 @@ export function useBillModals() {
 		setBillToViewPdf(null);
 	};
 
-	const openReminderSettingsModal = (bill: GroupedBill) => {
-		setBillToEditReminders(bill);
-		setReminderSettingsModalOpen(true);
-	};
-
-	const closeReminderSettingsModal = () => {
-		setReminderSettingsModalOpen(false);
-		setBillToEditReminders(null);
-	};
-
 	return {
 		// Delete modal
 		deleteModalOpen,
@@ -85,11 +71,5 @@ export function useBillModals() {
 		billToViewPdf,
 		openViewPdfModal,
 		closeViewPdfModal,
-
-		// Reminder settings modal
-		reminderSettingsModalOpen,
-		billToEditReminders,
-		openReminderSettingsModal,
-		closeReminderSettingsModal,
 	};
 }

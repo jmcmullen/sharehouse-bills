@@ -1,8 +1,3 @@
-import type {
-	BillReminderMode,
-	BillReminderOverdueCadence,
-} from "@/lib/bill-reminder-config";
-
 interface RecurringBillListAssignment {
 	id: string;
 	recurringBillId: string;
@@ -26,12 +21,7 @@ interface RecurringBillTemplate {
 	endDate: string | Date | null;
 	isActive: boolean;
 	splitStrategy: "equal" | "custom";
-	remindersEnabled: boolean;
-	reminderMode: BillReminderMode;
 	stackGroup: string | null;
-	preDueOffsetsDays: number[];
-	overdueCadence: BillReminderOverdueCadence;
-	overdueWeekday: number | null;
 	lastGeneratedDate: string | Date | null;
 	createdAt: string | Date;
 	updatedAt: string | Date;
@@ -88,12 +78,7 @@ export interface RecurringBillFormData {
 	endDate: string;
 	isActive: boolean;
 	splitStrategy: "equal" | "custom";
-	remindersEnabled: boolean;
-	reminderMode: BillReminderMode;
 	stackGroup: string;
-	preDueOffsetsInput: string;
-	overdueCadence: BillReminderOverdueCadence;
-	overdueWeekday: string;
 	assignments: RecurringBillAssignmentFormData[];
 }
 

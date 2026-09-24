@@ -1,13 +1,5 @@
-import {
-	deleteBill,
-	recordCashReceived,
-	updateBillReminderSettings,
-} from "@/functions/bills";
+import { deleteBill, recordCashReceived } from "@/functions/bills";
 import { uploadBillPdf } from "@/functions/upload-bill";
-import type {
-	BillReminderMode,
-	BillReminderOverdueCadence,
-} from "@/lib/bill-reminder-config";
 import type { CashReceiptData } from "./types";
 
 export async function deleteBillAction(billId: string) {
@@ -54,20 +46,4 @@ export async function uploadBillAction(file: File) {
 	}
 
 	return results;
-}
-
-export async function updateBillReminderSettingsAction(input: {
-	billId: string;
-	config: {
-		remindersEnabled: boolean;
-		reminderMode: BillReminderMode;
-		stackGroup: string | null;
-		preDueOffsetsDays: number[];
-		overdueCadence: BillReminderOverdueCadence;
-		overdueWeekday: number | null;
-	};
-}) {
-	await updateBillReminderSettings({
-		data: input,
-	});
 }

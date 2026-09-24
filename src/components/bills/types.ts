@@ -1,8 +1,3 @@
-import type {
-	BillReminderMode,
-	BillReminderOverdueCadence,
-} from "@/lib/bill-reminder-config";
-
 export interface BillData {
 	bill: {
 		id: string;
@@ -14,12 +9,6 @@ export interface BillData {
 		pdfSha256?: string | null;
 		pdfUrl?: string | null;
 		sourceFilename?: string | null;
-		remindersEnabled: boolean;
-		reminderMode: BillReminderMode;
-		stackGroup: string | null;
-		preDueOffsetsDays: number[];
-		overdueCadence: BillReminderOverdueCadence;
-		overdueWeekday: number | null;
 	};
 	debt?: {
 		id: string;
@@ -73,13 +62,4 @@ export interface UploadResult {
 	message: string;
 	billId?: string;
 	error?: string;
-}
-
-export interface BillReminderFormData {
-	remindersEnabled: boolean;
-	reminderMode: BillReminderMode;
-	stackGroup: string;
-	preDueOffsetsInput: string;
-	overdueCadence: BillReminderOverdueCadence;
-	overdueWeekday: string;
 }

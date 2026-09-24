@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	buildBillReminderSummary,
-	buildCreditLine,
+	buildOverdueDigestSummary,
 	buildPaymentArrivedSummary,
 	buildPaymentCorrectionSummary,
 	buildPaymentReceiptSummary,
@@ -142,23 +141,78 @@ test("payment arrived without a match or reference says so, and shared payments 
 	assert.equal(shared[3], "Shared payment: choose how much belongs to each");
 });
 
-test("reminders name applied credit and the amount left to pay", () => {
+const payUrl = "https://bills.example/pay/abc";
+const item = (label: string, amountCents: number, daysOverdue: number) => ({
+	label,
+	amountCents,
+	daysOverdue,
+});
+
+test("overdue digest greets by first name, totals, lists each bill and links to pay", () => {
 	assert.equal(
-		buildBillReminderSummary({
-			payUrl: "https://bills.example/pay/abc",
-			credit: { creditCents: 5000, receivedAt: received, toPayCents: 7000 },
+		buildOverdueDigestSummary({
+			firstName: "Oliver",
+			items: [
+				item("AGL Electricity", 20512, 31),
+				item("Hudson McHugh Weekly Rent", 20724, 1),
+			],
+			overdueCents: 41236,
+			creditCents: 5000,
+			payUrl,
 		}),
-		"$50.00 credit from your 12 Sep payment is applied, $70.00 to pay\nhttps://bills.example/pay/abc",
+		[
+			"*Hi Oliver, you have $412.36 overdue*",
+			"",
+			"- AGL Electricity · $205.12 · 31 days overdue",
+			"- Hudson McHugh Weekly Rent · $207.24 · 1 day overdue",
+			"",
+			"$50.00 of your credit is already applied.",
+			payUrl,
+		].join("\n"),
 	);
+});
+
+test("overdue digest leaves out the credit line when no credit was applied", () => {
 	assert.equal(
-		buildCreditLine({ creditCents: 12000, receivedAt: null, toPayCents: 0 }),
-		"$120.00 credit covers this, nothing to pay",
-	);
-	assert.equal(
-		buildBillReminderSummary({
-			payUrl: "https://bills.example/pay/abc",
-			credit: null,
+		buildOverdueDigestSummary({
+			firstName: "Sarah",
+			items: [item("Water", 4000, 2)],
+			overdueCents: 4000,
+			creditCents: 0,
+			payUrl,
 		}),
-		"https://bills.example/pay/abc",
+		[
+			"*Hi Sarah, you have $40.00 overdue*",
+			"",
+			"- Water · $40.00 · 2 days overdue",
+			"",
+			payUrl,
+		].join("\n"),
 	);
+});
+
+test("overdue digest lists at most 8 bills, then says how many more", () => {
+	const items = Array.from({ length: 11 }, (_, index) =>
+		item(`Bill ${index + 1}`, 1000, 11 - index),
+	);
+	const lines = buildOverdueDigestSummary({
+		firstName: "Oliver",
+		items,
+		overdueCents: 11000,
+		creditCents: 0,
+		payUrl,
+	}).split("\n");
+	assert.equal(lines[2], "- Bill 1 · $10.00 · 11 days overdue");
+	assert.equal(lines[9], "- Bill 8 · $10.00 · 4 days overdue");
+	assert.equal(lines[10], "+3 more");
+	assert.equal(lines.at(-1), payUrl);
+	assert.equal(lines.filter((line) => line.startsWith("- ")).length, 8);
+	const exact = buildOverdueDigestSummary({
+		firstName: "Oliver",
+		items: items.slice(0, 8),
+		overdueCents: 8000,
+		creditCents: 0,
+		payUrl,
+	});
+	assert.equal(exact.includes("more"), false);
 });

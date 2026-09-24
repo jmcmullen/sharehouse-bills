@@ -122,21 +122,17 @@ async function sendDueCommandSummary(notificationId: string) {
 async function loadDueCommandSummaryDependencies() {
 	const {
 		buildBillPaidSummary,
-		buildBillReminderPreviewSummary,
-		buildBillReminderSummary,
 		buildAdminPayLinksSummary,
 		buildDueCommandNotFoundSummary,
 		buildInitBillsSummary,
 		buildInitIntroSummary,
 		buildNotAllowedSummary,
+		buildOverdueDigestPreviewSummary,
 		buildPayLinkSummary,
 		buildUnknownHousematePaySummary,
 	} = await import("../src/api/services/whatsapp-message-composer");
 	const { BillPdfStorageService } = await import(
 		"../src/api/services/bill-pdf-storage"
-	);
-	const { createAbsoluteDebtReceiptUrl } = await import(
-		"../src/api/services/debt-receipt-page.server"
 	);
 	const { createAbsolutePayUrl } = await import(
 		"../src/api/services/housemate-pay-page.server"
@@ -147,14 +143,11 @@ async function loadDueCommandSummaryDependencies() {
 		getHousematePayLinkBatch,
 		getRandomBillPaidPreviewContext,
 		getRandomBillPreviewContext,
-		getRandomDebtPaidPreviewContext,
 	} = await import("../src/api/services/whatsapp-notifications");
-	const { getNextBillReminderPreview: getNextReminderPreview } = await import(
-		"../src/api/services/bill-reminder-preview"
+	const { composeOverdueDigest, getOverdueDigests } = await import(
+		"../src/api/services/overdue-digest.server"
 	);
-	const { reminderCredit } = await import(
-		"../src/api/services/bill-reminder-credit"
-	);
+	const { sydneyDate } = await import("../src/api/services/overdue-digest");
 	const { sendWhatsappTextMessage } = await import("../src/api/services/waha");
 	const previewDate = BillPdfStorageService.getMessageCacheDate();
 	const housematePaymentNames = await getActiveHousematePaymentNames();
@@ -162,15 +155,14 @@ async function loadDueCommandSummaryDependencies() {
 	return {
 		buildAdminPayLinksSummary,
 		buildBillPaidSummary,
-		buildBillReminderPreviewSummary,
-		buildBillReminderSummary,
 		buildDueCommandNotFoundSummary,
 		buildInitBillsSummary,
 		buildInitIntroSummary,
 		buildNotAllowedSummary,
+		buildOverdueDigestPreviewSummary,
 		buildPayLinkSummary,
 		buildUnknownHousematePaySummary,
-		createAbsoluteDebtReceiptUrl,
+		composeOverdueDigest,
 		createAbsolutePayUrl,
 		getAbsoluteViewerUrl: BillPdfStorageService.getAbsoluteViewerUrl.bind(
 			BillPdfStorageService,
@@ -178,13 +170,12 @@ async function loadDueCommandSummaryDependencies() {
 		getCurrentUnpaidBillSummaries,
 		getHousematePayLinkBatch,
 		getRandomBillPaidPreviewContext,
+		getOverdueDigests,
 		getRandomBillPreviewContext,
-		getRandomDebtPaidPreviewContext,
-		getNextReminderPreview,
 		housematePaymentNames,
 		previewDate,
-		reminderCredit,
 		sendWhatsappTextMessage,
+		sydneyDate,
 	};
 }
 
@@ -295,45 +286,24 @@ async function sendPayLinksCommandSummary({
 	});
 }
 
+// Shows the admin exactly what today's overdue digests would say, without
+// sending anything to the housemates.
 async function sendReminderPreviewSummary({
 	notificationId,
 	context,
 	dependencies,
 }: SendDueCommandBranchArgs) {
-	const reminderPreview = await dependencies.getNextReminderPreview(new Date());
-
-	if (!reminderPreview) {
-		await performTrackedWhatsappDelivery({
-			notificationId,
-			deliveryKey: "reminder_preview_empty",
-			operation: "/reminder admin WhatsApp summary",
-			deliver: async () =>
-				await dependencies.sendWhatsappTextMessage(
-					context.replyChatId,
-					"*No reminders are scheduled in the next 31 days.*",
-				),
-		});
-		return;
-	}
-
-	const reminderMessages = reminderPreview.reminders.map((reminder) => {
-		const payUrl = dependencies.createAbsolutePayUrl(
-			{
-				housemateId: reminderPreview.housemate.id,
-				billIds: [reminder.debt.billId],
-			},
+	const now = new Date();
+	const digests = await dependencies.getOverdueDigests(now);
+	const messages = digests.map((entry) => {
+		const message = dependencies.composeOverdueDigest(
+			entry,
 			dependencies.previewDate,
 		);
-		if (!payUrl) {
-			throw new FatalError("Unable to build a pay link for reminder preview");
+		if (!message) {
+			throw new FatalError("Unable to build a pay link for digest preview");
 		}
-
-		return dependencies.buildBillReminderSummary({
-			payUrl,
-			credit: dependencies.reminderCredit(reminderPreview.credit, [
-				reminder.debt,
-			]),
-		});
+		return message;
 	});
 
 	await performTrackedWhatsappDelivery({
@@ -343,15 +313,17 @@ async function sendReminderPreviewSummary({
 		deliver: async () =>
 			await dependencies.sendWhatsappTextMessage(
 				context.replyChatId,
-				dependencies.buildBillReminderPreviewSummary({
-					asOf: reminderPreview.scheduledForDate,
-					housemateName: reminderPreview.housemate.name,
-					reminders: reminderPreview.reminders,
+				dependencies.buildOverdueDigestPreviewSummary({
+					date: dependencies.sydneyDate(now),
+					digests: digests.map((entry) => ({
+						housemateName: entry.housemate.name,
+						overdueCents: entry.digest.overdueCents,
+					})),
 				}),
 			),
 	});
 
-	for (const [index, message] of reminderMessages.entries()) {
+	for (const [index, message] of messages.entries()) {
 		await performTrackedWhatsappDelivery({
 			notificationId,
 			deliveryKey: `reminder_preview_message_${index + 1}`,
@@ -388,13 +360,10 @@ async function sendDefaultInboundCommandSummary({
 			buildPayLinkSummary: dependencies.buildPayLinkSummary,
 			buildUnknownHousematePaySummary:
 				dependencies.buildUnknownHousematePaySummary,
-			createAbsoluteDebtReceiptUrl: dependencies.createAbsoluteDebtReceiptUrl,
 			getAbsoluteViewerUrl: dependencies.getAbsoluteViewerUrl,
 			getRandomBillPreviewContext: dependencies.getRandomBillPreviewContext,
 			getRandomBillPaidPreviewContext:
 				dependencies.getRandomBillPaidPreviewContext,
-			getRandomDebtPaidPreviewContext:
-				dependencies.getRandomDebtPaidPreviewContext,
 			createAbsolutePayUrl: dependencies.createAbsolutePayUrl,
 			previewDate: dependencies.previewDate,
 			housematePaymentNames: dependencies.housematePaymentNames,
@@ -512,12 +481,6 @@ type BillPreviewContext = {
 	};
 } | null;
 
-type DebtPaidPreviewContext = {
-	debt: {
-		id: string;
-	};
-} | null;
-
 type BillPaidPreviewContext = {
 	bill: {
 		id: string;
@@ -547,17 +510,12 @@ type BuildInboundCommandResponseArgs = {
 		housemateFirstNames: string[];
 	}) => string;
 	buildUnknownHousematePaySummary: () => string;
-	createAbsoluteDebtReceiptUrl: (
-		input: { debtId: string },
-		previewDate?: string | null,
-	) => string | null;
 	getAbsoluteViewerUrl: (
 		billReference: string | number,
 		previewDate?: string | null,
 	) => string | null;
 	getRandomBillPaidPreviewContext: () => Promise<BillPaidPreviewContext>;
 	getRandomBillPreviewContext: () => Promise<BillPreviewContext>;
-	getRandomDebtPaidPreviewContext: () => Promise<DebtPaidPreviewContext>;
 	createAbsolutePayUrl: CreateAbsolutePayUrlFn;
 	previewDate: string;
 	housematePaymentNames: string[];
@@ -590,7 +548,6 @@ async function buildInboundCommandResponse(
 		case "new":
 			return await buildNewCommandResponse(args);
 		case "paid":
-			return await buildPaidCommandResponse(args);
 		case "billpaid":
 			return await buildBillPaidCommandResponse(args);
 		case "reminder":
@@ -624,42 +581,6 @@ async function buildNewCommandResponse(args: BuildInboundCommandResponseArgs) {
 	}
 
 	return billUrl;
-}
-
-async function buildPaidCommandResponse(args: BuildInboundCommandResponseArgs) {
-	const [debtPaidContext, billPaidContext] = await Promise.all([
-		args.getRandomDebtPaidPreviewContext(),
-		args.getRandomBillPaidPreviewContext(),
-	]);
-
-	if (!debtPaidContext && !billPaidContext) {
-		return "*No paid bills found.* Mark a bill paid first, then try /paid again.";
-	}
-
-	const sections: string[] = [];
-	if (debtPaidContext) {
-		const receiptUrl = args.createAbsoluteDebtReceiptUrl(
-			{ debtId: debtPaidContext.debt.id },
-			args.previewDate,
-		);
-		if (!receiptUrl) {
-			throw new FatalError("Unable to build a receipt link for paid command");
-		}
-		sections.push(receiptUrl);
-	}
-
-	if (billPaidContext) {
-		const billUrl = args.getAbsoluteViewerUrl(
-			billPaidContext.bill.id,
-			args.previewDate,
-		);
-		if (!billUrl) {
-			throw new FatalError("Unable to build a bill link for paid command");
-		}
-		sections.push(args.buildBillPaidSummary({ billUrl }));
-	}
-
-	return sections;
 }
 
 async function buildBillPaidCommandResponse(

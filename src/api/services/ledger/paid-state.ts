@@ -5,7 +5,8 @@ import { toCents } from "./model";
 type Executor = Pick<Client, "execute">;
 
 // Writes the ledger's view of "paid" back to the legacy debts/bills columns and
-// records the WhatsApp paid notifications that a transition earns.
+// records the group chat's bill-paid message when a whole bill settles.
+// Housemates hear about their own payments through the payment receipt.
 export async function syncPaidState(
 	tx: Executor,
 	debtIds: string[],
@@ -15,7 +16,7 @@ export async function syncPaidState(
 	const now = Math.floor(Date.now() / 1000);
 	const debts = (
 		await tx.execute({
-			sql: `SELECT d.id,d.bill_id,d.amount_owed,d.is_paid,coalesce((SELECT sum(amount_cents) FROM ledger_bill_allocations WHERE debt_id=d.id),0) AS allocated FROM debts d WHERE d.id IN (${ids.map(() => "?").join(",")})`,
+			sql: `SELECT d.id,d.bill_id,d.amount_owed,coalesce((SELECT sum(amount_cents) FROM ledger_bill_allocations WHERE debt_id=d.id),0) AS allocated FROM debts d WHERE d.id IN (${ids.map(() => "?").join(",")})`,
 			args: ids,
 		})
 	).rows;
@@ -26,8 +27,6 @@ export async function syncPaidState(
 			sql: "UPDATE debts SET amount_paid=?,is_paid=?,paid_at=CASE WHEN ? THEN coalesce(paid_at,?) ELSE NULL END,updated_at=? WHERE id=?",
 			args: [paidCents / 100, paid ? 1 : 0, paid ? 1 : 0, now, now, debt.id],
 		});
-		if (paid && !Number(debt.is_paid))
-			await recordNotification(tx, "debt_paid", String(debt.id), now);
 	}
 	const billIds = [...new Set(debts.map((debt) => String(debt.bill_id)))];
 	for (const billId of billIds) await syncBillStatus(tx, billId, now);
@@ -56,24 +55,20 @@ async function syncBillStatus(
 		sql: "UPDATE bills SET status=?,updated_at=? WHERE id=?",
 		args: [status, now, billId],
 	});
-	if (status === "paid") await recordNotification(tx, "bill_paid", billId, now);
+	if (status === "paid") await recordBillPaid(tx, billId, now);
 }
 
-async function recordNotification(
+async function recordBillPaid(
 	tx: Executor,
-	type: "bill_paid" | "debt_paid",
-	id: string,
+	billId: string,
 	now: number,
 ): Promise<void> {
-	const bill = type === "bill_paid";
 	await tx.execute({
-		sql: "INSERT INTO whatsapp_notifications(id,event_key,event_type,status,bill_id,debt_id,payload,created_at,updated_at) VALUES (?,?,?,'pending',?,?,?,?,?) ON CONFLICT(event_key) DO NOTHING",
+		sql: "INSERT INTO whatsapp_notifications(id,event_key,event_type,status,bill_id,payload,created_at,updated_at) VALUES (?,?,'bill_paid','pending',?,?,?,?) ON CONFLICT(event_key) DO NOTHING",
 		args: [
 			generateEntityId(),
-			`${bill ? "bill-paid" : "debt-paid"}:${id}`,
-			type,
-			bill ? id : null,
-			bill ? null : id,
+			`bill-paid:${billId}`,
+			billId,
 			JSON.stringify({ source: "ledger" }),
 			now,
 			now,

@@ -1,7 +1,6 @@
 // fallow-ignore-file code-duplication
 import { and, asc, desc, eq, gte, isNull, lte, or } from "drizzle-orm";
 import { createError } from "evlog";
-import { toBillReminderDbValues } from "../../lib/bill-reminder-config";
 import { getEqualSplitAmounts, roundCurrency } from "../../lib/equal-split";
 import { getRequestLogger } from "../../lib/request-logger";
 import { db } from "../db/index.server";
@@ -552,14 +551,7 @@ async function generateBillFromTemplate(
 					recurringBillId: recurringBill.id,
 					pdfUrl: null,
 					sourceFilename: recurringBill.templateName,
-					...toBillReminderDbValues({
-						remindersEnabled: recurringBill.remindersEnabled,
-						reminderMode: recurringBill.reminderMode,
-						stackGroup: recurringBill.stackGroup,
-						preDueOffsetsDays: recurringBill.preDueOffsetsDays,
-						overdueCadence: recurringBill.overdueCadence,
-						overdueWeekday: recurringBill.overdueWeekday,
-					}),
+					stackGroup: recurringBill.stackGroup,
 				})
 				.onConflictDoNothing({
 					target: [bills.recurringBillId, bills.dueDate],

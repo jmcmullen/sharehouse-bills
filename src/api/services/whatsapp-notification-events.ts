@@ -2,18 +2,20 @@ import { start } from "workflow/api";
 import { runAssistantMessageNotification } from "../../../workflows/assistant-message";
 import { runBillCreatedNotification } from "../../../workflows/bill-created";
 import { runBillPaidNotification } from "../../../workflows/bill-paid";
-import { runBillReminderNotification } from "../../../workflows/bill-reminder";
 import { runDueCommandNotification } from "../../../workflows/inbound-command";
+import { runOverdueDigestNotification } from "../../../workflows/overdue-digest";
 import { runPaymentArrivedNotification } from "../../../workflows/payment-arrived";
 import { runPaymentReceiptNotification } from "../../../workflows/payment-receipt";
 import { getRequestLogger } from "../../lib/request-logger";
 import type { InboundCommandType } from "../../lib/whatsapp-commands";
+import { overdueDigestKey } from "./overdue-digest";
+import { getOverdueDigests } from "./overdue-digest.server";
 import {
 	type WhatsappNotificationRecord,
 	createAssistantMessageNotification,
 	createBillCreatedNotification,
-	createBillReminderNotification,
 	createDueCommandNotification,
+	createOverdueDigestNotification,
 	getPendingPaidNotifications,
 	markWhatsappNotificationFailed,
 	markWhatsappNotificationPending,
@@ -154,26 +156,24 @@ export async function startPendingPaidNotifications() {
 	}
 }
 
-export async function enqueueBillReminderNotification(input: {
-	eventKey: string;
-	billId?: string | null;
-	housemateId: string;
-	payload: {
-		mode: "individual" | "stacked";
-		kind: "pre_due" | "overdue";
-		scheduledForDate: string;
-		stackGroup?: string | null;
-	};
-}) {
-	const result = await createBillReminderNotification(input);
-	await startNotificationWorkflow(
-		result.notification,
-		"bill-reminder WhatsApp workflow",
-		async () =>
-			await start(runBillReminderNotification, [result.notification.id]),
-	);
-
-	return result.notification;
+// One digest per housemate per Sydney day: the event key makes a rerun of
+// the daily job find the existing row instead of sending twice.
+export async function enqueueOverdueDigests(now: Date) {
+	const digests = await getOverdueDigests(now);
+	for (const { housemate, digest } of digests) {
+		const result = await createOverdueDigestNotification({
+			eventKey: overdueDigestKey(housemate.id, now),
+			housemateId: housemate.id,
+			date: digest.date,
+		});
+		await startNotificationWorkflow(
+			result.notification,
+			"overdue-digest WhatsApp workflow",
+			async () =>
+				await start(runOverdueDigestNotification, [result.notification.id]),
+		);
+	}
+	return { digestCount: digests.length };
 }
 
 export async function enqueueDueCommandNotification(input: {

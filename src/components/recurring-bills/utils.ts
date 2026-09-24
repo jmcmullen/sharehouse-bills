@@ -1,8 +1,4 @@
 // fallow-ignore-file code-duplication
-import {
-	formatReminderOffsetsInput,
-	parseReminderOffsetsInput,
-} from "@/lib/bill-reminder-config";
 import { getEqualSplitAmounts } from "@/lib/equal-split";
 import type {
 	HousemateOption,
@@ -252,12 +248,7 @@ export function buildEmptyRecurringBillFormData(
 		endDate: "",
 		isActive: true,
 		splitStrategy: "equal",
-		remindersEnabled: true,
-		reminderMode: "individual",
 		stackGroup: "",
-		preDueOffsetsInput: "1, 0",
-		overdueCadence: "weekly",
-		overdueWeekday: "2",
 		assignments: housemates.map((housemate) => ({
 			housemateId: housemate.id,
 			name: housemate.name,
@@ -290,17 +281,7 @@ export function buildRecurringBillFormData(
 		endDate: toDateInputValue(item.template.endDate),
 		isActive: item.template.isActive,
 		splitStrategy: item.template.splitStrategy,
-		remindersEnabled: item.template.remindersEnabled,
-		reminderMode: item.template.reminderMode,
 		stackGroup: item.template.stackGroup ?? "",
-		preDueOffsetsInput: formatReminderOffsetsInput(
-			item.template.preDueOffsetsDays,
-		),
-		overdueCadence: item.template.overdueCadence,
-		overdueWeekday:
-			item.template.overdueWeekday === null
-				? "2"
-				: String(item.template.overdueWeekday),
 		assignments: housemates.map((housemate) => {
 			const assignment = assignmentLookup.get(housemate.id);
 			return {
@@ -330,8 +311,7 @@ export function validateRecurringBillForm(formData: RecurringBillFormData) {
 			activeAssignments,
 			splitStrategy: formData.splitStrategy,
 			totalAmount,
-		}) ??
-		validateRecurringBillReminderSettings(formData)
+		})
 	);
 }
 
@@ -418,43 +398,6 @@ function getCustomAssignmentTotal(
 			? `Custom amount required for ${assignment.name}`
 			: total + customAmount;
 	}, 0);
-}
-
-function validateRecurringBillReminderSettings(
-	formData: RecurringBillFormData,
-) {
-	if (!formData.remindersEnabled) {
-		return null;
-	}
-
-	if (formData.reminderMode === "stacked" && !formData.stackGroup.trim()) {
-		return "Stacked reminders require a stack group";
-	}
-
-	if (formData.overdueCadence === "weekly" && formData.overdueWeekday === "") {
-		return "Weekly reminders require a weekday";
-	}
-
-	return null;
-}
-
-export function getRecurringReminderConfigPayload(
-	formData: RecurringBillFormData,
-) {
-	return {
-		remindersEnabled: formData.remindersEnabled,
-		reminderMode: formData.reminderMode,
-		stackGroup: formData.stackGroup.trim() || null,
-		preDueOffsetsDays:
-			formData.reminderMode === "individual"
-				? parseReminderOffsetsInput(formData.preDueOffsetsInput)
-				: [],
-		overdueCadence: formData.overdueCadence,
-		overdueWeekday:
-			formData.overdueCadence === "weekly"
-				? Number.parseInt(formData.overdueWeekday, 10)
-				: null,
-	} as const;
 }
 
 export function calculateRecurringBillPreview(

@@ -1,11 +1,4 @@
 // fallow-ignore-file code-duplication
-import {
-	BILL_REMINDER_WEEKDAY_OPTIONS,
-	formatReminderConfigSummary,
-	formatReminderOffsetsInput,
-	parseReminderOffsetsInput,
-} from "@/lib/bill-reminder-config";
-import type { BillReminderFormData } from "./types";
 import type { BillData, BillSummary, DebtSummary, GroupedBill } from "./types";
 
 function getDebtAmountPaid(debt: NonNullable<BillData["debt"]>) {
@@ -128,72 +121,3 @@ export function formatDate(date: Date | string): string {
 export const PAGINATION_CONFIG = {
 	itemsPerPage: 10,
 } as const;
-
-export function buildBillReminderFormData(
-	bill: GroupedBill["bill"],
-): BillReminderFormData {
-	return {
-		remindersEnabled: bill.remindersEnabled,
-		reminderMode: bill.reminderMode,
-		stackGroup: bill.stackGroup ?? "",
-		preDueOffsetsInput: formatReminderOffsetsInput(bill.preDueOffsetsDays),
-		overdueCadence: bill.overdueCadence,
-		overdueWeekday:
-			bill.overdueWeekday === null ? "2" : String(bill.overdueWeekday),
-	};
-}
-
-export function validateBillReminderForm(formData: BillReminderFormData) {
-	if (
-		formData.remindersEnabled &&
-		formData.reminderMode === "stacked" &&
-		!formData.stackGroup.trim()
-	) {
-		return "Stacked reminders require a stack group";
-	}
-
-	if (
-		formData.remindersEnabled &&
-		formData.overdueCadence === "weekly" &&
-		formData.overdueWeekday === ""
-	) {
-		return "Weekly reminders require a weekday";
-	}
-
-	return null;
-}
-
-export function getBillReminderFormPayload(formData: BillReminderFormData) {
-	return {
-		remindersEnabled: formData.remindersEnabled,
-		reminderMode: formData.reminderMode,
-		stackGroup: formData.stackGroup.trim() || null,
-		preDueOffsetsDays:
-			formData.reminderMode === "individual"
-				? parseReminderOffsetsInput(formData.preDueOffsetsInput)
-				: [],
-		overdueCadence: formData.overdueCadence,
-		overdueWeekday:
-			formData.overdueCadence === "weekly"
-				? Number.parseInt(formData.overdueWeekday, 10)
-				: null,
-	} as const;
-}
-
-export function getReminderSummaryLabel(bill: GroupedBill["bill"]) {
-	return formatReminderConfigSummary({
-		remindersEnabled: bill.remindersEnabled,
-		reminderMode: bill.reminderMode,
-		stackGroup: bill.stackGroup,
-		preDueOffsetsDays: bill.preDueOffsetsDays,
-		overdueCadence: bill.overdueCadence,
-		overdueWeekday: bill.overdueWeekday,
-	});
-}
-
-export const reminderWeekdayOptions = BILL_REMINDER_WEEKDAY_OPTIONS.map(
-	(option) => ({
-		value: String(option.value),
-		label: option.label,
-	}),
-);
