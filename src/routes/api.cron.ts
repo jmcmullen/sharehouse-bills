@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { type RequestLogger, createError } from "evlog";
-import { enqueueDueBillReminders } from "../api/services/bill-reminder";
 import { generateDueBills } from "../api/services/recurring-bill";
 import { startPendingPaidNotifications } from "../api/services/whatsapp-notification-events";
 import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";
@@ -49,12 +48,12 @@ export const Route = createFileRoute("/api/cron")({
 
 				await startPendingPaidNotifications();
 				const generatedBills = await generateDueBills(new Date());
-				const reminders = await enqueueDueBillReminders(new Date());
+				// Per-bill private reminders are retired; the daily overdue digest
+				// replaces them in the next release.
 				log?.set({
 					cron: {
-						job: "generate-bills-and-reminders",
+						job: "generate-bills",
 						generatedCount: generatedBills.generated,
-						reminderCount: reminders.scheduledCount,
 					},
 				});
 				setApiResponseContext(log, {
@@ -65,7 +64,6 @@ export const Route = createFileRoute("/api/cron")({
 					success: true,
 					result: {
 						generatedBills,
-						reminders,
 					},
 					timestamp: new Date().toISOString(),
 				});

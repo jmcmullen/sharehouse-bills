@@ -3,7 +3,6 @@ import { runAssistantMessageNotification } from "../../../workflows/assistant-me
 import { runBillCreatedNotification } from "../../../workflows/bill-created";
 import { runBillPaidNotification } from "../../../workflows/bill-paid";
 import { runBillReminderNotification } from "../../../workflows/bill-reminder";
-import { runDebtPaidNotification } from "../../../workflows/debt-paid";
 import { runDueCommandNotification } from "../../../workflows/inbound-command";
 import { runPaymentArrivedNotification } from "../../../workflows/payment-arrived";
 import { runPaymentReceiptNotification } from "../../../workflows/payment-receipt";
@@ -127,7 +126,6 @@ const ledgerWorkflows: Partial<
 	>
 > = {
 	bill_paid: { label: "bill-paid", run: runBillPaidNotification },
-	debt_paid: { label: "debt-paid", run: runDebtPaidNotification },
 	payment_receipt: {
 		label: "payment-receipt",
 		run: runPaymentReceiptNotification,
