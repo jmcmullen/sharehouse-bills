@@ -9,6 +9,7 @@ import { getCredit } from "./ledger/credit.server";
 async function getUnpaidShareRows(housemateId: string) {
 	return await db
 		.select({
+			debtId: debts.id,
 			billId: bills.id,
 			housemateId: debts.housemateId,
 			billerName: bills.billerName,

@@ -8,13 +8,6 @@ import {
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-export const ledgerStatementLinks = sqliteTable("ledger_statement_links", {
-	housemateId: text("housemate_id").primaryKey(),
-	tokenHash: text("token_hash").notNull().unique(),
-	createdAt: integer("created_at").notNull(),
-	expiresAt: integer("expires_at").notNull(),
-});
-
 // References are retained as text so deleting a legacy record cannot erase its audit trail.
 export const ledgerEntries = sqliteTable(
 	"ledger_entries",

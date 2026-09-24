@@ -11,7 +11,6 @@ import { getLedgerAccount, syncLedger } from "../../functions/ledger";
 import { Button } from "../ui/button";
 import { AllocateReceipt, RecordReceipt } from "./allocate-receipt";
 import { BillPayments, PaymentSummary } from "./bill-payments";
-import { ShareStatement } from "./share-statement";
 import { StatementHistory } from "./statement";
 
 type Account = Awaited<ReturnType<typeof getLedgerAccount>>;
@@ -95,15 +94,6 @@ export function LedgerPage() {
 						</option>
 					))}
 				</select>
-				{account && (
-					<ShareStatement
-						key={account.id}
-						housemateId={account.id}
-						name={account.name}
-						expiresAt={account.linkExpiresAt}
-						onChanged={() => reload(account.id)}
-					/>
-				)}
 			</div>
 			{account ? (
 				<>

@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as StatementTokenRouteImport } from './routes/statement.$token'
 import { Route as ReceiptTokenRouteImport } from './routes/receipt.$token'
 import { Route as PayTokenRouteImport } from './routes/pay.$token'
 import { Route as BillPdfSha256RouteImport } from './routes/bill.$pdfSha256'
@@ -26,6 +25,7 @@ import { Route as AppLedgerRouteImport } from './routes/_app.ledger'
 import { Route as AppHousematesRouteImport } from './routes/_app.housemates'
 import { Route as AppBillsRouteImport } from './routes/_app.bills'
 import { Route as AppAiRouteImport } from './routes/_app.ai'
+import { Route as PayTokenStatementRouteImport } from './routes/pay.$token_.statement'
 import { Route as ApiPdfsPdfSha256RouteImport } from './routes/api.pdfs.$pdfSha256'
 import { Route as ApiHooksWhatsappRouteImport } from './routes/api.hooks.whatsapp'
 import { Route as ApiHooksUpRouteImport } from './routes/api.hooks.up'
@@ -47,11 +47,6 @@ const AppRoute = AppRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const StatementTokenRoute = StatementTokenRouteImport.update({
-  id: '/statement/$token',
-  path: '/statement/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReceiptTokenRoute = ReceiptTokenRouteImport.update({
@@ -119,6 +114,11 @@ const AppAiRoute = AppAiRouteImport.update({
   path: '/ai',
   getParentRoute: () => AppRoute,
 } as any)
+const PayTokenStatementRoute = PayTokenStatementRouteImport.update({
+  id: '/pay/$token_/statement',
+  path: '/pay/$token/statement',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPdfsPdfSha256Route = ApiPdfsPdfSha256RouteImport.update({
   id: '/api/pdfs/$pdfSha256',
   path: '/api/pdfs/$pdfSha256',
@@ -176,13 +176,13 @@ export interface FileRoutesByFullPath {
   '/bill/$pdfSha256': typeof BillPdfSha256Route
   '/pay/$token': typeof PayTokenRoute
   '/receipt/$token': typeof ReceiptTokenRoute
-  '/statement/$token': typeof StatementTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cards/$pdfSha256': typeof ApiCardsPdfSha256Route
   '/api/hooks/email': typeof ApiHooksEmailRoute
   '/api/hooks/up': typeof ApiHooksUpRoute
   '/api/hooks/whatsapp': typeof ApiHooksWhatsappRoute
   '/api/pdfs/$pdfSha256': typeof ApiPdfsPdfSha256Route
+  '/pay/$token/statement': typeof PayTokenStatementRoute
   '/api/cards/pay/$token': typeof ApiCardsPayTokenRoute
   '/api/cards/receipt/$token': typeof ApiCardsReceiptTokenRoute
 }
@@ -202,13 +202,13 @@ export interface FileRoutesByTo {
   '/bill/$pdfSha256': typeof BillPdfSha256Route
   '/pay/$token': typeof PayTokenRoute
   '/receipt/$token': typeof ReceiptTokenRoute
-  '/statement/$token': typeof StatementTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cards/$pdfSha256': typeof ApiCardsPdfSha256Route
   '/api/hooks/email': typeof ApiHooksEmailRoute
   '/api/hooks/up': typeof ApiHooksUpRoute
   '/api/hooks/whatsapp': typeof ApiHooksWhatsappRoute
   '/api/pdfs/$pdfSha256': typeof ApiPdfsPdfSha256Route
+  '/pay/$token/statement': typeof PayTokenStatementRoute
   '/api/cards/pay/$token': typeof ApiCardsPayTokenRoute
   '/api/cards/receipt/$token': typeof ApiCardsReceiptTokenRoute
 }
@@ -230,13 +230,13 @@ export interface FileRoutesById {
   '/bill/$pdfSha256': typeof BillPdfSha256Route
   '/pay/$token': typeof PayTokenRoute
   '/receipt/$token': typeof ReceiptTokenRoute
-  '/statement/$token': typeof StatementTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cards/$pdfSha256': typeof ApiCardsPdfSha256Route
   '/api/hooks/email': typeof ApiHooksEmailRoute
   '/api/hooks/up': typeof ApiHooksUpRoute
   '/api/hooks/whatsapp': typeof ApiHooksWhatsappRoute
   '/api/pdfs/$pdfSha256': typeof ApiPdfsPdfSha256Route
+  '/pay/$token_/statement': typeof PayTokenStatementRoute
   '/api/cards/pay/$token': typeof ApiCardsPayTokenRoute
   '/api/cards/receipt/$token': typeof ApiCardsReceiptTokenRoute
 }
@@ -258,13 +258,13 @@ export interface FileRouteTypes {
     | '/bill/$pdfSha256'
     | '/pay/$token'
     | '/receipt/$token'
-    | '/statement/$token'
     | '/api/auth/$'
     | '/api/cards/$pdfSha256'
     | '/api/hooks/email'
     | '/api/hooks/up'
     | '/api/hooks/whatsapp'
     | '/api/pdfs/$pdfSha256'
+    | '/pay/$token/statement'
     | '/api/cards/pay/$token'
     | '/api/cards/receipt/$token'
   fileRoutesByTo: FileRoutesByTo
@@ -284,13 +284,13 @@ export interface FileRouteTypes {
     | '/bill/$pdfSha256'
     | '/pay/$token'
     | '/receipt/$token'
-    | '/statement/$token'
     | '/api/auth/$'
     | '/api/cards/$pdfSha256'
     | '/api/hooks/email'
     | '/api/hooks/up'
     | '/api/hooks/whatsapp'
     | '/api/pdfs/$pdfSha256'
+    | '/pay/$token/statement'
     | '/api/cards/pay/$token'
     | '/api/cards/receipt/$token'
   id:
@@ -311,13 +311,13 @@ export interface FileRouteTypes {
     | '/bill/$pdfSha256'
     | '/pay/$token'
     | '/receipt/$token'
-    | '/statement/$token'
     | '/api/auth/$'
     | '/api/cards/$pdfSha256'
     | '/api/hooks/email'
     | '/api/hooks/up'
     | '/api/hooks/whatsapp'
     | '/api/pdfs/$pdfSha256'
+    | '/pay/$token_/statement'
     | '/api/cards/pay/$token'
     | '/api/cards/receipt/$token'
   fileRoutesById: FileRoutesById
@@ -332,13 +332,13 @@ export interface RootRouteChildren {
   BillPdfSha256Route: typeof BillPdfSha256Route
   PayTokenRoute: typeof PayTokenRoute
   ReceiptTokenRoute: typeof ReceiptTokenRoute
-  StatementTokenRoute: typeof StatementTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCardsPdfSha256Route: typeof ApiCardsPdfSha256Route
   ApiHooksEmailRoute: typeof ApiHooksEmailRoute
   ApiHooksUpRoute: typeof ApiHooksUpRoute
   ApiHooksWhatsappRoute: typeof ApiHooksWhatsappRoute
   ApiPdfsPdfSha256Route: typeof ApiPdfsPdfSha256Route
+  PayTokenStatementRoute: typeof PayTokenStatementRoute
   ApiCardsPayTokenRoute: typeof ApiCardsPayTokenRoute
   ApiCardsReceiptTokenRoute: typeof ApiCardsReceiptTokenRoute
 }
@@ -364,13 +364,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/statement/$token': {
-      id: '/statement/$token'
-      path: '/statement/$token'
-      fullPath: '/statement/$token'
-      preLoaderRoute: typeof StatementTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/receipt/$token': {
@@ -464,6 +457,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAiRouteImport
       parentRoute: typeof AppRoute
     }
+    '/pay/$token_/statement': {
+      id: '/pay/$token_/statement'
+      path: '/pay/$token/statement'
+      fullPath: '/pay/$token/statement'
+      preLoaderRoute: typeof PayTokenStatementRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/pdfs/$pdfSha256': {
       id: '/api/pdfs/$pdfSha256'
       path: '/api/pdfs/$pdfSha256'
@@ -555,13 +555,13 @@ const rootRouteChildren: RootRouteChildren = {
   BillPdfSha256Route: BillPdfSha256Route,
   PayTokenRoute: PayTokenRoute,
   ReceiptTokenRoute: ReceiptTokenRoute,
-  StatementTokenRoute: StatementTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCardsPdfSha256Route: ApiCardsPdfSha256Route,
   ApiHooksEmailRoute: ApiHooksEmailRoute,
   ApiHooksUpRoute: ApiHooksUpRoute,
   ApiHooksWhatsappRoute: ApiHooksWhatsappRoute,
   ApiPdfsPdfSha256Route: ApiPdfsPdfSha256Route,
+  PayTokenStatementRoute: PayTokenStatementRoute,
   ApiCardsPayTokenRoute: ApiCardsPayTokenRoute,
   ApiCardsReceiptTokenRoute: ApiCardsReceiptTokenRoute,
 }

@@ -4,12 +4,18 @@ import type { PublicHousematePayPageData } from "@/api/services/housemate-pay-pa
 import { isOwing } from "@/api/services/housemate-pay-summary";
 import { AllSortedPanel } from "@/components/public/all-sorted-panel";
 import {
+	AmountHeader,
+	ExpiredLinkPage,
+	PublicPage,
+} from "@/components/public/page-shell";
+import {
 	CoveredBillsSection,
 	CreditNote,
-	SECTION_LABEL_CLASS,
 	formatBillCount,
 } from "@/components/public/pay-credit";
-import { PayNowDialog } from "@/components/public/pay-now-dialog";
+import { PayFooterActions } from "@/components/public/pay-footer";
+import { RowContent } from "@/components/public/row-content";
+import { SectionHeader } from "@/components/public/section-header";
 import { PublicStatusBadge } from "@/components/public/status-badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -279,18 +285,10 @@ function BillRow({
 }) {
 	return (
 		<li className="py-3.5">
-			<div className="flex items-start justify-between gap-4">
-				<div className="min-w-0 flex-1">
-					<p className="truncate font-semibold text-[15px] leading-tight tracking-[-0.005em]">
-						{primary}
-					</p>
-					{secondary ? (
-						<p className="mt-1 text-[12.5px] text-muted-foreground leading-tight">
-							{secondary}
-						</p>
-					) : null}
-				</div>
-				<div className="flex shrink-0 items-start pt-0.5">
+			<RowContent
+				primary={primary}
+				secondary={secondary}
+				aside={
 					<Button
 						asChild
 						variant="outline"
@@ -302,8 +300,8 @@ function BillRow({
 							<span>{`${formatCurrency(amount)} bill`}</span>
 						</a>
 					</Button>
-				</div>
-			</div>
+				}
+			/>
 		</li>
 	);
 }
@@ -333,33 +331,6 @@ type PayPageData = Omit<
 
 function getItemsTotal(items: PayPageItem[]) {
 	return items.reduce((total, item) => total + item.remainingAfterCredit, 0);
-}
-
-function ExpiredPayPage() {
-	return (
-		<div className="flex min-h-screen items-center justify-center bg-background px-5 py-12">
-			<div className="mx-auto flex max-w-sm flex-col items-center gap-5 text-center">
-				<div
-					aria-hidden
-					className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted font-bold text-2xl text-muted-foreground"
-				>
-					?
-				</div>
-				<div className="space-y-2">
-					<h1 className="font-bold text-2xl tracking-tight">
-						Hmm, this payment page&apos;s gone walkabout
-					</h1>
-					<p className="text-[14px] text-muted-foreground leading-6">
-						The link might be old, or there are no unpaid bills left. Ask
-						whoever sent it for a fresh one.
-					</p>
-				</div>
-				<Button asChild variant="outline" className="h-11 font-medium">
-					<a href="/">Head home</a>
-				</Button>
-			</div>
-		</div>
-	);
 }
 
 function getSingleReminderItem(data: PayPageData) {
@@ -454,31 +425,20 @@ function PayHeader({
 	});
 
 	return (
-		<header className="flex flex-col gap-3">
-			<p className="truncate font-semibold text-[15px] tracking-tight">
-				{data.housemate.name}
-			</p>
-			<div className="flex flex-col gap-1">
-				<p className={SECTION_LABEL_CLASS}>
-					{getPayHeadline({ isAllSorted, isAllCovered })}
-				</p>
-				<h1 className="font-bold text-[3.25rem] tabular-nums leading-[1.02] tracking-[-0.03em]">
-					{formatCurrency(data.summary.remainingAmount)}
-				</h1>
-			</div>
-			<div className="flex flex-wrap gap-2">
-				<PublicStatusBadge tone={statusBadge.tone}>
-					{statusBadge.label}
-				</PublicStatusBadge>
-				{stackGroupLabel ? (
-					<PublicStatusBadge tone="neutral">
-						{stackGroupLabel}
-					</PublicStatusBadge>
-				) : data.scope.kind === "bills" && !singleReminderItem ? (
-					<PublicStatusBadge tone="neutral">Reminder</PublicStatusBadge>
-				) : null}
-			</div>
-		</header>
+		<AmountHeader
+			name={data.housemate.name}
+			label={getPayHeadline({ isAllSorted, isAllCovered })}
+			amount={formatCurrency(data.summary.remainingAmount)}
+		>
+			<PublicStatusBadge tone={statusBadge.tone}>
+				{statusBadge.label}
+			</PublicStatusBadge>
+			{stackGroupLabel ? (
+				<PublicStatusBadge tone="neutral">{stackGroupLabel}</PublicStatusBadge>
+			) : data.scope.kind === "bills" && !singleReminderItem ? (
+				<PublicStatusBadge tone="neutral">Reminder</PublicStatusBadge>
+			) : null}
+		</AmountHeader>
 	);
 }
 
@@ -600,13 +560,10 @@ function PayBillListSection({
 		<section className="space-y-6">
 			{getBillListGroups(items).map((group) => (
 				<section key={group.key}>
-					<header className="flex items-center justify-between gap-3 pb-3">
-						<h2 className={SECTION_LABEL_CLASS}>{group.label}</h2>
-						<p className="shrink-0 font-medium text-[12px] text-muted-foreground tabular-nums">
-							{formatCurrency(getItemsTotal(group.items))} ·{" "}
-							{formatBillCount(group.items.length)}
-						</p>
-					</header>
+					<SectionHeader
+						label={group.label}
+						aside={`${formatCurrency(getItemsTotal(group.items))} · ${formatBillCount(group.items.length)}`}
+					/>
 					<ul className="divide-y divide-border/60">
 						{group.items.map((item) => (
 							<BillRow
@@ -624,67 +581,17 @@ function PayBillListSection({
 	);
 }
 
-function PayFooterActions({
-	nothingToPay,
-	scope,
-	payVerb,
-	payId,
-	remainingAmount,
-	overdueAmount,
-}: {
-	nothingToPay: boolean;
-	scope: PayPageData["scope"];
-	payVerb: string;
-	payId: string | null;
-	remainingAmount: number;
-	overdueAmount: number;
-}) {
-	const canViewAllBills =
-		(scope.kind === "stack" || scope.kind === "bills") &&
-		Boolean(scope.allBillsPath);
-	const canPayOverdueOnly =
-		overdueAmount > 0.009 && remainingAmount - overdueAmount > 0.009;
-	if (nothingToPay && !canViewAllBills) {
-		return null;
-	}
-
-	return (
-		<div className="fixed inset-x-0 bottom-0 z-20 bg-background/95 px-5 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:z-auto sm:mt-auto sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0 sm:backdrop-blur-none">
-			<div className="mx-auto flex w-full max-w-md flex-col gap-2.5">
-				{canViewAllBills ? (
-					<Button asChild variant="outline" className="h-11 w-full font-medium">
-						<a href={scope.allBillsPath ?? ""}>View all bills</a>
-					</Button>
-				) : null}
-				{canPayOverdueOnly && !nothingToPay ? (
-					<PayNowDialog
-						triggerLabel="Pay overdue only"
-						triggerVariant="outline"
-						title="Pay overdue only"
-						payId={payId}
-						amount={overdueAmount}
-						descriptionValue="Bills"
-					/>
-				) : null}
-				{nothingToPay ? null : (
-					<PayNowDialog
-						triggerLabel={payVerb}
-						title={payVerb}
-						payId={payId}
-						amount={remainingAmount}
-						descriptionValue="Bills"
-					/>
-				)}
-			</div>
-		</div>
-	);
-}
-
 function PublicPayPage() {
 	const loaderData = Route.useLoaderData();
+	const { token } = Route.useParams();
 
 	if (!loaderData) {
-		return <ExpiredPayPage />;
+		return (
+			<ExpiredLinkPage
+				title="Hmm, this payment page's gone walkabout"
+				body="The link might be old, or there are no unpaid bills left. Ask whoever sent it for a fresh one."
+			/>
+		);
 	}
 
 	const isAllSorted = loaderData.items.length === 0;
@@ -704,53 +611,48 @@ function PublicPayPage() {
 		stackGroupLabel,
 		billCount: loaderData.summary.billCount,
 	});
-	const hasFooterActions =
-		!nothingToPay ||
-		((loaderData.scope.kind === "stack" || loaderData.scope.kind === "bills") &&
-			Boolean(loaderData.scope.allBillsPath));
 
 	return (
-		<div className="min-h-screen bg-background text-foreground">
-			<div
-				className={`mx-auto flex min-h-screen max-w-md flex-col gap-7 px-5 pt-5 ${hasFooterActions ? "pb-32 sm:pb-12" : "pb-6 sm:pb-12"} sm:min-h-0 sm:gap-8 sm:pt-8`}
-			>
-				<PayHeader
-					data={loaderData}
-					isAllSorted={isAllSorted}
-					isAllCovered={isAllCovered}
-					stackGroupLabel={stackGroupLabel}
-					singleReminderItem={singleReminderItem}
+		<PublicPage hasFooter>
+			<PayHeader
+				data={loaderData}
+				isAllSorted={isAllSorted}
+				isAllCovered={isAllCovered}
+				stackGroupLabel={stackGroupLabel}
+				singleReminderItem={singleReminderItem}
+			/>
+
+			{isAllSorted ? (
+				<AllSortedPanel
+					housemateFirstName={getFirstName(loaderData.housemate.name)}
+					recentlySettled={loaderData.recentlySettled}
 				/>
+			) : null}
 
-				{isAllSorted ? (
-					<AllSortedPanel
-						housemateFirstName={getFirstName(loaderData.housemate.name)}
-						recentlySettled={loaderData.recentlySettled}
-					/>
-				) : null}
+			{isAllSorted ? null : <CreditNote credit={loaderData.credit} />}
 
-				{isAllSorted ? null : <CreditNote credit={loaderData.credit} />}
-
-				{!nothingToPay && loaderData.paymentProgress.settledAmount > 0 ? (
-					<PaymentProgressSection
-						paymentProgress={loaderData.paymentProgress}
-						remainingAmount={loaderData.summary.remainingAmount}
-					/>
-				) : null}
-
-				<PayBillListSection items={owingItems} />
-
-				<CoveredBillsSection items={coveredBills} />
-
-				<PayFooterActions
-					nothingToPay={nothingToPay}
-					scope={loaderData.scope}
-					payVerb={payVerb}
-					payId={loaderData.payId}
+			{!nothingToPay && loaderData.paymentProgress.settledAmount > 0 ? (
+				<PaymentProgressSection
+					paymentProgress={loaderData.paymentProgress}
 					remainingAmount={loaderData.summary.remainingAmount}
-					overdueAmount={loaderData.summary.overdueAmount}
 				/>
-			</div>
-		</div>
+			) : null}
+
+			<PayBillListSection items={owingItems} />
+
+			<CoveredBillsSection items={coveredBills} />
+
+			<PayFooterActions
+				statementPath={`/pay/${token}/statement`}
+				allBillsPath={
+					loaderData.scope.kind === "all" ? null : loaderData.scope.allBillsPath
+				}
+				nothingToPay={nothingToPay}
+				payVerb={payVerb}
+				payId={loaderData.payId}
+				remainingAmount={loaderData.summary.remainingAmount}
+				overdueAmount={loaderData.summary.overdueAmount}
+			/>
+		</PublicPage>
 	);
 }

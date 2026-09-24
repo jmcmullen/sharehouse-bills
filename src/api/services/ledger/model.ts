@@ -126,7 +126,7 @@ export interface StatementEntry extends LedgerSource {
 	recordedAt: number;
 	reversesEntryId: string | null;
 }
-export interface StatementRow extends StatementEntry {
+interface StatementRow extends StatementEntry {
 	runningBalanceCents: number;
 }
 export interface AccountStatement {

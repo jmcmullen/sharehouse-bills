@@ -11,16 +11,13 @@ import { paymentTransactions } from "../db/schema/payment-transactions";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
 import { createAbsoluteDebtReceiptUrl } from "./debt-receipt-page.server";
-import {
-	createAbsolutePayUrl,
-	createPayToken,
-	getPublicHousematePayPageData,
-} from "./housemate-pay-page.server";
+import { getPublicHousematePayPageData } from "./housemate-pay-page.server";
 import { createLedgerClient } from "./ledger/client.server";
 import {
 	getUnallocatedCredit,
 	getUnallocatedCredits,
 } from "./ledger/credit.server";
+import { createAbsolutePayUrl, createPayToken } from "./pay-token.server";
 import { getVertexModel } from "./vertex-ai";
 
 const WHATSAPP_ASSISTANT_MODEL = "gemini-2.5-flash";

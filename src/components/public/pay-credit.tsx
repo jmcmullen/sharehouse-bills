@@ -1,7 +1,6 @@
 import { formatCurrency } from "@/lib/share-preview";
-
-export const SECTION_LABEL_CLASS =
-	"font-semibold text-[11px] text-muted-foreground uppercase tracking-[0.12em]";
+import { RowContent } from "./row-content";
+import { SectionHeader } from "./section-header";
 
 interface CoveredBill {
 	billId: string;
@@ -42,22 +41,24 @@ export function CreditNote({ credit }: { credit: PayCredit }) {
 
 function CoveredBillRow({ bill }: { bill: CoveredBill }) {
 	return (
-		<li className="flex items-start justify-between gap-4 py-3.5 text-muted-foreground">
-			<div className="min-w-0 flex-1">
-				<a
-					href={bill.billPath}
-					className="block truncate font-semibold text-[15px] leading-tight tracking-[-0.005em] underline-offset-4 hover:underline"
-				>
-					{bill.billerName}
-				</a>
-				{bill.secondary ? (
-					<p className="mt-1 text-[12.5px] leading-tight">{bill.secondary}</p>
-				) : null}
-			</div>
-			<p className="shrink-0 pt-0.5 text-[13px] tabular-nums">
-				<s>{formatCurrency(bill.amount)}</s>{" "}
-				<span className="font-medium text-success">covered</span>
-			</p>
+		<li className="py-3.5 text-muted-foreground">
+			<RowContent
+				primary={
+					<a
+						href={bill.billPath}
+						className="block truncate underline-offset-4 hover:underline"
+					>
+						{bill.billerName}
+					</a>
+				}
+				secondary={bill.secondary}
+				aside={
+					<p className="text-[13px] tabular-nums">
+						<s>{formatCurrency(bill.amount)}</s>{" "}
+						<span className="font-medium text-success">covered</span>
+					</p>
+				}
+			/>
 		</li>
 	);
 }
@@ -69,12 +70,10 @@ export function CoveredBillsSection({ items }: { items: CoveredBill[] }) {
 	const total = items.reduce((sum, bill) => sum + bill.amount, 0);
 	return (
 		<section>
-			<header className="flex items-center justify-between gap-3 pb-3">
-				<h2 className={SECTION_LABEL_CLASS}>Covered by your credit</h2>
-				<p className="shrink-0 font-medium text-[12px] text-muted-foreground tabular-nums">
-					{formatCurrency(total)} · {formatBillCount(items.length)}
-				</p>
-			</header>
+			<SectionHeader
+				label="Covered by your credit"
+				aside={`${formatCurrency(total)} · ${formatBillCount(items.length)}`}
+			/>
 			<ul className="divide-y divide-border/60">
 				{items.map((bill) => (
 					<CoveredBillRow key={bill.billId} bill={bill} />

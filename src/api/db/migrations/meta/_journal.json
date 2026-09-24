@@ -141,6 +141,13 @@
 			"when": 1790380000000,
 			"tag": "0019_overdue_digest",
 			"breakpoints": true
+		},
+		{
+			"idx": 20,
+			"version": "6",
+			"when": 1790470000000,
+			"tag": "0020_drop_statement_links",
+			"breakpoints": true
 		}
 	]
 }

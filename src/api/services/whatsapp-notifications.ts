@@ -11,7 +11,7 @@ import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { whatsappNotifications } from "../db/schema/whatsapp-notifications";
-import { createAbsolutePayUrl } from "./housemate-pay-page.server";
+import { createAbsolutePayUrl } from "./pay-token.server";
 import { getWhatsappAdminChatId } from "./waha";
 import { resolveWhatsappChatIdToNumber } from "./waha";
 import {

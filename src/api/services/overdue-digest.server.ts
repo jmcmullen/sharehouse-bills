@@ -1,8 +1,8 @@
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { db } from "../db/index.server";
 import { housemates } from "../db/schema/housemates";
-import { createAbsolutePayUrl } from "./housemate-pay-page.server";
 import { type OverdueDigest, buildOverdueDigest } from "./overdue-digest";
+import { createAbsolutePayUrl } from "./pay-token.server";
 import { getCoveredShares } from "./unpaid-shares.server";
 import { buildOverdueDigestSummary } from "./whatsapp-message-composer";
 import { getWhatsappNotificationById } from "./whatsapp-notifications";

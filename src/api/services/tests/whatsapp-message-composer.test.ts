@@ -19,7 +19,7 @@ const cleaners = {
 	amountCents: 9900,
 };
 
-test("payment receipt names the bills covered, leftover credit, balance and statement link", () => {
+test("payment receipt names the bills covered, leftover credit and balance", () => {
 	const lines = buildPaymentReceiptSummary({
 		firstName: "Oliver",
 		amountCents: 24900,
@@ -38,7 +38,7 @@ test("payment receipt names the bills covered, leftover credit, balance and stat
 	assert.equal(lines.length, 9);
 });
 
-test("credit-held receipt says the money waits for the next bill and has no statement line", () => {
+test("credit-held receipt says the money waits for the next bill", () => {
 	const message = buildPaymentReceiptSummary({
 		firstName: "Oliver",
 		amountCents: 5000,

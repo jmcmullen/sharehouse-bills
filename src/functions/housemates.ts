@@ -8,11 +8,11 @@ import { bills } from "../api/db/schema/bills";
 import { debts } from "../api/db/schema/debts";
 import { housemates } from "../api/db/schema/housemates";
 import { getRemainingDebtAmount } from "../api/services/debt-payment-state";
-import { createPayPath } from "../api/services/housemate-pay-page.server";
 import {
 	getUnallocatedCredit,
 	getUnallocatedCredits,
 } from "../api/services/ledger/credit.server";
+import { createPayPath } from "../api/services/pay-token.server";
 import { normalizeWhatsappNumber } from "../api/services/whatsapp-phone";
 import { authMiddleware } from "../lib/auth-middleware";
 import { entityIdSchema } from "../lib/id";

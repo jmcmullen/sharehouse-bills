@@ -43,4 +43,4 @@ To test locally:
 1. Open `/ledger`, select a housemate and expand a paid bill. Check its receipt and dates.
 2. Open Money received and inspect its bills and unallocated amount.
 3. Open Payment review. For an actual match, select the manual records covered by the transfer and check their total before confirming. Matching an already credited transfer intentionally removes the duplicate credit.
-4. Open a housemate's private statement and check that the same bill payment information appears.
+4. Open a housemate's statement from their pay link (**View statement**) and check that the same bill payment information appears.

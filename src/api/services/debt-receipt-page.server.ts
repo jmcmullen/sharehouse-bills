@@ -6,7 +6,7 @@ import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
-import { createPayPath } from "./housemate-pay-page.server";
+import { createPayPath } from "./pay-token.server";
 import {
 	createSignedPublicLinkToken,
 	publicLinkSignaturesMatch,

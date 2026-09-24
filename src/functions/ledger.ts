@@ -64,15 +64,10 @@ async function loadHousemates(
 }
 
 async function loadAccount(client: Executor, housemate: Housemate) {
-	const [statement, billing, links] = await Promise.all([
+	const [statement, billing] = await Promise.all([
 		getAccountStatement(client, housemate.id),
 		getAccountPayments(client, housemate.id),
-		client.execute({
-			sql: "SELECT expires_at FROM ledger_statement_links WHERE housemate_id=?",
-			args: [housemate.id],
-		}),
 	]);
-	const link = links.rows[0];
 	return {
 		...housemate,
 		...withUpcoming(
@@ -81,7 +76,6 @@ async function loadAccount(client: Executor, housemate: Housemate) {
 		),
 		auditEntries: statement.entries,
 		billing,
-		linkExpiresAt: link ? Number(link.expires_at) : null,
 	};
 }
 

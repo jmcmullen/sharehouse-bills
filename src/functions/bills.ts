@@ -8,7 +8,6 @@ import { bills } from "../api/db/schema/bills";
 import { debts } from "../api/db/schema/debts";
 import { housemates } from "../api/db/schema/housemates";
 import { getRemainingDebtAmount } from "../api/services/debt-payment-state";
-import { createPayPath } from "../api/services/housemate-pay-page.server";
 import { settleLedger } from "../api/services/ledger-sync.server";
 import {
 	cashReceiptSchema,
@@ -16,6 +15,7 @@ import {
 } from "../api/services/ledger/cash-receipt";
 import { createLedgerClient } from "../api/services/ledger/client.server";
 import { getUnallocatedCredit } from "../api/services/ledger/credit.server";
+import { createPayPath } from "../api/services/pay-token.server";
 import { generateWeeklyRentBill } from "../api/services/recurring-bill";
 import { enqueueBillCreatedNotification } from "../api/services/whatsapp-notification-events";
 import { authMiddleware } from "../lib/auth-middleware";

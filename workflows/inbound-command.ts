@@ -135,7 +135,7 @@ async function loadDueCommandSummaryDependencies() {
 		"../src/api/services/bill-pdf-storage"
 	);
 	const { createAbsolutePayUrl } = await import(
-		"../src/api/services/housemate-pay-page.server"
+		"../src/api/services/pay-token.server"
 	);
 	const {
 		getActiveHousematePaymentNames,
