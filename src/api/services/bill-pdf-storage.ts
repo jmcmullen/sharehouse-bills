@@ -94,6 +94,10 @@ export class BillPdfStorageService {
 		);
 	}
 
+	static getStatementOgImageUrl(token: string): string {
+		return `/api/cards/pay/${token}/statement`;
+	}
+
 	static getDebtReceiptOgImageUrl(
 		token: string,
 		previewDate?: string | null,

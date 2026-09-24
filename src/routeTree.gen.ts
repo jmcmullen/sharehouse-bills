@@ -34,6 +34,7 @@ import { Route as ApiCardsPdfSha256RouteImport } from './routes/api.cards.$pdfSh
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiCardsReceiptTokenRouteImport } from './routes/api.cards.receipt.$token'
 import { Route as ApiCardsPayTokenRouteImport } from './routes/api.cards.pay.$token'
+import { Route as ApiCardsPayTokenStatementRouteImport } from './routes/api.cards.pay.$token_.statement'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -159,6 +160,12 @@ const ApiCardsPayTokenRoute = ApiCardsPayTokenRouteImport.update({
   path: '/api/cards/pay/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCardsPayTokenStatementRoute =
+  ApiCardsPayTokenStatementRouteImport.update({
+    id: '/api/cards/pay/$token_/statement',
+    path: '/api/cards/pay/$token/statement',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -185,6 +192,7 @@ export interface FileRoutesByFullPath {
   '/pay/$token/statement': typeof PayTokenStatementRoute
   '/api/cards/pay/$token': typeof ApiCardsPayTokenRoute
   '/api/cards/receipt/$token': typeof ApiCardsReceiptTokenRoute
+  '/api/cards/pay/$token/statement': typeof ApiCardsPayTokenStatementRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -211,6 +219,7 @@ export interface FileRoutesByTo {
   '/pay/$token/statement': typeof PayTokenStatementRoute
   '/api/cards/pay/$token': typeof ApiCardsPayTokenRoute
   '/api/cards/receipt/$token': typeof ApiCardsReceiptTokenRoute
+  '/api/cards/pay/$token/statement': typeof ApiCardsPayTokenStatementRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -239,6 +248,7 @@ export interface FileRoutesById {
   '/pay/$token_/statement': typeof PayTokenStatementRoute
   '/api/cards/pay/$token': typeof ApiCardsPayTokenRoute
   '/api/cards/receipt/$token': typeof ApiCardsReceiptTokenRoute
+  '/api/cards/pay/$token_/statement': typeof ApiCardsPayTokenStatementRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -267,6 +277,7 @@ export interface FileRouteTypes {
     | '/pay/$token/statement'
     | '/api/cards/pay/$token'
     | '/api/cards/receipt/$token'
+    | '/api/cards/pay/$token/statement'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -293,6 +304,7 @@ export interface FileRouteTypes {
     | '/pay/$token/statement'
     | '/api/cards/pay/$token'
     | '/api/cards/receipt/$token'
+    | '/api/cards/pay/$token/statement'
   id:
     | '__root__'
     | '/'
@@ -320,6 +332,7 @@ export interface FileRouteTypes {
     | '/pay/$token_/statement'
     | '/api/cards/pay/$token'
     | '/api/cards/receipt/$token'
+    | '/api/cards/pay/$token_/statement'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -341,6 +354,7 @@ export interface RootRouteChildren {
   PayTokenStatementRoute: typeof PayTokenStatementRoute
   ApiCardsPayTokenRoute: typeof ApiCardsPayTokenRoute
   ApiCardsReceiptTokenRoute: typeof ApiCardsReceiptTokenRoute
+  ApiCardsPayTokenStatementRoute: typeof ApiCardsPayTokenStatementRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -520,6 +534,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCardsPayTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cards/pay/$token_/statement': {
+      id: '/api/cards/pay/$token_/statement'
+      path: '/api/cards/pay/$token/statement'
+      fullPath: '/api/cards/pay/$token/statement'
+      preLoaderRoute: typeof ApiCardsPayTokenStatementRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -564,6 +585,7 @@ const rootRouteChildren: RootRouteChildren = {
   PayTokenStatementRoute: PayTokenStatementRoute,
   ApiCardsPayTokenRoute: ApiCardsPayTokenRoute,
   ApiCardsReceiptTokenRoute: ApiCardsReceiptTokenRoute,
+  ApiCardsPayTokenStatementRoute: ApiCardsPayTokenStatementRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
