@@ -19,15 +19,12 @@ export const bills = sqliteTable(
 		billType: text("bill_type", {
 			enum: ["electricity", "gas", "internet", "phone", "water", "other"],
 		}),
-		totalAmount: real("total_amount").notNull(),
+		totalCents: integer("total_cents").notNull(),
 		dueDate: integer("due_date", { mode: "timestamp" }).notNull(),
 		statementDate: integer("statement_date", { mode: "timestamp" }),
 		chargeDueDate: integer("charge_due_date", { mode: "timestamp" }),
 		billPeriodStart: integer("bill_period_start", { mode: "timestamp" }),
 		billPeriodEnd: integer("bill_period_end", { mode: "timestamp" }),
-		status: text("status", { enum: ["pending", "partially_paid", "paid"] })
-			.default("pending")
-			.notNull(),
 		accountNumber: text("account_number"),
 		referenceNumber: text("reference_number"),
 		sourceFilename: text("source_filename"),

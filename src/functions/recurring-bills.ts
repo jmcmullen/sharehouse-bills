@@ -19,13 +19,13 @@ import { entityIdSchema } from "../lib/id";
 const recurringBillAssignmentInputSchema = z.object({
 	housemateId: entityIdSchema,
 	isActive: z.boolean(),
-	customAmount: z.number().min(0).nullable(),
+	customCents: z.number().int().min(0).nullable(),
 });
 
 const recurringBillInputObjectSchema = z.object({
 	templateName: z.string().min(1),
 	billerName: z.string().min(1),
-	totalAmount: z.number().positive(),
+	totalCents: z.number().int().positive(),
 	frequency: z.enum(["weekly", "fortnightly", "monthly", "yearly"]),
 	dayOfWeek: z.number().min(0).max(6).nullable(),
 	dayOfMonth: z.number().min(1).max(31).nullable(),
@@ -122,7 +122,7 @@ async function replaceAssignments(
 		activeAssignments.map((assignment) => ({
 			recurringBillId,
 			housemateId: assignment.housemateId,
-			customAmount: assignment.customAmount,
+			customCents: assignment.customCents,
 			isActive: true,
 		})),
 	);
@@ -144,7 +144,7 @@ export const getRecurringBills = createServerFn({ method: "GET" })
 							id: string;
 							recurringBillId: string;
 							housemateId: string;
-							customAmount: number | null;
+							customCents: number | null;
 							isActive: boolean;
 							housemateName: string;
 							housemateIsOwner: boolean;
@@ -156,7 +156,7 @@ export const getRecurringBills = createServerFn({ method: "GET" })
 							id: recurringBillAssignments.id,
 							recurringBillId: recurringBillAssignments.recurringBillId,
 							housemateId: recurringBillAssignments.housemateId,
-							customAmount: recurringBillAssignments.customAmount,
+							customCents: recurringBillAssignments.customCents,
 							isActive: recurringBillAssignments.isActive,
 							housemateName: housemates.name,
 							housemateIsOwner: housemates.isOwner,
@@ -236,7 +236,7 @@ export const createRecurringBill = createServerFn({ method: "POST" })
 			.values({
 				templateName: data.templateName,
 				billerName: data.billerName,
-				totalAmount: data.totalAmount,
+				totalCents: data.totalCents,
 				frequency: data.frequency,
 				dayOfWeek:
 					data.frequency === "weekly" || data.frequency === "fortnightly"
@@ -265,7 +265,7 @@ export const updateRecurringBill = createServerFn({ method: "POST" })
 			.set({
 				templateName: data.templateName,
 				billerName: data.billerName,
-				totalAmount: data.totalAmount,
+				totalCents: data.totalCents,
 				frequency: data.frequency,
 				dayOfWeek:
 					data.frequency === "weekly" || data.frequency === "fortnightly"

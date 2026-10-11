@@ -1,3 +1,4 @@
+import { formatCents } from "@/lib/money";
 import { useState } from "react";
 import type {
 	AccountPayments,
@@ -5,7 +6,7 @@ import type {
 	ReceiptView,
 } from "../../api/services/ledger/account-payments";
 import { Button } from "../ui/button";
-import { ledgerDate, ledgerMoney, ledgerTime } from "./statement";
+import { ledgerDate, ledgerTime } from "./statement";
 
 type VisibleReceipt = Omit<ReceiptView, "sourceKeys" | "suggestion">;
 type VisibleAccount = Omit<AccountPayments, "revision" | "receipts"> & {
@@ -133,7 +134,7 @@ function BillRow(props: {
 						>
 							<div>
 								<p>
-									{ledgerMoney(payment.amountCents)} · {receipt.description}
+									{formatCents(payment.amountCents)} · {receipt.description}
 								</p>
 								<p className="mt-1 text-muted-foreground text-xs">
 									{receipt.bankMatched
@@ -183,7 +184,7 @@ function ReceiptRow(props: {
 					</p>
 				</div>
 				<span className="whitespace-nowrap font-semibold tabular-nums">
-					{ledgerMoney(props.receipt.amountCents)}
+					{formatCents(props.receipt.amountCents)}
 				</span>
 			</summary>
 			<div className="mt-4 space-y-3 border-t pt-4 text-sm">
@@ -205,12 +206,12 @@ function ReceiptRow(props: {
 							{props.bills.find((bill) => bill.id === allocation.debtId)
 								?.name ?? "Removed bill"}
 						</span>
-						<span>{ledgerMoney(allocation.amountCents)}</span>
+						<span>{formatCents(allocation.amountCents)}</span>
 					</p>
 				))}
 				<p className="flex justify-between gap-3 font-medium">
 					<span>Unallocated</span>
-					<span>{ledgerMoney(props.receipt.unallocatedCents)}</span>
+					<span>{formatCents(props.receipt.unallocatedCents)}</span>
 				</p>
 				{props.onAllocate && props.receipt.amountCents > 0 && (
 					<Button
@@ -230,7 +231,7 @@ function Amount(props: { label: string; amount: number }) {
 		<div>
 			<p className="text-muted-foreground text-xs">{props.label}</p>
 			<p className="mt-1 font-medium tabular-nums">
-				{ledgerMoney(props.amount)}
+				{formatCents(props.amount)}
 			</p>
 		</div>
 	);
@@ -254,7 +255,7 @@ export function PaymentSummary(props: {
 				<div key={item.label} className="rounded-xl border bg-card p-4">
 					<p className="text-muted-foreground text-sm">{item.label}</p>
 					<p className="mt-2 font-semibold text-2xl tabular-nums">
-						{ledgerMoney(item.value)}
+						{formatCents(item.value)}
 					</p>
 				</div>
 			))}

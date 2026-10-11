@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { setBillReviewed } from "@/functions/bill-verification";
+import { formatCents } from "@/lib/money";
 import { Link, useRouter } from "@tanstack/react-router";
 import { type MouseEvent, startTransition, useState } from "react";
 import { toast } from "sonner";
@@ -12,7 +13,7 @@ import type {
 	ShareReceipt,
 	VerifiedBill,
 } from "../../api/services/ledger/bill-verification";
-import { ledgerDate, ledgerMoney } from "../ledger/statement";
+import { ledgerDate } from "../ledger/statement";
 
 const statusLabel: Record<BillVerificationStatus, string> = {
 	paid: "Paid",
@@ -99,7 +100,7 @@ function SummaryStrip({ summary }: { summary: BillVerificationSummary }) {
 		["Needs check", String(summary.check)],
 		["Approved", String(summary.approved)],
 		["Needs a look", String(summary.needsLook)],
-		["Remaining", ledgerMoney(summary.remainingCents)],
+		["Remaining", formatCents(summary.remainingCents)],
 	];
 	return (
 		<dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-4 lg:grid-cols-7">
@@ -223,7 +224,7 @@ function ReceiptLine({ receipt }: { receipt: ShareReceipt }) {
 		<li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
 			<span className="min-w-0">
 				<span className="font-medium tabular-nums">
-					{ledgerMoney(receipt.amountCents)}
+					{formatCents(receipt.amountCents)}
 				</span>{" "}
 				<span className="text-muted-foreground">· {receipt.description}</span>
 			</span>
@@ -245,7 +246,7 @@ function Amount({ label, cents }: { label: string; cents: number }) {
 	return (
 		<div className="text-right sm:text-left">
 			<p className="text-muted-foreground text-xs">{label}</p>
-			<p className="tabular-nums">{ledgerMoney(cents)}</p>
+			<p className="tabular-nums">{formatCents(cents)}</p>
 		</div>
 	);
 }

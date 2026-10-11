@@ -18,6 +18,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { formatCents } from "@/lib/money";
 import {
 	IconCalendar,
 	IconChevronLeft,
@@ -32,27 +33,22 @@ import {
 } from "@tabler/icons-react";
 import { DebtTooltip } from "./debt-tooltip";
 import { StatusBadge } from "./status-badge";
-import type { GroupedBill } from "./types";
-import {
-	formatCurrency,
-	formatDate,
-	getAmountPerPerson,
-	getDebtSummary,
-} from "./utils";
+import type { BillListItem } from "./types";
+import { formatDate } from "./utils";
 
 interface BillsTableProps {
-	bills: GroupedBill[];
+	bills: BillListItem[];
 	billsLoading: boolean;
-	paginatedBills: GroupedBill[];
+	paginatedBills: BillListItem[];
 	currentPage: number;
 	totalPages: number;
 	startIndex: number;
 	endIndex: number;
 	onPrevious: () => void;
 	onNext: () => void;
-	onRecordCash: (bill: GroupedBill) => void;
+	onRecordCash: (bill: BillListItem) => void;
 	onDeleteBill: (billId: string) => void;
-	onViewPdf: (bill: GroupedBill) => void;
+	onViewPdf: (bill: BillListItem) => void;
 	onAddBill: () => void;
 	processingPayments: boolean;
 	deletingBill: boolean;
@@ -142,8 +138,7 @@ export function BillsTable({
 								</TableRow>
 							</TableHeader>
 							<TableBody>
-								{paginatedBills.map(({ bill, debts }) => {
-									const debtSummary = getDebtSummary(debts);
+								{paginatedBills.map((bill) => {
 									return (
 										<TableRow
 											key={bill.id}
@@ -164,46 +159,45 @@ export function BillsTable({
 												<StatusBadge status={bill.status} />
 											</TableCell>
 											<TableCell className="text-right font-mono">
-												{formatCurrency(bill.totalAmount)}
+												{formatCents(bill.totalCents)}
 											</TableCell>
 											<TableCell className="text-right font-mono">
-												{formatCurrency(getAmountPerPerson(debts))}
+												{formatCents(bill.shares[0]?.amountCents ?? 0)}
 											</TableCell>
 											<TableCell className="text-right">
-												<DebtTooltip debtSummary={debtSummary} type="paid">
+												<DebtTooltip shares={bill.shares} type="paid">
 													<span className="font-medium font-mono text-green-600">
-														{formatCurrency(debtSummary.paidAmount)}
+														{formatCents(bill.paidCents)}
 													</span>
 												</DebtTooltip>
 											</TableCell>
 											<TableCell className="text-right">
-												<DebtTooltip debtSummary={debtSummary} type="owed">
+												<DebtTooltip shares={bill.shares} type="owed">
 													<span className="font-medium font-mono text-orange-600">
-														{formatCurrency(debtSummary.owedAmount)}
+														{formatCents(bill.remainingCents)}
 													</span>
 												</DebtTooltip>
 											</TableCell>
 											<TableCell>
 												<div className="flex items-center gap-2">
 													<IconCalendar className="h-4 w-4 text-muted-foreground" />
-													{formatDate(bill.dueDate)}
+													{formatDate(bill.dueAt)}
 												</div>
 											</TableCell>
 											<TableCell className="text-right">
 												<div className="flex items-center justify-end gap-1">
-													{bill.status !== "paid" &&
-														debtSummary.owedAmount > 0 && (
-															<Button
-																variant="default"
-																size="sm"
-																disabled={processingPayments}
-																onClick={() => onRecordCash({ bill, debts })}
-															>
-																{processingPayments
-																	? "Recording..."
-																	: "Record cash"}
-															</Button>
-														)}
+													{bill.remainingCents > 0 && (
+														<Button
+															variant="default"
+															size="sm"
+															disabled={processingPayments}
+															onClick={() => onRecordCash(bill)}
+														>
+															{processingPayments
+																? "Recording..."
+																: "Record cash"}
+														</Button>
+													)}
 													<DropdownMenu>
 														<DropdownMenuTrigger asChild>
 															<Button
@@ -217,14 +211,14 @@ export function BillsTable({
 														</DropdownMenuTrigger>
 														<DropdownMenuContent align="end">
 															<DropdownMenuItem asChild>
-																<a href={bill.publicPath ?? `/bill/${bill.id}`}>
+																<a href={bill.publicPath}>
 																	<IconLink className="h-4 w-4" />
 																	View bill
 																</a>
 															</DropdownMenuItem>
 															{bill.pdfUrl && bill.pdfSha256 ? (
 																<DropdownMenuItem
-																	onClick={() => onViewPdf({ bill, debts })}
+																	onClick={() => onViewPdf(bill)}
 																>
 																	<IconEye className="h-4 w-4" />
 																	View PDF

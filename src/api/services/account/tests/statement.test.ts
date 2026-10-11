@@ -1,15 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { coverShares } from "../bill-reminder-credit";
-import type { BillPaymentView, ReceiptView } from "../ledger/account-payments";
+import { type ReceiptRow, type ShareRow, buildAccount } from "../account";
 import {
 	type StatementBill,
 	type StatementPayment,
-	buildStatementTimeline,
-	statementHeadline,
-} from "../statement-timeline";
+	buildStatement,
+} from "../statement";
 
-// Sydney midnight on the given day, as the ledger stores due dates.
+// Sydney midnight on the given day, as bills store due dates.
 const sydney = (day: string, time = "00:00") =>
 	Math.floor(new Date(`${day}T${time}:00+10:00`).getTime() / 1000);
 const now = sydney("2026-09-24", "12:00");
@@ -19,18 +17,21 @@ function bill(
 	name: string,
 	due: string,
 	amountCents: number,
-	payments: BillPaymentView["payments"] = [],
-): BillPaymentView {
-	const paidCents = payments.reduce((sum, item) => sum + item.amountCents, 0);
+): ShareRow {
 	return {
 		id,
+		billId: `bill-${id}`,
+		housemateId: "sarah",
+		isOwner: false,
 		name,
+		billType: null,
 		category: "bill",
+		stackGroup: null,
+		recurringTemplateName: null,
 		dueAt: sydney(due),
+		billPeriodStart: null,
+		billPeriodEnd: null,
 		amountCents,
-		paidCents,
-		remainingCents: Math.max(0, amountCents - paidCents),
-		payments,
 	};
 }
 
@@ -38,12 +39,8 @@ function receipt(
 	id: string,
 	at: number,
 	amountCents: number,
-	allocations: ReceiptView["allocations"],
-): ReceiptView {
-	const allocated = allocations.reduce(
-		(sum, item) => sum + item.amountCents,
-		0,
-	);
+	allocations: ReceiptRow["allocations"],
+): ReceiptRow {
 	return {
 		id,
 		sourceKeys: [id.startsWith("bank:") ? `bank:source-${id}` : id],
@@ -54,13 +51,8 @@ function receipt(
 		recordedAt: at,
 		bankMatched: id.startsWith("bank:"),
 		manual: id.startsWith("manual:"),
-		rentOnly: false,
+		cash: id.startsWith("manual:cash-"),
 		allocations,
-		unallocatedCents: amountCents - allocated,
-		suggestion: {
-			allocations: [],
-			reason: "admin suggestion reason",
-		} as unknown as ReceiptView["suggestion"],
 	};
 }
 
@@ -69,23 +61,13 @@ const cash = "manual:cash-abc";
 const held = "bank:tx-secret-2";
 const split = "bank:tx-secret-3";
 const bills = [
-	bill("rent-18", "Rent", "2026-09-18", 37200, [
-		{ receiptId: bank, amountCents: 37200 },
-	]),
-	bill("rent-01", "Rent", "2026-09-01", 37200, [
-		{ receiptId: bank, amountCents: 37200 },
-	]),
+	bill("rent-18", "Rent", "2026-09-18", 37200),
+	bill("rent-01", "Rent", "2026-09-01", 37200),
 	bill("cleaners", "Cleaners", "2026-09-26", 3000),
-	bill("gas", "Gas", "2026-09-10", 2141, [
-		{ receiptId: cash, amountCents: 1000 },
-	]),
-	bill("pool", "Pool", "2026-09-30", 1250, [
-		{ receiptId: split, amountCents: 250 },
-	]),
+	bill("gas", "Gas", "2026-09-10", 2141),
+	bill("pool", "Pool", "2026-09-30", 1250),
 	bill("power", "Power", "2026-10-02", 10623),
-	bill("water", "Water", "2026-07-15", 5000, [
-		{ receiptId: "bank:tx-july", amountCents: 5000 },
-	]),
+	bill("water", "Water", "2026-07-15", 5000),
 	bill("internet", "Internet", "2026-06-20", 2000),
 	bill("june-rent", "Rent", "2026-05-31", 37200),
 ];
@@ -97,7 +79,6 @@ const receipts = [
 	receipt(cash, sydney("2026-09-12", "18:00"), 1000, [
 		{ debtId: "gas", amountCents: 1000 },
 	]),
-	receipt(held, sydney("2026-09-20", "08:00"), 5000, []),
 	receipt(split, sydney("2026-09-22", "10:00"), 3000, [
 		{ debtId: "pool", amountCents: 250 },
 	]),
@@ -106,22 +87,27 @@ const receipts = [
 	]),
 	receipt("manual:ledger-refund", sydney("2026-09-21"), -500, []),
 ];
-// The pay page's cover: unpaid shares oldest due first, credit applied in order.
-const unpaid = [
-	{ debtId: "june-rent", due: "2026-05-31", amountOwed: 372, amountPaid: 0 },
-	{ debtId: "internet", due: "2026-06-20", amountOwed: 20, amountPaid: 0 },
-	{ debtId: "gas", due: "2026-09-10", amountOwed: 21.41, amountPaid: 10 },
-	{ debtId: "cleaners", due: "2026-09-26", amountOwed: 30, amountPaid: 0 },
-	{ debtId: "pool", due: "2026-09-30", amountOwed: 12.5, amountPaid: 2.5 },
-	{ debtId: "power", due: "2026-10-02", amountOwed: 106.23, amountPaid: 0 },
-].map((row) => ({ ...row, housemateId: "sarah" }));
 
+// The receipts leave $72.50 unallocated: $50 held, $27.50 from the split
+// transfer, less a $5 refund. A hidden adjustment sets the credit the account
+// applies to its open shares, oldest due first.
 function build(creditCents = 0) {
-	const cover = coverShares(
-		unpaid,
-		new Map([["sarah", { amountCents: creditCents }]]),
-	);
-	return buildStatementTimeline({ bills, receipts, cover, now });
+	const account = buildAccount({
+		housemate: { id: "sarah", name: "Sarah", isOwner: false },
+		shares: bills,
+		receipts: [
+			...receipts,
+			receipt(held, sydney("2026-09-20", "08:00"), 5000, []),
+			receipt(
+				"manual:ledger-adjust",
+				sydney("2026-05-01"),
+				creditCents - 7250,
+				[],
+			),
+		],
+		now,
+	});
+	return buildStatement(account, now);
 }
 
 const find = (timeline: ReturnType<typeof build>, id: string) =>
@@ -242,35 +228,4 @@ test("the timeline exposes no admin or bank data", () => {
 		"housemateId",
 	])
 		assert.ok(!serialized.includes(secret), secret);
-});
-
-test("the headline matches the pay page: owed, in credit, all covered or all sorted", () => {
-	assert.deepEqual(
-		statementHeadline({
-			summary: { remainingAmount: 12.5 },
-			credit: { heldAmount: 0, appliedAmount: 0 },
-		}),
-		{ label: "You owe", amount: 12.5 },
-	);
-	assert.deepEqual(
-		statementHeadline({
-			summary: { remainingAmount: 0 },
-			credit: { heldAmount: 50, appliedAmount: 30 },
-		}),
-		{ label: "In credit", amount: 20 },
-	);
-	assert.deepEqual(
-		statementHeadline({
-			summary: { remainingAmount: 0 },
-			credit: { heldAmount: 30, appliedAmount: 30 },
-		}),
-		{ label: "All covered", amount: 0 },
-	);
-	assert.deepEqual(
-		statementHeadline({
-			summary: { remainingAmount: 0 },
-			credit: { heldAmount: 0, appliedAmount: 0 },
-		}),
-		{ label: "All sorted", amount: 0 },
-	);
 });

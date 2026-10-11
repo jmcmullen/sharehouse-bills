@@ -45,12 +45,6 @@ export interface LedgerHousemate {
 	isOwner: boolean;
 }
 
-export function toCents(amount: number): number {
-	const result = Math.round((amount + Number.EPSILON) * 100);
-	if (!Number.isSafeInteger(result)) throw new Error("Invalid money amount");
-	return result;
-}
-
 function normalized(text: string): string {
 	return text
 		.toLowerCase()
@@ -152,15 +146,6 @@ export function currentStatement(
 		),
 		now,
 	);
-}
-
-export function dayInSydney(seconds: number): string {
-	return new Intl.DateTimeFormat("en-CA", {
-		timeZone: "Australia/Sydney",
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-	}).format(new Date(seconds * 1000));
 }
 
 export function calculateStatement(

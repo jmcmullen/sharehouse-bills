@@ -1,4 +1,4 @@
-import { formatCurrency } from "@/lib/share-preview";
+import { formatCents } from "@/lib/money";
 import confetti from "canvas-confetti";
 import { useEffect, useRef } from "react";
 
@@ -70,7 +70,7 @@ export function AllSortedPanel({
 }: {
 	housemateFirstName: string;
 	recentlySettled: {
-		amount: number;
+		amountCents: number;
 		billCount: number;
 	};
 }) {
@@ -96,7 +96,7 @@ export function AllSortedPanel({
 				<p className="text-muted-foreground text-sm leading-6">
 					You&apos;ve sorted{" "}
 					<span className="font-semibold text-success tabular-nums">
-						{formatCurrency(recentlySettled.amount)}
+						{formatCents(recentlySettled.amountCents)}
 					</span>{" "}
 					across {recentlySettled.billCount}{" "}
 					{recentlySettled.billCount === 1 ? "bill" : "bills"} in the last 30

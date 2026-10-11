@@ -1,5 +1,5 @@
 // fallow-ignore-file code-duplication
-import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { generateEntityId } from "../../../lib/id";
 import { housemates } from "./housemates";
@@ -15,7 +15,7 @@ export const recurringBillAssignments = sqliteTable(
 		housemateId: text("housemateId")
 			.notNull()
 			.references(() => housemates.id, { onDelete: "cascade" }),
-		customAmount: real("customAmount"), // Override amount for this housemate (nullable)
+		customCents: integer("customCents"), // Override amount in cents for this housemate (nullable)
 		isActive: integer("isActive", { mode: "boolean" }).notNull().default(true),
 		createdAt: integer("createdAt", { mode: "timestamp" })
 			.notNull()

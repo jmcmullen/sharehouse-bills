@@ -1,5 +1,6 @@
 // fallow-ignore-file code-duplication
 import { Button } from "@/components/ui/button";
+import { formatCents } from "@/lib/money";
 import { IconPlus } from "@tabler/icons-react";
 import { useLoaderData, useRouter } from "@tanstack/react-router";
 import { useTransition } from "react";
@@ -18,14 +19,13 @@ import { AddHousemateModal } from "./modals/add-housemate-modal";
 import { DeactivateHousemateModal } from "./modals/deactivate-housemate-modal";
 import { EditHousemateModal } from "./modals/edit-housemate-modal";
 import { HousemateDetailsModal } from "./modals/housemate-details-modal";
-import type { HousemateBalanceMetric } from "./types";
-import { formatCurrency, validateHousemateForm } from "./utils";
+import { validateHousemateForm } from "./utils";
 
 export function HousematesPage() {
-	const { housematesData, outstandingBalances, overdueBalances } =
-		useLoaderData({
-			from: "/_app/housemates",
-		});
+	const { housematesData, balances } = useLoaderData({
+		from: "/_app/housemates",
+	});
+	const { outstanding, overdue } = balances;
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();
 
@@ -49,14 +49,10 @@ export function HousematesPage() {
 		selectedHousemate,
 	} = useHousemateModals();
 
-	const { stats, debts, statsLoading, debtsLoading } = useHousemateDetails(
+	const { account, isLoading: accountLoading } = useHousemateDetails(
 		selectedHousemate?.id || null,
 		viewDetailsModalOpen,
 	);
-	const outstandingTotal = getMetricTotal(outstandingBalances);
-	const outstandingCount = getMetricCount(outstandingBalances);
-	const overdueTotal = getMetricTotal(overdueBalances);
-	const overdueCount = getMetricCount(overdueBalances);
 
 	const handleAddSubmit = () => {
 		const validationError = validateHousemateForm(addFormData);
@@ -153,23 +149,23 @@ export function HousematesPage() {
 
 			<div className="grid gap-6 xl:grid-cols-2">
 				<HousemateOutstandingChart
-					balances={outstandingBalances}
+					balances={outstanding}
 					title="Outstanding by Housemate"
 					metricLabel="Outstanding"
-					description={`${formatCurrency(outstandingTotal)} unpaid across ${formatHousemateCount(outstandingCount)}`}
+					description={`${formatCents(outstanding.totalCents)} unpaid across ${formatHousemateCount(outstanding.count)}`}
 					emptyDescription="No outstanding balances right now"
-					summary={`${formatHousemateCount(outstandingCount)} currently have unpaid balances`}
+					summary={`${formatHousemateCount(outstanding.count)} currently have unpaid balances`}
 					emptySummary="Everyone is fully paid up"
 					footerNote="Showing current outstanding debt by housemate"
 					color="var(--chart-2)"
 				/>
 				<HousemateOutstandingChart
-					balances={overdueBalances}
+					balances={overdue}
 					title="Overdue Now"
 					metricLabel="Overdue"
-					description={`${formatCurrency(overdueTotal)} overdue across ${formatHousemateCount(overdueCount)}`}
+					description={`${formatCents(overdue.totalCents)} overdue across ${formatHousemateCount(overdue.count)}`}
 					emptyDescription="No overdue balances right now"
-					summary={`${formatHousemateCount(overdueCount)} have bills past their due date`}
+					summary={`${formatHousemateCount(overdue.count)} have bills past their due date`}
 					emptySummary="No one is overdue right now"
 					footerNote="Showing unpaid debt with a due date before today"
 					color="var(--chart-1)"
@@ -218,21 +214,11 @@ export function HousematesPage() {
 				open={viewDetailsModalOpen}
 				onOpenChange={closeViewDetailsModal}
 				housemate={selectedHousemate}
-				stats={stats}
-				debts={debts}
-				statsLoading={statsLoading}
-				debtsLoading={debtsLoading}
+				account={account}
+				isLoading={accountLoading}
 			/>
 		</div>
 	);
-}
-
-function getMetricTotal(balances: HousemateBalanceMetric[]) {
-	return balances.reduce((sum, balance) => sum + balance.amount, 0);
-}
-
-function getMetricCount(balances: HousemateBalanceMetric[]) {
-	return balances.filter((balance) => balance.amount > 0).length;
 }
 
 function formatHousemateCount(count: number) {

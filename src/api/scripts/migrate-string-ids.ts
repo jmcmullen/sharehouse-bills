@@ -274,9 +274,24 @@ async function getIdColumnType(client: DatabaseClient, tableName: string) {
 	return String(getRowValue(idColumn, "type")).toUpperCase();
 }
 
+// Tables later migrations dropped (payment_transactions, unreconciled_transactions)
+// no longer exist on a current database and say nothing about its ids.
+async function existingAppTables(client: DatabaseClient) {
+	const names = new Set(
+		(
+			await queryRows(
+				client,
+				"SELECT name FROM sqlite_master WHERE type='table'",
+			)
+		).map((row) => String(getRowValue(row, "name"))),
+	);
+	return APP_TABLES.filter((tableName) => names.has(tableName));
+}
+
 async function validateMigrationState(client: DatabaseClient) {
+	const tables = await existingAppTables(client);
 	const idColumnTypes = await Promise.all(
-		APP_TABLES.map(async (tableName) => ({
+		tables.map(async (tableName) => ({
 			tableName,
 			type: await getIdColumnType(client, tableName),
 		})),
@@ -286,7 +301,7 @@ async function validateMigrationState(client: DatabaseClient) {
 		return "migrate";
 	}
 
-	if (textTables.length === APP_TABLES.length) {
+	if (textTables.length === tables.length) {
 		return "skip";
 	}
 

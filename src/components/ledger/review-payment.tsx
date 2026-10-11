@@ -1,3 +1,4 @@
+import { formatCents } from "@/lib/money";
 import { useState } from "react";
 import { reviewHint } from "../../api/services/ledger/review-policy";
 import type { getPaymentReview } from "../../functions/ledger";
@@ -11,7 +12,7 @@ import {
 } from "../ui/dialog";
 import { SinglePaymentReview } from "./single-payment-review";
 import { SplitPayment } from "./split-payment";
-import { ledgerMoney, ledgerTime } from "./statement";
+import { ledgerTime } from "./statement";
 
 export type Ready = Extract<
 	Awaited<ReturnType<typeof getPaymentReview>>,
@@ -53,7 +54,7 @@ export function ReviewPayment({
 				<DialogHeader>
 					<DialogTitle>
 						{payment.amountCents < 0 ? "Money sent" : "Payment received"} ·{" "}
-						{ledgerMoney(Math.abs(payment.amountCents))}
+						{formatCents(Math.abs(payment.amountCents))}
 					</DialogTitle>
 					<DialogDescription>
 						{ledgerTime(payment.effectiveAt)}

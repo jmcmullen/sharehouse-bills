@@ -1,13 +1,9 @@
 // fallow-ignore-file code-duplication
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "../db/index.server";
-import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
-import { housemates } from "../db/schema/housemates";
-import { recurringBills } from "../db/schema/recurring-bills";
+import { loadAccount } from "./account/account.server";
 import { BillPdfStorageService } from "./bill-pdf-storage";
-import { withLedgerClient } from "./ledger/client.server";
-import { getDebtSettledAt } from "./ledger/settled-at.server";
 import { createPayPath } from "./pay-token.server";
 import {
 	createSignedPublicLinkToken,
@@ -26,7 +22,7 @@ type PublicDebtReceiptPageData = {
 	};
 	receipt: {
 		debtId: string;
-		amountPaid: number;
+		paidCents: number;
 		paidAt: Date;
 		billId: string;
 		billerName: string;
@@ -36,7 +32,7 @@ type PublicDebtReceiptPageData = {
 		billPeriodEnd: Date | null;
 	};
 	outstanding: {
-		remainingAmount: number;
+		remainingCents: number;
 		unpaidBillCount: number;
 	};
 	links: {
@@ -108,82 +104,54 @@ export async function getPublicDebtReceiptPageData(
 		return null;
 	}
 
-	const [row] = await db
-		.select({
-			debtId: debts.id,
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-			isPaid: debts.isPaid,
-			paidAt: debts.paidAt,
-			billId: bills.id,
-			billerName: bills.billerName,
-			dueDate: bills.dueDate,
-			billPeriodStart: bills.billPeriodStart,
-			billPeriodEnd: bills.billPeriodEnd,
-			recurringTemplateName: recurringBills.templateName,
-			housemateId: housemates.id,
-			housemateName: housemates.name,
-		})
+	const [debt] = await db
+		.select({ housemateId: debts.housemateId })
 		.from(debts)
-		.innerJoin(bills, eq(bills.id, debts.billId))
-		.leftJoin(recurringBills, eq(recurringBills.id, bills.recurringBillId))
-		.innerJoin(housemates, eq(housemates.id, debts.housemateId))
 		.where(eq(debts.id, parsedToken.debtId))
 		.limit(1);
-
-	if (!row || !row.isPaid || !row.paidAt) {
+	const account = debt ? await loadAccount(debt.housemateId) : null;
+	const share = account?.shares.find((item) => item.id === parsedToken.debtId);
+	// A receipt exists only once the share is paid in full.
+	if (
+		!account ||
+		!share ||
+		share.remainingCents > 0 ||
+		share.settledAt === null
+	) {
 		return null;
 	}
-
-	const [outstandingRows, settledAt] = await Promise.all([
-		db
-			.select({
-				amountOwed: debts.amountOwed,
-				amountPaid: debts.amountPaid,
-			})
-			.from(debts)
-			.where(
-				and(eq(debts.housemateId, row.housemateId), eq(debts.isPaid, false)),
-			),
-		withLedgerClient((client) => getDebtSettledAt(client, row.debtId)),
-	]);
-
-	const remainingAmount = outstandingRows.reduce(
-		(sum, debt) => sum + Math.max(0, debt.amountOwed - (debt.amountPaid ?? 0)),
-		0,
-	);
-	const unpaidBillCount = outstandingRows.filter(
-		(debt) => debt.amountOwed - (debt.amountPaid ?? 0) > 0.009,
-	).length;
+	const toDate = (seconds: number | null) =>
+		seconds === null ? null : new Date(seconds * 1000);
 
 	const pagePath = BillPdfStorageService.getDebtReceiptUrl(token);
 	const ogImagePath = BillPdfStorageService.getDebtReceiptOgImageUrl(token);
-	const billPath = BillPdfStorageService.getViewerUrl(row.billId);
+	const billPath = BillPdfStorageService.getViewerUrl(share.billId);
 	const payPath =
-		remainingAmount > 0.009
-			? createPayPath({ housemateId: row.housemateId })
+		account.owesCents > 0
+			? createPayPath({ housemateId: account.housemate.id })
 			: null;
 
 	return {
 		housemate: {
-			id: row.housemateId,
-			name: row.housemateName,
+			id: account.housemate.id,
+			name: account.housemate.name,
 		},
 		receipt: {
-			debtId: row.debtId,
-			amountPaid: row.amountPaid,
+			debtId: share.id,
+			paidCents: share.paidCents,
 			// When the money arrived, not when the ledger recorded it.
-			paidAt: settledAt ?? row.paidAt,
-			billId: row.billId,
-			billerName: row.billerName,
-			recurringTemplateName: row.recurringTemplateName,
-			dueDate: row.dueDate,
-			billPeriodStart: row.billPeriodStart,
-			billPeriodEnd: row.billPeriodEnd,
+			paidAt: new Date(share.settledAt * 1000),
+			billId: share.billId,
+			billerName: share.name,
+			recurringTemplateName: share.recurringTemplateName,
+			dueDate: new Date(share.dueAt * 1000),
+			billPeriodStart: toDate(share.billPeriodStart),
+			billPeriodEnd: toDate(share.billPeriodEnd),
 		},
 		outstanding: {
-			remainingAmount,
-			unpaidBillCount,
+			remainingCents: account.owesCents,
+			unpaidBillCount: account.shares.filter((item) => item.leftCents > 0)
+				.length,
 		},
 		links: {
 			pagePath,

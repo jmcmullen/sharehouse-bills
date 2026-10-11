@@ -147,7 +147,7 @@ async function loadDueCommandSummaryDependencies() {
 	const { composeOverdueDigest, getOverdueDigests } = await import(
 		"../src/api/services/overdue-digest.server"
 	);
-	const { sydneyDate } = await import("../src/api/services/overdue-digest");
+	const { digestDate } = await import("../src/api/services/overdue-digest");
 	const { sendWhatsappTextMessage } = await import("../src/api/services/waha");
 	const previewDate = BillPdfStorageService.getMessageCacheDate();
 	const housematePaymentNames = await getActiveHousematePaymentNames();
@@ -175,7 +175,7 @@ async function loadDueCommandSummaryDependencies() {
 		housematePaymentNames,
 		previewDate,
 		sendWhatsappTextMessage,
-		sydneyDate,
+		digestDate,
 	};
 }
 
@@ -222,7 +222,7 @@ async function sendInitCommandSummary({
 				groupChatId,
 				dependencies.buildInitBillsSummary({
 					asOf: new Date(),
-					totalOutstanding: currentBills.totalOutstanding,
+					totalOutstandingCents: currentBills.totalOutstandingCents,
 					bills: currentBills.bills,
 				}),
 			),
@@ -314,7 +314,7 @@ async function sendReminderPreviewSummary({
 			await dependencies.sendWhatsappTextMessage(
 				context.replyChatId,
 				dependencies.buildOverdueDigestPreviewSummary({
-					date: dependencies.sydneyDate(now),
+					date: dependencies.digestDate(now),
 					digests: digests.map((entry) => ({
 						housemateName: entry.housemate.name,
 						overdueCents: entry.digest.overdueCents,

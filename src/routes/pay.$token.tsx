@@ -1,7 +1,6 @@
 // fallow-ignore-file code-duplication
 import { BillPdfStorageService } from "@/api/services/bill-pdf-storage";
 import type { PublicHousematePayPageData } from "@/api/services/housemate-pay-page.server";
-import { isOwing } from "@/api/services/housemate-pay-summary";
 import { AllSortedPanel } from "@/components/public/all-sorted-panel";
 import {
 	AmountHeader,
@@ -20,15 +19,12 @@ import { PublicStatusBadge } from "@/components/public/status-badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { getPublicHousematePay } from "@/functions/public-housemate-pay";
+import { formatCents } from "@/lib/money";
 import {
 	formatReminderBillLabel,
 	formatReminderMetaDescription,
 } from "@/lib/reminder-preview";
-import {
-	buildOpenGraphMeta,
-	formatCurrency,
-	getBillDueStatus,
-} from "@/lib/share-preview";
+import { buildOpenGraphMeta, getBillDueStatus } from "@/lib/share-preview";
 import { createFileRoute } from "@tanstack/react-router";
 import { ExternalLink } from "lucide-react";
 
@@ -121,7 +117,7 @@ function formatPayPageTitle(input: {
 }
 
 function formatPayPageDescription(input: {
-	remainingAmount: number;
+	remainingCents: number;
 	billCount: number;
 	isAllSorted: boolean;
 	reminderBill: {
@@ -131,13 +127,13 @@ function formatPayPageDescription(input: {
 		isOverdue: boolean;
 	} | null;
 	recentlySettled: {
-		amount: number;
+		amountCents: number;
 		billCount: number;
 	};
 }) {
 	if (input.isAllSorted) {
 		if (input.recentlySettled.billCount > 0) {
-			return `Nothing to pay right now — ${formatCurrency(input.recentlySettled.amount)} sorted across ${input.recentlySettled.billCount} ${input.recentlySettled.billCount === 1 ? "bill" : "bills"} recently. Thanks!`;
+			return `Nothing to pay right now — ${formatCents(input.recentlySettled.amountCents)} sorted across ${input.recentlySettled.billCount} ${input.recentlySettled.billCount === 1 ? "bill" : "bills"} recently. Thanks!`;
 		}
 		return "Nothing to pay right now. Thanks for staying on top of it.";
 	}
@@ -146,11 +142,11 @@ function formatPayPageDescription(input: {
 			billerName: input.reminderBill.billerName,
 			recurringTemplateName: input.reminderBill.recurringTemplateName,
 			dueDate: input.reminderBill.dueDateIso,
-			remainingAmount: input.remainingAmount,
+			remainingCents: input.remainingCents,
 			isOverdue: input.reminderBill.isOverdue,
 		});
 	}
-	return `${formatCurrency(input.remainingAmount)} across ${input.billCount} unpaid ${input.billCount === 1 ? "bill" : "bills"}.`;
+	return `${formatCents(input.remainingCents)} across ${input.billCount} unpaid ${input.billCount === 1 ? "bill" : "bills"}.`;
 }
 
 export const Route = createFileRoute("/pay/$token")({
@@ -215,7 +211,7 @@ export const Route = createFileRoute("/pay/$token")({
 				: null,
 		});
 		const description = formatPayPageDescription({
-			remainingAmount: loaderData.summary.remainingAmount,
+			remainingCents: loaderData.summary.remainingCents,
 			billCount: loaderData.summary.billCount,
 			isAllSorted,
 			reminderBill: reminderBill
@@ -275,12 +271,12 @@ export const Route = createFileRoute("/pay/$token")({
 function BillRow({
 	primary,
 	secondary,
-	amount,
+	amountCents,
 	billPath,
 }: {
 	primary: string;
 	secondary?: string | null;
-	amount: number;
+	amountCents: number;
 	billPath: string;
 }) {
 	return (
@@ -297,7 +293,7 @@ function BillRow({
 					>
 						<a href={billPath}>
 							<ExternalLink className="h-3.5 w-3.5" />
-							<span>{`${formatCurrency(amount)} bill`}</span>
+							<span>{`${formatCents(amountCents)} bill`}</span>
 						</a>
 					</Button>
 				}
@@ -330,7 +326,7 @@ type PayPageData = Omit<
 };
 
 function getItemsTotal(items: PayPageItem[]) {
-	return items.reduce((total, item) => total + item.remainingAfterCredit, 0);
+	return items.reduce((total, item) => total + item.leftCents, 0);
 }
 
 function getSingleReminderItem(data: PayPageData) {
@@ -428,7 +424,7 @@ function PayHeader({
 		<AmountHeader
 			name={data.housemate.name}
 			label={getPayHeadline({ isAllSorted, isAllCovered })}
-			amount={formatCurrency(data.summary.remainingAmount)}
+			amount={formatCents(data.summary.remainingCents)}
 		>
 			<PublicStatusBadge tone={statusBadge.tone}>
 				{statusBadge.label}
@@ -444,21 +440,21 @@ function PayHeader({
 
 function PaymentProgressSection({
 	paymentProgress,
-	remainingAmount,
+	remainingCents,
 }: {
 	paymentProgress: PayPageData["paymentProgress"];
-	remainingAmount: number;
+	remainingCents: number;
 }) {
 	return (
 		<section className="space-y-2.5">
 			<div className="flex items-baseline justify-between gap-3">
 				<p className="font-medium text-muted-foreground text-sm">
 					<span className="tabular-nums">
-						{formatCurrency(paymentProgress.settledAmount)}
+						{formatCents(paymentProgress.settledCents)}
 					</span>{" "}
 					of{" "}
 					<span className="tabular-nums">
-						{formatCurrency(paymentProgress.settledAmount + remainingAmount)}
+						{formatCents(paymentProgress.settledCents + remainingCents)}
 					</span>{" "}
 					sorted
 				</p>
@@ -487,8 +483,8 @@ function getPayBillSecondaryText(item: PayPageItem) {
 			? urgency
 			: `${period} · ${urgency}`;
 
-	return item.coveredAmount > 0.009
-		? `${base} · ${formatCurrency(item.remainingAfterCredit)} left after credit`
+	return item.coveredCents > 0
+		? `${base} · ${formatCents(item.leftCents)} left after credit`
 		: base;
 }
 
@@ -497,7 +493,7 @@ function toCoveredBill(item: PayPageItem) {
 		billId: item.billId,
 		billerName: item.billerName || "Bill",
 		billPath: item.billPath,
-		amount: item.remainingAmount,
+		amountCents: item.remainingCents,
 		secondary: formatBillPeriod({
 			billPeriodStartIso: item.billPeriodStartIso,
 			billPeriodEndIso: item.billPeriodEndIso,
@@ -562,7 +558,7 @@ function PayBillListSection({
 				<section key={group.key}>
 					<SectionHeader
 						label={group.label}
-						aside={`${formatCurrency(getItemsTotal(group.items))} · ${formatBillCount(group.items.length)}`}
+						aside={`${formatCents(getItemsTotal(group.items))} · ${formatBillCount(group.items.length)}`}
 					/>
 					<ul className="divide-y divide-border/60">
 						{group.items.map((item) => (
@@ -570,7 +566,7 @@ function PayBillListSection({
 								key={item.billId}
 								primary={item.billerName || "Bill"}
 								secondary={getPayBillSecondaryText(item)}
-								amount={item.remainingAfterCredit}
+								amountCents={item.leftCents}
 								billPath={item.billPath}
 							/>
 						))}
@@ -597,9 +593,9 @@ function PublicPayPage() {
 	const isAllSorted = loaderData.items.length === 0;
 	const isAllCovered = !isAllSorted && loaderData.summary.billCount === 0;
 	const nothingToPay = isAllSorted || isAllCovered;
-	const owingItems = loaderData.items.filter(isOwing);
+	const owingItems = loaderData.items.filter((item) => item.leftCents > 0);
 	const coveredBills = loaderData.items
-		.filter((item) => !isOwing(item))
+		.filter((item) => item.leftCents === 0)
 		.map(toCoveredBill);
 	const stackGroupLabel =
 		loaderData.scope.kind === "stack"
@@ -631,10 +627,10 @@ function PublicPayPage() {
 
 			{isAllSorted ? null : <CreditNote credit={loaderData.credit} />}
 
-			{!nothingToPay && loaderData.paymentProgress.settledAmount > 0 ? (
+			{!nothingToPay && loaderData.paymentProgress.settledCents > 0 ? (
 				<PaymentProgressSection
 					paymentProgress={loaderData.paymentProgress}
-					remainingAmount={loaderData.summary.remainingAmount}
+					remainingCents={loaderData.summary.remainingCents}
 				/>
 			) : null}
 
@@ -650,8 +646,8 @@ function PublicPayPage() {
 				nothingToPay={nothingToPay}
 				payVerb={payVerb}
 				payId={loaderData.payId}
-				remainingAmount={loaderData.summary.remainingAmount}
-				overdueAmount={loaderData.summary.overdueAmount}
+				remainingCents={loaderData.summary.remainingCents}
+				overdueCents={loaderData.summary.overdueCents}
 			/>
 		</PublicPage>
 	);

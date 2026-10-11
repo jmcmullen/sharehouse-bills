@@ -1,8 +1,9 @@
-import { formatCurrency, truncate } from "./share-preview";
+import { formatCents } from "./money";
+import { truncate } from "./share-preview";
 
 interface StatementPreviewInput {
 	name: string;
-	headline: { label: string; amount: number };
+	headline: { label: string; amountCents: number };
 	monthCount: number;
 }
 
@@ -32,10 +33,10 @@ function monthsLine(count: number) {
 // Title, description and card text for a housemate statement link, shared by
 // the page head and its OG image so the two never disagree.
 export function statementPreview(input: StatementPreviewInput) {
-	const { label, amount } = input.headline;
-	const hasAmount = amount > 0.009;
-	const figure = hasAmount ? formatCurrency(amount) : label;
-	const summary = hasAmount ? `${label} ${formatCurrency(amount)}` : label;
+	const { label, amountCents } = input.headline;
+	const hasAmount = amountCents > 0;
+	const figure = hasAmount ? formatCents(amountCents) : label;
+	const summary = hasAmount ? `${label} ${formatCents(amountCents)}` : label;
 	const title = `${firstName(input.name)}'s statement`;
 	return {
 		title,

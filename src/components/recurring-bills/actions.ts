@@ -5,13 +5,14 @@ import {
 	setRecurringBillActive,
 	updateRecurringBill,
 } from "@/functions/recurring-bills";
+import { parseCents } from "@/lib/money";
 import type { RecurringBillFormData } from "./types";
 
 function toServerPayload(formData: RecurringBillFormData) {
 	return {
 		templateName: formData.templateName.trim(),
 		billerName: formData.billerName.trim(),
-		totalAmount: Number.parseFloat(formData.totalAmount),
+		totalCents: parseCents(formData.totalDollars) ?? 0,
 		frequency: formData.frequency,
 		dayOfWeek:
 			(formData.frequency === "weekly" ||
@@ -31,10 +32,7 @@ function toServerPayload(formData: RecurringBillFormData) {
 		assignments: formData.assignments.map((assignment) => ({
 			housemateId: assignment.housemateId,
 			isActive: assignment.isActive,
-			customAmount:
-				assignment.customAmount === ""
-					? null
-					: Number.parseFloat(assignment.customAmount),
+			customCents: parseCents(assignment.customDollars),
 		})),
 	};
 }

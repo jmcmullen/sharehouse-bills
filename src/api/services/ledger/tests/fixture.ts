@@ -90,6 +90,7 @@ export async function fixture(
 			"0015_review_group",
 			"0017_freeze_history",
 			"0021_drop_legacy_payments",
+			"0022_cents",
 		])
 			await client.executeMultiple(
 				await readFile(

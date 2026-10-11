@@ -10,6 +10,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { formatCents } from "@/lib/money";
 import {
 	IconBolt,
 	IconPencil,
@@ -20,7 +21,7 @@ import {
 	IconTrash,
 } from "@tabler/icons-react";
 import type { RecurringBillListItem } from "./types";
-import { formatCurrency, formatDate, getScheduleSummary } from "./utils";
+import { formatDate, getScheduleSummary } from "./utils";
 
 interface RecurringBillsTableProps {
 	items: RecurringBillListItem[];
@@ -105,7 +106,7 @@ export function RecurringBillsTable({
 									</Badge>
 								</TableCell>
 								<TableCell className="font-mono">
-									{formatCurrency(item.template.totalAmount)}
+									{formatCents(item.template.totalCents)}
 								</TableCell>
 								<TableCell>
 									{item.template.splitStrategy === "equal" ? "Equal" : "Custom"}

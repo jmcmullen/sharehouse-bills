@@ -6,14 +6,11 @@ import {
 	parseStoredInboundCommandType,
 } from "../../lib/whatsapp-commands";
 import { db } from "../db/index.server";
-import { bills } from "../db/schema/bills";
-import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
-import { recurringBills } from "../db/schema/recurring-bills";
 import { whatsappNotifications } from "../db/schema/whatsapp-notifications";
+import { loadAccounts, loadBill, loadBills } from "./account/account.server";
 import { createAbsolutePayUrl } from "./pay-token.server";
-import { getCoveredShares } from "./unpaid-shares.server";
-import { summarizeUnpaidBills, toPayCents } from "./unpaid-totals";
+import { summarizeUnpaidBills } from "./unpaid-bills";
 import { getWhatsappAdminChatId } from "./waha";
 import { resolveWhatsappChatIdToNumber } from "./waha";
 import {
@@ -60,7 +57,7 @@ type HousematePayLinkTarget = {
 	whatsappNumber: string | null;
 	chatId: string | null;
 	payUrl: string | null;
-	remainingAmount: number;
+	owesCents: number;
 };
 
 type HousematePayLinkBatch = {
@@ -515,123 +512,40 @@ export async function getBillPaidNotificationContext(notificationId: string) {
 		notification.billId,
 		notification,
 	);
-	if (!context || context.bill.status !== "paid") {
-		return null;
-	}
-
-	return context;
+	return context?.bill.status === "paid" ? context : null;
 }
 
 async function getBillSummaryContextByBillId(
 	billId: string,
 	notification: WhatsappNotificationRecord | null,
 ) {
-	const rows = await db
-		.select({
-			billId: bills.id,
-			billerName: bills.billerName,
-			totalAmount: bills.totalAmount,
-			status: bills.status,
-			dueDate: bills.dueDate,
-			billPeriodStart: bills.billPeriodStart,
-			billPeriodEnd: bills.billPeriodEnd,
-			pdfSha256: bills.pdfSha256,
-			pdfUrl: bills.pdfUrl,
-			sourceFilename: bills.sourceFilename,
-			recurringTemplateName: recurringBills.templateName,
-			debtId: debts.id,
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-			housemateId: housemates.id,
-			housemateName: housemates.name,
-			whatsappNumber: housemates.whatsappNumber,
-		})
-		.from(bills)
-		.leftJoin(debts, eq(debts.billId, bills.id))
-		.leftJoin(housemates, eq(housemates.id, debts.housemateId))
-		.leftJoin(recurringBills, eq(recurringBills.id, bills.recurringBillId))
-		.where(eq(bills.id, billId))
-		.orderBy(asc(debts.id));
+	const bill = await loadBill(billId);
+	return bill ? { notification, bill } : null;
+}
 
-	if (rows.length === 0) {
-		return null;
-	}
-
-	return {
-		notification,
-		bill: {
-			id: rows[0].billId,
-			billerName: rows[0].billerName,
-			totalAmount: rows[0].totalAmount,
-			status: rows[0].status,
-			dueDate: rows[0].dueDate,
-			billPeriodStart: rows[0].billPeriodStart,
-			billPeriodEnd: rows[0].billPeriodEnd,
-			pdfSha256: rows[0].pdfSha256,
-			pdfUrl: rows[0].pdfUrl,
-			sourceFilename: rows[0].sourceFilename,
-			recurringTemplateName: rows[0].recurringTemplateName,
-		},
-		debts: rows
-			.filter((row) => row.debtId !== null && row.housemateId !== null)
-			.map((row) => ({
-				id: row.debtId as string,
-				amountOwed: row.amountOwed as number,
-				amountPaid: (row.amountPaid as number) ?? 0,
-				housemateId: row.housemateId as string,
-				housemateName: row.housemateName as string,
-				whatsappNumber: row.whatsappNumber,
-			})),
-	};
+function pickRandom<T>(items: T[]): T | null {
+	return items.length ? items[Math.floor(Math.random() * items.length)] : null;
 }
 
 export async function getRandomBillPreviewContext() {
-	const [randomBill] = await db
-		.select({
-			id: bills.id,
-		})
-		.from(bills)
-		.orderBy(sql`random()`)
-		.limit(1);
-
-	if (!randomBill) {
-		return null;
-	}
-
-	return await getBillSummaryContextByBillId(randomBill.id, null);
+	const bill = pickRandom(await loadBills());
+	return bill ? { notification: null, bill } : null;
 }
 
 export async function getRandomBillPaidPreviewContext() {
-	const [randomBill] = await db
-		.select({
-			id: bills.id,
-		})
-		.from(bills)
-		.innerJoin(debts, eq(debts.billId, bills.id))
-		.where(eq(bills.status, "paid"))
-		.groupBy(bills.id)
-		.having(sql`count(${debts.id}) > 1`)
-		.orderBy(sql`random()`)
-		.limit(1);
-
-	if (!randomBill) {
-		return null;
-	}
-
-	return await getBillSummaryContextByBillId(randomBill.id, null);
+	const bill = pickRandom(
+		(await loadBills()).filter(
+			(item) => item.status === "paid" && item.shares.length > 1,
+		),
+	);
+	return bill ? { notification: null, bill } : null;
 }
 
 // Bills still unpaid across the house, after each housemate's held credit
 // covers their oldest shares.
 export async function getCurrentUnpaidBillSummaries() {
-	const rows = await db
-		.selectDistinct({ housemateId: debts.housemateId })
-		.from(debts)
-		.where(eq(debts.isPaid, false));
-	const covered = await Promise.all(
-		rows.map((row) => getCoveredShares(row.housemateId)),
-	);
-	return summarizeUnpaidBills(covered.flatMap((entry) => entry.shares));
+	const accounts = await loadAccounts();
+	return summarizeUnpaidBills(accounts.flatMap((account) => account.shares));
 }
 
 export async function getActiveHousematePaymentNames() {
@@ -656,21 +570,25 @@ export async function getHousematePayLinkBatch(previewDate?: string | null) {
 		.from(housemates)
 		.where(and(eq(housemates.isActive, true), eq(housemates.isOwner, false)))
 		.orderBy(asc(housemates.name));
-	const targets = await Promise.all(
-		rows.map(async (row) => {
-			const { shares } = await getCoveredShares(row.housemateId);
-			return {
+	const owes = new Map(
+		(await loadAccounts()).map((account) => [
+			account.housemate.id,
+			account.owesCents,
+		]),
+	);
+	const targets = rows.map(
+		(row) =>
+			({
 				...row,
 				chatId: whatsappNumberToChatId(row.whatsappNumber),
 				payUrl: createAbsolutePayUrl(
 					{ housemateId: row.housemateId },
 					previewDate,
 				),
-				remainingAmount: toPayCents(shares) / 100,
-			} satisfies HousematePayLinkTarget;
-		}),
+				owesCents: owes.get(row.housemateId) ?? 0,
+			}) satisfies HousematePayLinkTarget,
 	);
-	const unpaidTargets = targets.filter((target) => target.remainingAmount > 0);
+	const unpaidTargets = targets.filter((target) => target.owesCents > 0);
 
 	return unpaidTargets.reduce<HousematePayLinkBatch>(
 		(result, target) => {

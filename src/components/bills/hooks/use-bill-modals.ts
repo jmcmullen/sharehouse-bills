@@ -1,14 +1,14 @@
 import { useState } from "react";
-import type { GroupedBill } from "../types";
+import type { BillListItem } from "../types";
 
 export function useBillModals() {
 	const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 	const [billToDelete, setBillToDelete] = useState<string | null>(null);
 	const [cashModalOpen, setCashModalOpen] = useState(false);
-	const [billForCash, setBillForCash] = useState<GroupedBill | null>(null);
+	const [billForCash, setBillForCash] = useState<BillListItem | null>(null);
 	const [addBillModalOpen, setAddBillModalOpen] = useState(false);
 	const [viewPdfModalOpen, setViewPdfModalOpen] = useState(false);
-	const [billToViewPdf, setBillToViewPdf] = useState<GroupedBill | null>(null);
+	const [billToViewPdf, setBillToViewPdf] = useState<BillListItem | null>(null);
 
 	const openDeleteModal = (billId: string) => {
 		setBillToDelete(billId);
@@ -20,7 +20,7 @@ export function useBillModals() {
 		setBillToDelete(null);
 	};
 
-	const openCashModal = (bill: GroupedBill) => {
+	const openCashModal = (bill: BillListItem) => {
 		setBillForCash(bill);
 		setCashModalOpen(true);
 	};
@@ -38,7 +38,7 @@ export function useBillModals() {
 		setAddBillModalOpen(false);
 	};
 
-	const openViewPdfModal = (bill: GroupedBill) => {
+	const openViewPdfModal = (bill: BillListItem) => {
 		setBillToViewPdf(bill);
 		setViewPdfModalOpen(true);
 	};

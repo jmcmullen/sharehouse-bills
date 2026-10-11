@@ -1,9 +1,7 @@
 import type { Client } from "@libsql/client";
-import {
-	type BillPaymentView,
-	type ReceiptView,
-	getAccountPayments,
-} from "./account-payments";
+import type { Bill, Receipt } from "../account/account";
+import { loadAccounts, loadBills } from "../account/account.server";
+import { type BillStatus, sum } from "../account/compute";
 import { loadApprovedBills } from "./bill-reviews";
 
 type Executor = Pick<Client, "execute">;
@@ -57,14 +55,11 @@ export type BillVerification =
 			summary: BillVerificationSummary;
 	  };
 
-interface DebtRow {
-	billId: string;
-	billName: string | null;
-}
-interface Housemate {
-	id: string;
-	name: string;
-}
+const statusOf: Record<BillStatus, BillVerificationStatus> = {
+	pending: "unpaid",
+	partially_paid: "part",
+	paid: "paid",
+};
 
 export async function loadBillVerification(
 	client: Executor,
@@ -73,88 +68,58 @@ export async function loadBillVerification(
 		"SELECT name FROM sqlite_master WHERE type='table' AND name='ledger_entries'",
 	);
 	if (installed.rows.length === 0) return { available: false };
-	const [housemateRows, debtRows, approved] = await Promise.all([
-		client.execute(
-			"SELECT id,name FROM housemates WHERE is_owner=0 ORDER BY name",
-		),
-		client.execute(
-			"SELECT d.id,d.bill_id,b.biller_name FROM debts d LEFT JOIN bills b ON b.id=d.bill_id",
-		),
+	const [bills, accounts, approved] = await Promise.all([
+		loadBills({ client }),
+		loadAccounts({ client }),
 		loadApprovedBills(client),
 	]);
-	const housemates: Housemate[] = housemateRows.rows.map((row) => ({
-		id: String(row.id),
-		name: String(row.name),
-	}));
-	const debts = new Map<string, DebtRow>(
-		debtRows.rows.map((row) => [
-			String(row.id),
-			{
-				billId: String(row.bill_id),
-				billName: row.biller_name === null ? null : String(row.biller_name),
-			},
-		]),
-	);
-	const accounts = await Promise.all(
-		housemates.map(async (housemate) => ({
-			housemate,
-			account: await getAccountPayments(client, housemate.id),
-		})),
-	);
-	const bills = pivot(accounts, debts, approved);
-	return { available: true, bills, summary: summarise(bills) };
+	const receipts = accounts.flatMap((account) => account.receipts);
+	const verified = bills.flatMap((bill) => {
+		const shares = bill.shares
+			.filter((share) => !share.isOwner)
+			.map((share) => toShare(share, receipts));
+		return shares.length
+			? [toVerifiedBill(bill, shares, approved.has(bill.id))]
+			: [];
+	});
+	return { available: true, bills: verified, summary: summarise(verified) };
 }
 
-function pivot(
-	accounts: Array<{
-		housemate: Housemate;
-		account: Awaited<ReturnType<typeof getAccountPayments>>;
-	}>,
-	debts: Map<string, DebtRow>,
-	approved: Set<string>,
-): VerifiedBill[] {
-	const groups = new Map<string, VerifiedBill>();
-	for (const { housemate, account } of accounts) {
-		for (const view of account.bills) {
-			const debt = debts.get(view.id);
-			if (!debt) continue;
-			const share = toShare(view, housemate, account.receipts);
-			const existing = groups.get(debt.billId);
-			groups.set(debt.billId, {
-				id: debt.billId,
-				name: existing?.name ?? debt.billName ?? view.name,
-				category: existing?.category ?? view.category,
-				dueAt: existing?.dueAt ?? view.dueAt,
-				amountCents: 0,
-				paidCents: 0,
-				remainingCents: 0,
-				status: "unpaid",
-				approved: approved.has(debt.billId),
-				needsLook: !approved.has(debt.billId),
-				shares: [...(existing?.shares ?? []), share],
-			});
-		}
-	}
-	return [...groups.values()]
-		.map(finalise)
-		.sort(
-			(a, b) => (b.dueAt ?? 0) - (a.dueAt ?? 0) || a.id.localeCompare(b.id),
-		);
+function toVerifiedBill(
+	bill: Bill,
+	shares: BillShare[],
+	approved: boolean,
+): VerifiedBill {
+	const check = shares.some(
+		(share) => share.paidCents > share.amountCents || share.paidCents < 0,
+	);
+	return {
+		id: bill.id,
+		name: bill.name,
+		category: bill.shares[0]?.category ?? "bill",
+		dueAt: bill.dueAt,
+		amountCents: sum(shares, (share) => share.amountCents),
+		paidCents: bill.paidCents,
+		remainingCents: bill.remainingCents,
+		status: check ? "check" : statusOf[bill.status],
+		approved,
+		needsLook: !approved,
+		shares,
+	};
 }
 
 function toShare(
-	view: BillPaymentView,
-	housemate: Housemate,
-	receipts: ReceiptView[],
+	share: Bill["shares"][number],
+	receipts: Receipt[],
 ): BillShare {
 	return {
-		debtId: view.id,
-		housemateId: housemate.id,
-		housemateName: housemate.name,
-		amountCents: view.amountCents,
-		paidCents: view.paidCents,
-		remainingCents: view.remainingCents,
-		receipts: view.payments.flatMap((payment) => {
+		debtId: share.id,
+		housemateId: share.housemateId,
+		housemateName: share.housemateName,
+		amountCents: share.amountCents,
+		paidCents: share.paidCents,
+		remainingCents: share.remainingCents,
+		receipts: share.payments.flatMap((payment) => {
 			const receipt = receipts.find((item) => item.id === payment.receiptId);
 			if (!receipt) return [];
 			return [
@@ -172,34 +137,6 @@ function toShare(
 	};
 }
 
-function finalise(bill: VerifiedBill): VerifiedBill {
-	const shares = [...bill.shares].sort((a, b) =>
-		a.housemateName.localeCompare(b.housemateName),
-	);
-	const sum = (pick: (share: BillShare) => number): number =>
-		shares.reduce((total, share) => total + pick(share), 0);
-	return {
-		...bill,
-		shares,
-		amountCents: sum((share) => share.amountCents),
-		paidCents: sum((share) => share.paidCents),
-		remainingCents: sum((share) => share.remainingCents),
-		status: statusOf(shares),
-	};
-}
-
-function statusOf(shares: BillShare[]): BillVerificationStatus {
-	if (
-		shares.some(
-			(share) => share.paidCents > share.amountCents || share.paidCents < 0,
-		)
-	)
-		return "check";
-	if (shares.every((share) => share.remainingCents === 0)) return "paid";
-	if (shares.every((share) => share.paidCents === 0)) return "unpaid";
-	return "part";
-}
-
 function summarise(bills: VerifiedBill[]): BillVerificationSummary {
 	const count = (status: BillVerificationStatus): number =>
 		bills.filter((bill) => bill.status === status).length;
@@ -210,6 +147,6 @@ function summarise(bills: VerifiedBill[]): BillVerificationSummary {
 		check: count("check"),
 		approved: bills.filter((bill) => bill.approved).length,
 		needsLook: bills.filter((bill) => bill.needsLook).length,
-		remainingCents: bills.reduce((sum, bill) => sum + bill.remainingCents, 0),
+		remainingCents: sum(bills, (bill) => bill.remainingCents),
 	};
 }

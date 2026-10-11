@@ -1,13 +1,15 @@
 // fallow-ignore-file code-duplication
 import { createServerFn } from "@tanstack/react-start";
-import { and, desc, eq } from "drizzle-orm";
 import { createError } from "evlog";
 import { z } from "zod";
 import { db } from "../api/db/index.server";
 import { bills } from "../api/db/schema/bills";
-import { debts } from "../api/db/schema/debts";
-import { housemates } from "../api/db/schema/housemates";
-import { getRemainingDebtAmount } from "../api/services/debt-payment-state";
+import { type Bill, summarizeBills } from "../api/services/account/account";
+import { loadBills } from "../api/services/account/account.server";
+import {
+	createShares,
+	splitAcrossHousemates,
+} from "../api/services/bills/shares";
 import { settleLedger } from "../api/services/ledger-sync.server";
 import {
 	cashReceiptSchema,
@@ -17,262 +19,108 @@ import {
 	createLedgerClient,
 	withLedgerClient,
 } from "../api/services/ledger/client.server";
-import { getUnallocatedCredit } from "../api/services/ledger/credit.server";
 import { removeBill } from "../api/services/ledger/remove-bill";
-import { createPayPath } from "../api/services/pay-token.server";
 import { generateWeeklyRentBill } from "../api/services/recurring-bill";
 import { enqueueBillCreatedNotification } from "../api/services/whatsapp-notification-events";
 import { authMiddleware } from "../lib/auth-middleware";
-import { getEqualSplitAmounts } from "../lib/equal-split";
 import { entityIdSchema } from "../lib/id";
 import { getRequestLogger } from "../lib/request-logger";
 
-// Get all bills with their associated debts and housemate info
+// Every bill with each housemate's share, paid state from the account module,
+// and the totals for the summary cards.
 export const getAllBills = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
 	.handler(async () => {
-		const rows = await db
-			.select({
-				bill: bills,
-				debt: debts,
-				housemate: housemates,
-			})
-			.from(bills)
-			.leftJoin(debts, eq(bills.id, debts.billId))
-			.leftJoin(housemates, eq(debts.housemateId, housemates.id))
-			.orderBy(desc(bills.dueDate));
-
-		return rows.map((row) => ({
-			...row,
-			bill: {
-				...row.bill,
-				publicPath: `/bill/${row.bill.id}`,
-			},
-			housemate: row.housemate
-				? {
-						...row.housemate,
-						payPath: createPayPath({
-							housemateId: row.housemate.id,
-							stackGroup: row.bill.stackGroup,
-						}),
-					}
-				: null,
-		}));
+		const [accountBills, files] = await Promise.all([
+			loadBills(),
+			db
+				.select({
+					id: bills.id,
+					pdfUrl: bills.pdfUrl,
+					pdfSha256: bills.pdfSha256,
+					sourceFilename: bills.sourceFilename,
+				})
+				.from(bills),
+		]);
+		const byId = new Map(files.map((file) => [file.id, file]));
+		return {
+			bills: accountBills.map((bill) =>
+				toBillListItem(bill, byId.get(bill.id)),
+			),
+			summary: summarizeBills(accountBills),
+		};
 	});
 
-// Get a specific bill with its debts
-export const getBillById = createServerFn({ method: "GET" })
-	.middleware([authMiddleware])
-	.inputValidator(z.object({ id: entityIdSchema }))
-	.handler(async ({ data }) => {
-		return await db
-			.select({
-				bill: bills,
-				debt: debts,
-				housemate: housemates,
-			})
-			.from(bills)
-			.leftJoin(debts, eq(bills.id, debts.billId))
-			.leftJoin(housemates, eq(debts.housemateId, housemates.id))
-			.where(eq(bills.id, data.id));
-	});
+function toBillListItem(
+	bill: Bill,
+	file:
+		| {
+				pdfUrl: string | null;
+				pdfSha256: string | null;
+				sourceFilename: string | null;
+		  }
+		| undefined,
+) {
+	return {
+		id: bill.id,
+		billerName: bill.name,
+		totalCents: bill.totalCents,
+		dueAt: bill.dueAt,
+		status: bill.status,
+		paidCents: bill.paidCents,
+		remainingCents: bill.remainingCents,
+		publicPath: `/bill/${bill.id}`,
+		pdfUrl: file?.pdfUrl ?? null,
+		pdfSha256: file?.pdfSha256 ?? null,
+		sourceFilename: file?.sourceFilename ?? null,
+		shares: bill.shares.map((share) => ({
+			id: share.id,
+			housemateName: share.housemateName,
+			amountCents: share.amountCents,
+			paidCents: share.paidCents,
+			remainingCents: share.remainingCents,
+		})),
+	};
+}
 
-// Create a new bill manually
+// Create a new bill manually, split equally across the active housemates.
 export const createBill = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
 	.inputValidator(
 		z.object({
 			billerName: z.string().min(1),
-			totalAmount: z.number().positive(),
+			totalCents: z.number().int().positive(),
 			dueDate: z.date(),
 			pdfUrl: z.string().url().optional(),
 		}),
 	)
 	.handler(async ({ data }) => {
 		const log = getRequestLogger();
-		log?.set({
-			bill: {
-				billerName: data.billerName,
-				totalAmount: data.totalAmount,
-				dueDate: data.dueDate.toISOString(),
-				source: "manual",
-			},
-		});
+		const splits = await splitAcrossHousemates(data.totalCents);
 		const [newBill] = await db
 			.insert(bills)
 			.values({
 				billerName: data.billerName,
-				totalAmount: data.totalAmount,
+				totalCents: data.totalCents,
 				dueDate: data.dueDate,
 				pdfUrl: data.pdfUrl,
 			})
 			.returning();
-
-		// Get all active housemates to create debts
-		const activeHousemates = await db
-			.select()
-			.from(housemates)
-			.where(eq(housemates.isActive, true));
-
-		if (activeHousemates.length === 0) {
-			throw createError({
-				message: "No active housemates found",
-				status: 500,
-				why: "A bill cannot be split because there are no active housemates.",
-				fix: "Add or reactivate at least one housemate before creating a bill.",
-			});
-		}
-
-		const nonOwnerHousemates = activeHousemates.filter(
-			(housemate) => !housemate.isOwner,
-		);
-		if (nonOwnerHousemates.length === 0) {
-			throw createError({
-				message: "No active non-owner housemates found",
-				status: 500,
-				why: "A bill cannot be assigned because every active housemate is marked as an owner.",
-				fix: "Mark at least one active housemate as a non-owner before creating a bill.",
-			});
-		}
-
-		// Owners pay the bill up-front, and absorb the rounding remainder.
-		const { amountPerDebtor } = getEqualSplitAmounts({
-			totalAmount: data.totalAmount,
-			participantCount: activeHousemates.length,
-			ownerCount: activeHousemates.length - nonOwnerHousemates.length,
-		});
-
-		// Create debt records for each housemate
-		const debtRecords = nonOwnerHousemates.map((housemate) => ({
-			billId: newBill.id,
-			housemateId: housemate.id,
-			amountOwed: amountPerDebtor,
-			amountPaid: 0,
-			isPaid: false,
-		}));
-
-		await db.insert(debts).values(debtRecords);
+		await createShares(newBill.id, splits);
 		await settleLedger();
 		log?.set({
 			bill: {
 				id: newBill.id,
 				billerName: data.billerName,
-				totalAmount: data.totalAmount,
+				totalCents: data.totalCents,
 				dueDate: data.dueDate.toISOString(),
 				source: "manual",
 			},
-			debts: {
-				recordCount: debtRecords.length,
-				amountPerPerson: amountPerDebtor,
-			},
+			debts: { recordCount: splits.length },
 		});
 		await enqueueBillCreatedNotification(newBill.id, "manual");
 
 		return newBill;
-	});
-
-// Create a bill from parsed PDF data (for webhook integration)
-export const createBillFromParsedData = createServerFn({ method: "POST" })
-	.middleware([authMiddleware])
-	.inputValidator(
-		z.object({
-			billerName: z.string().min(1),
-			totalAmount: z.number().positive(),
-			dueDate: z.date(),
-			pdfUrl: z.string().url().optional(),
-		}),
-	)
-	.handler(async ({ data }) => {
-		const log = getRequestLogger();
-		log?.set({
-			bill: {
-				billerName: data.billerName,
-				totalAmount: data.totalAmount,
-				dueDate: data.dueDate.toISOString(),
-				source: "parsed",
-			},
-		});
-		// Same logic as createBill but specifically for webhook usage
-		const [newBill] = await db
-			.insert(bills)
-			.values({
-				billerName: data.billerName,
-				totalAmount: data.totalAmount,
-				dueDate: data.dueDate,
-				pdfUrl: data.pdfUrl,
-			})
-			.returning();
-
-		const activeHousemates = await db
-			.select()
-			.from(housemates)
-			.where(eq(housemates.isActive, true));
-
-		if (activeHousemates.length === 0) {
-			throw createError({
-				message: "No active housemates found",
-				status: 500,
-				why: "A parsed bill cannot be split because there are no active housemates.",
-				fix: "Add or reactivate at least one housemate before importing bills.",
-			});
-		}
-
-		const nonOwnerHousemates = activeHousemates.filter(
-			(housemate) => !housemate.isOwner,
-		);
-		if (nonOwnerHousemates.length === 0) {
-			throw createError({
-				message: "No active non-owner housemates found",
-				status: 500,
-				why: "A parsed bill cannot be assigned because every active housemate is marked as an owner.",
-				fix: "Mark at least one active housemate as a non-owner before importing bills.",
-			});
-		}
-
-		const { amountPerDebtor } = getEqualSplitAmounts({
-			totalAmount: data.totalAmount,
-			participantCount: activeHousemates.length,
-			ownerCount: activeHousemates.length - nonOwnerHousemates.length,
-		});
-
-		const debtRecords = nonOwnerHousemates.map((housemate) => ({
-			billId: newBill.id,
-			housemateId: housemate.id,
-			amountOwed: amountPerDebtor,
-			amountPaid: 0,
-			isPaid: false,
-		}));
-
-		await db.insert(debts).values(debtRecords);
-		await settleLedger();
-		log?.set({
-			bill: {
-				id: newBill.id,
-				billerName: data.billerName,
-				totalAmount: data.totalAmount,
-				dueDate: data.dueDate.toISOString(),
-				source: "parsed",
-			},
-			debts: {
-				recordCount: debtRecords.length,
-				amountPerPerson: amountPerDebtor,
-			},
-		});
-		await enqueueBillCreatedNotification(newBill.id, "parsed");
-
-		// Return bill with debt information for notification purposes
-		const billWithDebts = await db
-			.select({
-				bill: bills,
-				debt: debts,
-				housemate: housemates,
-			})
-			.from(bills)
-			.leftJoin(debts, eq(bills.id, debts.billId))
-			.leftJoin(housemates, eq(debts.housemateId, housemates.id))
-			.where(eq(bills.id, newBill.id));
-
-		return billWithDebts;
 	});
 
 // Delete a bill and all associated debts
@@ -298,7 +146,6 @@ export const deleteBill = createServerFn({ method: "POST" })
 		return { success: true };
 	});
 
-// Mark a debt as paid or unpaid
 // Cash handed to the admin: recorded and allocated in one ledger transaction,
 // then settled so paid state and the housemate's receipt follow.
 export const recordCashReceived = createServerFn({ method: "POST" })
@@ -321,51 +168,6 @@ export const recordCashReceived = createServerFn({ method: "POST" })
 		await settleLedger();
 		return { success: true };
 	});
-// Get bills for a specific housemate
-export const getBillsForHousemate = createServerFn({ method: "GET" })
-	.middleware([authMiddleware])
-	.inputValidator(z.object({ housemateId: entityIdSchema }))
-	.handler(async ({ data }) => {
-		const housemateBills = await db
-			.select({
-				bill: bills,
-				debt: debts,
-				housemate: housemates,
-			})
-			.from(debts)
-			.innerJoin(bills, eq(debts.billId, bills.id))
-			.innerJoin(housemates, eq(debts.housemateId, housemates.id))
-			.where(eq(debts.housemateId, data.housemateId))
-			.orderBy(desc(bills.dueDate));
-
-		return housemateBills;
-	});
-
-// Get total owed by a housemate
-export const getTotalOwedByHousemate = createServerFn({ method: "GET" })
-	.middleware([authMiddleware])
-	.inputValidator(z.object({ housemateId: entityIdSchema }))
-	.handler(async ({ data }) => {
-		const debtsInfo = await db
-			.select({
-				debt: debts,
-			})
-			.from(debts)
-			.where(
-				and(eq(debts.housemateId, data.housemateId), eq(debts.isPaid, false)),
-			);
-
-		const credit = await getUnallocatedCredit(data.housemateId);
-		const totalOwed = Math.max(
-			0,
-			debtsInfo.reduce((sum, { debt }) => {
-				return sum + getRemainingDebtAmount(debt);
-			}, 0) - credit,
-		);
-
-		return { totalOwed, unpaidCount: debtsInfo.length };
-	});
-
 // Generate weekly rent bill
 export const generateWeeklyRent = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])

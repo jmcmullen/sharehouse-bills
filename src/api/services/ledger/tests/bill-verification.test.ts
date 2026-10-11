@@ -22,6 +22,7 @@ const migrations = [
 	"0014_allocation_review_decisions",
 	"0015_review_group",
 	"0017_freeze_history",
+	"0022_cents",
 ];
 
 const receipt = (id: string, amount: number): BankTransaction =>
@@ -100,7 +101,7 @@ test("pivots housemate payments into bills with shares, receipts, status and sum
 	fixture(async (client) => {
 		await client.executeMultiple(`
 			INSERT INTO bills(id,biller_name,due_date,created_at,bill_type,stack_group) VALUES('gas','AGL Gas',${time - 10},${time - 1000},'gas',NULL),('clean','Cleaners',${time + 100},${time - 500},NULL,'cleaning');
-			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-o','oliver','gas',100,100,${time - 100}),('gas-s','sarah','gas',50,50,${time - 100}),('clean-o','oliver','clean',30,0,${time - 50});`);
+			INSERT INTO debts(id,housemate_id,bill_id,amount_cents,created_at) VALUES('gas-o','oliver','gas',10000,${time - 100}),('gas-s','sarah','gas',5000,${time - 100}),('clean-o','oliver','clean',3000,${time - 50})`);
 		await drainLedgerEvents(client);
 
 		await confirm(client, "bank-1", 10000, "gas-o");
@@ -178,7 +179,7 @@ test("a bill whose shares are all covered is paid and a partly covered bill is p
 	fixture(async (client) => {
 		await client.executeMultiple(`
 			INSERT INTO bills(id,biller_name,due_date,created_at,bill_type,stack_group) VALUES('water','Water',${time},${time - 1000},'water',NULL);
-			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('water-o','oliver','water',40,40,${time - 100}),('water-s','sarah','water',40,0,${time - 100});`);
+			INSERT INTO debts(id,housemate_id,bill_id,amount_cents,created_at) VALUES('water-o','oliver','water',4000,${time - 100}),('water-s','sarah','water',4000,${time - 100})`);
 		await drainLedgerEvents(client);
 		await confirm(client, "bank-2", 4000, "water-o");
 		const part = await loadBillVerification(client);

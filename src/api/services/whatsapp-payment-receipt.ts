@@ -1,11 +1,11 @@
 import type { Client } from "@libsql/client";
+import { loadAccount } from "./account/account.server";
+import { creditCents } from "./account/compute";
 import { withLedgerClient } from "./ledger/client.server";
-import { currentStatement } from "./ledger/model";
 import {
 	type PaymentReceiptPayload,
 	paymentReceiptPayloadSchema,
 } from "./ledger/receipt-notifications";
-import { getAccountStatement, nowSeconds } from "./ledger/sources";
 
 type Executor = Pick<Client, "execute">;
 interface ReceiptLine {
@@ -49,10 +49,10 @@ export async function getPaymentReceiptNotificationContext(
 		const payload = parsed.data;
 		const housemateId = String(row.housemate_id);
 		const name = String(row.name);
-		const [before, after, statement] = await Promise.all([
+		const [before, after, account] = await Promise.all([
 			billLines(client, payload.before),
 			billLines(client, payload.after),
-			getAccountStatement(client, housemateId),
+			loadAccount(housemateId, { client }),
 		]);
 		return {
 			kind:
@@ -70,10 +70,11 @@ export async function getPaymentReceiptNotificationContext(
 			receivedAt: new Date(payload.receivedAt * 1000),
 			before,
 			after,
-			creditCents:
-				payload.amountCents -
-				payload.after.reduce((sum, item) => sum + item.amountCents, 0),
-			balanceCents: currentStatement(statement, nowSeconds()).balanceCents,
+			// What this payment left as credit, as the admin confirmed it.
+			creditCents: creditCents([
+				{ amountCents: payload.amountCents, allocations: payload.after },
+			]),
+			balanceCents: account?.balanceCents ?? 0,
 		};
 	});
 }

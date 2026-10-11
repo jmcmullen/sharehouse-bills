@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatCents } from "@/lib/money";
 import {
 	IconCheck,
 	IconClock,
@@ -7,7 +8,6 @@ import {
 	IconReceipt,
 } from "@tabler/icons-react";
 import type { BillSummary } from "./types";
-import { formatCurrency } from "./utils";
 
 interface SummaryCardsProps {
 	summaryData: BillSummary | null;
@@ -45,7 +45,7 @@ export function SummaryCards({
 						{summaryLoading ? (
 							<Skeleton className="h-8 w-20" />
 						) : (
-							formatCurrency(summaryData?.totalAmount || 0)
+							formatCents(summaryData?.totalCents ?? 0)
 						)}
 					</div>
 				</CardContent>
@@ -60,7 +60,7 @@ export function SummaryCards({
 						{summaryLoading ? (
 							<Skeleton className="h-8 w-20" />
 						) : (
-							formatCurrency(summaryData?.paidAmount || 0)
+							formatCents(summaryData?.paidCents ?? 0)
 						)}
 					</div>
 				</CardContent>
@@ -75,7 +75,7 @@ export function SummaryCards({
 						{summaryLoading ? (
 							<Skeleton className="h-8 w-20" />
 						) : (
-							formatCurrency(summaryData?.outstandingAmount || 0)
+							formatCents(summaryData?.outstandingCents ?? 0)
 						)}
 					</div>
 				</CardContent>

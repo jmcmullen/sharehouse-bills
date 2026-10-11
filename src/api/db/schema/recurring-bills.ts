@@ -1,5 +1,5 @@
 // fallow-ignore-file code-duplication
-import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { generateEntityId } from "../../../lib/id";
 
@@ -7,7 +7,7 @@ export const recurringBills = sqliteTable("recurringBills", {
 	id: text("id").primaryKey().$defaultFn(generateEntityId),
 	templateName: text("templateName").notNull(), // "Weekly Rent", "Monthly Utilities"
 	billerName: text("billerName").notNull(), // "Property Manager", "Landlord"
-	totalAmount: real("totalAmount").notNull(), // Base amount (e.g., 1890.00)
+	totalCents: integer("totalCents").notNull(), // Base amount in cents (e.g., 189000)
 	frequency: text("frequency", {
 		enum: ["weekly", "fortnightly", "monthly", "yearly"],
 	}).notNull(),

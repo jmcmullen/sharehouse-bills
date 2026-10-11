@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { formatDecimal, parseCents } from "../../lib/money";
 import { AIParserService } from "./ai-parser";
 
 const AGL_BILL_TYPE_REGEX = /Here's your monthly (electricity|gas) bill/i;
@@ -43,7 +44,7 @@ export interface ExtractedBillData {
 	billerName: string;
 	provider?: string;
 	billType?: "electricity" | "gas" | "internet" | "phone" | "water" | "other";
-	totalAmount: number;
+	totalCents: number;
 	dueDate: Date;
 	statementDate?: Date;
 	chargeDueDate?: Date;
@@ -148,7 +149,7 @@ export class PdfBillExtractorService {
 				billerName: aiBill.billerName,
 				provider: undefined,
 				billType: aiBill.billType ?? "other",
-				totalAmount: aiBill.totalAmount,
+				totalCents: this.parseMoney(String(aiBill.totalAmount)),
 				dueDate,
 				statementDate: undefined,
 				chargeDueDate: dueDate,
@@ -214,7 +215,7 @@ export class PdfBillExtractorService {
 			| "gas"
 			| undefined;
 		const requiredFields = this.getAglRequiredFields(text);
-		const totalAmount = this.extractMoney(text, AGL_NEW_CHARGES_REGEX);
+		const totalCents = this.extractMoney(text, AGL_NEW_CHARGES_REGEX);
 
 		if (!billType || !requiredFields) {
 			throw new UnsupportedBillFormatError(
@@ -222,13 +223,13 @@ export class PdfBillExtractorService {
 			);
 		}
 
-		if (totalAmount === undefined) {
+		if (totalCents === undefined) {
 			throw new UnsupportedBillFormatError(
 				`AGL bill is missing "Total new charges and credits (including GST)" in ${filename}`,
 			);
 		}
 
-		const chargeDueDate = this.getAglChargeDueDate(text, totalAmount);
+		const chargeDueDate = this.getAglChargeDueDate(text, totalCents);
 		const accountBalanceDueDate = this.extractDate(
 			text,
 			AGL_ACCOUNT_BALANCE_DUE_REGEX,
@@ -248,7 +249,7 @@ export class PdfBillExtractorService {
 			billerName: `AGL ${billType[0].toUpperCase()}${billType.slice(1)}`,
 			provider: "AGL",
 			billType,
-			totalAmount,
+			totalCents,
 			dueDate,
 			statementDate: requiredFields.statementDate,
 			chargeDueDate,
@@ -266,7 +267,7 @@ export class PdfBillExtractorService {
 				referenceNumber ?? "",
 				requiredFields.billPeriodStart.toISOString(),
 				requiredFields.billPeriodEnd.toISOString(),
-				totalAmount.toFixed(2),
+				formatDecimal(totalCents),
 			]),
 			sourceFilename: filename,
 		};
@@ -293,13 +294,13 @@ export class PdfBillExtractorService {
 		};
 	}
 
-	private getAglChargeDueDate(text: string, totalAmount: number) {
+	private getAglChargeDueDate(text: string, totalCents: number) {
 		const currentChargeDueMatch = text.match(AGL_CURRENT_CHARGE_DUE_REGEX);
 		const currentChargeAmount = currentChargeDueMatch?.[1]
 			? this.parseMoney(currentChargeDueMatch[1])
 			: undefined;
 
-		return currentChargeAmount === totalAmount && currentChargeDueMatch?.[2]
+		return currentChargeAmount === totalCents && currentChargeDueMatch?.[2]
 			? this.parseAustralianDate(currentChargeDueMatch[2])
 			: undefined;
 	}
@@ -355,11 +356,11 @@ export class PdfBillExtractorService {
 			}
 
 			const dueDate = this.parseSlashDate(dueDateValue);
-			const outstandingAmount = this.parseMoney(outstandingAmountValue);
+			const outstandingCents = this.parseMoney(outstandingAmountValue);
 			const description =
 				this.normalizeHudsonMcHughDescription(descriptionValue);
 
-			if (outstandingAmount <= 0) {
+			if (outstandingCents <= 0) {
 				continue;
 			}
 
@@ -367,7 +368,7 @@ export class PdfBillExtractorService {
 				billerName: `Hudson McHugh - ${description}`,
 				provider: "Hudson McHugh",
 				billType: "other",
-				totalAmount: outstandingAmount,
+				totalCents: outstandingCents,
 				dueDate,
 				statementDate,
 				chargeDueDate: dueDate,
@@ -384,7 +385,7 @@ export class PdfBillExtractorService {
 					referenceNumber,
 					description,
 					property ?? "",
-					outstandingAmount.toFixed(2),
+					formatDecimal(outstandingCents),
 					dueDate.toISOString(),
 				]),
 				sourceFilename: filename,
@@ -422,13 +423,13 @@ export class PdfBillExtractorService {
 		}
 
 		const referenceNumber = this.extractNeptuneInvoiceNumber(text);
-		const totalAmount = this.extractMoney(text, NEPTUNE_AMOUNT_DUE_REGEX);
+		const totalCents = this.extractMoney(text, NEPTUNE_AMOUNT_DUE_REGEX);
 		const dueDate = this.extractLongDate(text, NEPTUNE_DUE_DATE_REGEX);
 		const statementDate = this.extractLongDate(text, NEPTUNE_ISSUE_DATE_REGEX);
 		const accountNumber = this.extractText(text, NEPTUNE_ACCOUNT_NUMBER_REGEX);
 		const billPeriod = this.extractNeptuneBillPeriod(text);
 
-		if (!referenceNumber || totalAmount === undefined || !dueDate) {
+		if (!referenceNumber || totalCents === undefined || !dueDate) {
 			throw new UnsupportedBillFormatError(
 				`Neptune invoice is missing required fields in ${filename}`,
 			);
@@ -438,7 +439,7 @@ export class PdfBillExtractorService {
 			billerName: "Neptune Internet",
 			provider: "Neptune Internet",
 			billType: "internet",
-			totalAmount,
+			totalCents,
 			dueDate,
 			statementDate,
 			chargeDueDate: dueDate,
@@ -455,7 +456,7 @@ export class PdfBillExtractorService {
 				referenceNumber,
 				billPeriod?.billPeriodStart.toISOString() ?? "",
 				billPeriod?.billPeriodEnd.toISOString() ?? "",
-				totalAmount.toFixed(2),
+				formatDecimal(totalCents),
 			]),
 			sourceFilename: filename,
 		};
@@ -543,8 +544,12 @@ export class PdfBillExtractorService {
 		return match?.[1] ? this.normalizeWhitespace(match[1]) : undefined;
 	}
 
+	// Money printed on a bill, as whole cents.
 	private parseMoney(value: string): number {
-		return Number.parseFloat(value.replaceAll(",", ""));
+		const cents = parseCents(value.replaceAll(",", ""));
+		if (cents === null)
+			throw new UnsupportedBillFormatError(`Invalid amount: ${value}`);
+		return cents;
 	}
 
 	private parseAustralianDate(value: string): Date {

@@ -63,9 +63,9 @@ export const Route = createFileRoute("/api/cards/$pdfSha256")({
 					billLabel,
 					dueDate: bill.bill.dueDate,
 					settledAt: bill.bill.settledAt,
-					totalAmount: bill.bill.totalAmount,
+					totalCents: bill.bill.totalCents,
 					hasEvenShares: bill.shareSummary.hasEvenShares,
-					amountEach: bill.shareSummary.amountEach,
+					amountEachCents: bill.shareSummary.amountEachCents,
 					participantCount: bill.shareSummary.participantCount,
 					isAllSorted: bill.paymentProgress.percentage === 100,
 				});

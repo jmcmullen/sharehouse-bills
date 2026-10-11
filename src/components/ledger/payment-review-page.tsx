@@ -1,3 +1,4 @@
+import { formatCents } from "@/lib/money";
 import {
 	useLoaderData,
 	useNavigate,
@@ -14,7 +15,6 @@ import { confirmRow, excludeRow } from "./review-actions";
 import { ReviewFilterBar, type ReviewFilters } from "./review-filters";
 import { type Payment, ReviewPayment } from "./review-payment";
 import { ReviewRow } from "./review-row";
-import { ledgerMoney } from "./statement";
 
 const pageSize = 25;
 const selectionLimit = 10;
@@ -109,7 +109,7 @@ export function PaymentReviewPage() {
 				<div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted p-3">
 					<output aria-live="polite" className="text-sm">
 						{chosen.length} selected ·{" "}
-						{ledgerMoney(
+						{formatCents(
 							chosen.reduce((sum, item) => sum + item.amountCents, 0),
 						)}
 					</output>

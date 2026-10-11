@@ -16,11 +16,11 @@ import {
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
+import { formatCents } from "@/lib/money";
 import type { HousemateBalanceMetric } from "./types";
-import { formatCurrency } from "./utils";
 
 interface HousemateOutstandingChartProps {
-	balances: HousemateBalanceMetric[];
+	balances: HousemateBalanceMetric;
 	title: string;
 	metricLabel: string;
 	description: string;
@@ -48,25 +48,18 @@ export function HousemateOutstandingChart({
 			color,
 		},
 	} satisfies ChartConfig;
-	const chartData = balances.map((balance) => ({
+	const chartData = balances.rows.map((balance) => ({
 		name: balance.name,
 		shortName: formatHousemateLabel(balance.name),
-		amount: balance.amount,
+		amount: balance.amountCents,
 	}));
-	const totalAmount = balances.reduce(
-		(sum, balance) => sum + balance.amount,
-		0,
-	);
-	const housematesWithBalance = balances.filter(
-		(balance) => balance.amount > 0,
-	).length;
 
 	return (
 		<Card>
 			<CardHeader>
 				<CardTitle>{title}</CardTitle>
 				<CardDescription>
-					{totalAmount > 0 ? description : emptyDescription}
+					{balances.totalCents > 0 ? description : emptyDescription}
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="pb-0">
@@ -108,7 +101,7 @@ export function HousemateOutstandingChart({
 														{item.payload.name}
 													</span>
 													<span className="font-medium font-mono text-foreground tabular-nums">
-														{formatCurrency(Number(value))}
+														{formatCents(Number(value))}
 													</span>
 												</div>
 											);
@@ -123,7 +116,7 @@ export function HousemateOutstandingChart({
 			</CardContent>
 			<CardFooter className="flex-col items-start gap-2 text-sm">
 				<div className="font-medium leading-none">
-					{housematesWithBalance > 0 ? summary : emptySummary}
+					{balances.count > 0 ? summary : emptySummary}
 				</div>
 				<div className="text-muted-foreground leading-none">{footerNote}</div>
 			</CardFooter>

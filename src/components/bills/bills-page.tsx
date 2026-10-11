@@ -20,7 +20,6 @@ import { RecordCashModal } from "./modals/record-cash-modal";
 import { ViewBillPdfModal } from "./modals/view-bill-pdf-modal";
 import { SummaryCards } from "./summary-cards";
 import type { CashReceiptData } from "./types";
-import { calculateSummary, groupBillsByBillId } from "./utils";
 
 export function BillsPage() {
 	const { billsData, verification } = useLoaderData({ from: "/_app/bills" });
@@ -47,14 +46,7 @@ export function BillsPage() {
 
 	const { selectedFile, handleFileSelect, resetFile } = useFileUpload();
 
-	const summaryData = calculateSummary(billsData);
-	const groupedBills = groupBillsByBillId(billsData);
-	const bills = Object.values(groupedBills).sort((left, right) => {
-		return (
-			new Date(right.bill.dueDate).getTime() -
-			new Date(left.bill.dueDate).getTime()
-		);
-	});
+	const { bills, summary } = billsData;
 
 	const {
 		currentPage,
@@ -140,7 +132,7 @@ export function BillsPage() {
 				</Button>
 			</div>
 
-			<SummaryCards summaryData={summaryData} summaryLoading={false} />
+			<SummaryCards summaryData={summary} summaryLoading={false} />
 
 			<BillsTable
 				bills={bills}

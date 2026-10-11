@@ -1,3 +1,4 @@
+import { formatCents } from "@/lib/money";
 import { useState } from "react";
 import { toast } from "sonner";
 import { decideLedgerBatch } from "../../functions/ledger";
@@ -10,7 +11,7 @@ import {
 	DialogTitle,
 } from "../ui/dialog";
 import type { Payment } from "./review-payment";
-import { ledgerMoney, ledgerTime } from "./statement";
+import { ledgerTime } from "./statement";
 
 type Mode = "exclude" | "confirm";
 
@@ -129,7 +130,7 @@ export function BatchReview({
 					{totals.map(([name, total]) => (
 						<p key={name} className="flex justify-between gap-3">
 							<span>{name}</span>
-							<strong className="tabular-nums">{ledgerMoney(total)}</strong>
+							<strong className="tabular-nums">{formatCents(total)}</strong>
 						</p>
 					))}
 				</div>
@@ -141,7 +142,7 @@ export function BatchReview({
 									{payment.message || "No reference"} · {payment.description}
 								</span>
 								<strong className="shrink-0 tabular-nums">
-									{ledgerMoney(payment.amountCents)}
+									{formatCents(payment.amountCents)}
 								</strong>
 							</p>
 							<p className="mt-1 text-muted-foreground text-xs">

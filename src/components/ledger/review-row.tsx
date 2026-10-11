@@ -1,7 +1,8 @@
+import { formatCents } from "@/lib/money";
 import { reviewHint } from "../../api/services/ledger/review-policy";
 import { Button } from "../ui/button";
 import { type Payment, paymentEligible } from "./review-payment";
-import { ledgerMoney, ledgerTime } from "./statement";
+import { ledgerTime } from "./statement";
 
 export function ReviewRow({
 	payment,
@@ -41,7 +42,7 @@ export function ReviewRow({
 				<input
 					type="checkbox"
 					className="size-5 shrink-0"
-					aria-label={`Select ${payment.message || payment.description} ${ledgerMoney(payment.amountCents)}`}
+					aria-label={`Select ${payment.message || payment.description} ${formatCents(payment.amountCents)}`}
 					checked={checked}
 					disabled={busy || (!checked && selectionFull)}
 					onChange={(event) => onCheck(event.target.checked)}
@@ -68,7 +69,7 @@ export function ReviewRow({
 			</div>
 			<div className="col-start-2 flex flex-wrap items-center justify-between gap-2 sm:justify-end">
 				<span className="font-semibold tabular-nums">
-					{ledgerMoney(payment.amountCents)}
+					{formatCents(payment.amountCents)}
 				</span>
 				{reconcilable ? (
 					<RowActions

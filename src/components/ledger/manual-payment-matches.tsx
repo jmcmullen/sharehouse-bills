@@ -1,4 +1,5 @@
-import { ledgerMoney, ledgerTime } from "./statement";
+import { formatCents } from "@/lib/money";
+import { ledgerTime } from "./statement";
 
 export function ManualPaymentMatches(props: {
 	payments: Array<{
@@ -48,7 +49,7 @@ export function ManualPaymentMatches(props: {
 						/>
 						<span>
 							<span className="font-medium">
-								{ledgerMoney(-item.amountCents)} · {item.description}
+								{formatCents(-item.amountCents)} · {item.description}
 							</span>
 							<span className="mt-1 block text-muted-foreground text-xs">
 								Recorded {ledgerTime(item.effectiveAt)}
@@ -61,7 +62,7 @@ export function ManualPaymentMatches(props: {
 				))}
 			</div>
 			<p className="font-medium">
-				Selected {ledgerMoney(total)} of {ledgerMoney(props.bankAmountCents)}
+				Selected {formatCents(total)} of {formatCents(props.bankAmountCents)}
 			</p>
 			{props.selected.length === 0 && (
 				<p className="text-muted-foreground">

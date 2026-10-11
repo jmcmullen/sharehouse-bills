@@ -5,7 +5,7 @@ import { statementPreview } from "../statement-preview";
 test("statement preview states the balance and uses the owing palette when money is owed", () => {
 	const preview = statementPreview({
 		name: "Oliver Caprile",
-		headline: { label: "You owe", amount: 663.97 },
+		headline: { label: "You owe", amountCents: 66397 },
 		monthCount: 6,
 	});
 	assert.equal(preview.title, "Oliver's statement");
@@ -22,7 +22,7 @@ test("statement preview states the balance and uses the owing palette when money
 test("credit and settled statements use the settled palette", () => {
 	const credit = statementPreview({
 		name: "Sarah O'Dwyer",
-		headline: { label: "In credit", amount: 2557.99 },
+		headline: { label: "In credit", amountCents: 255799 },
 		monthCount: 1,
 	});
 	assert.equal(credit.card.primaryValue, "$2,557.99");
@@ -31,7 +31,7 @@ test("credit and settled statements use the settled palette", () => {
 	assert.equal(credit.card.backgroundColor, "#0d1f14");
 	const sorted = statementPreview({
 		name: "Matthew Blair",
-		headline: { label: "All sorted", amount: 0 },
+		headline: { label: "All sorted", amountCents: 0 },
 		monthCount: 5,
 	});
 	assert.equal(sorted.card.primaryValue, "All sorted");

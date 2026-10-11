@@ -1,21 +1,13 @@
 // fallow-ignore-file code-duplication
-import { and, eq, gte, inArray, isNotNull } from "drizzle-orm";
-import { db } from "../db/index.server";
-import { bills } from "../db/schema/bills";
-import { debts } from "../db/schema/debts";
-import { housemates } from "../db/schema/housemates";
+import type { Share } from "./account/account";
+import { loadAccount } from "./account/account.server";
+import { type PayShare, buildPaySummary, sum } from "./account/compute";
 import { BillPdfStorageService } from "./bill-pdf-storage";
-import {
-	type PayShare,
-	buildPaySummary,
-	toPayShare,
-} from "./housemate-pay-summary";
 import {
 	type PayScope,
 	createPayToken,
 	parsePayToken,
 } from "./pay-token.server";
-import { type CoveredShare, getCoveredShares } from "./unpaid-shares.server";
 
 type UtilityBillType = "electricity" | "gas";
 
@@ -48,19 +40,19 @@ export type PublicHousematePayPageData = {
 	summary: {
 		billCount: number;
 		overdueCount: number;
-		remainingAmount: number;
-		overdueAmount: number;
+		remainingCents: number;
+		overdueCents: number;
 	};
 	paymentProgress: {
-		settledAmount: number;
+		settledCents: number;
 		percentage: number;
 	};
 	credit: {
-		heldAmount: number;
-		appliedAmount: number;
+		heldCents: number;
+		appliedCents: number;
 	};
 	recentlySettled: {
-		amount: number;
+		amountCents: number;
 		billCount: number;
 		sinceIso: string;
 		latestPaidIso: string | null;
@@ -76,12 +68,7 @@ export type PublicHousematePayPageData = {
 	};
 };
 
-function startOfUtcDay(date: Date) {
-	return new Date(
-		Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
-	);
-}
-
+const RECENT_WINDOW_SECONDS = 30 * 24 * 60 * 60;
 function isUtilityBillType(
 	billType: string | null | undefined,
 ): billType is UtilityBillType {
@@ -122,37 +109,49 @@ function groupUtilityItems(items: PayPageItem[]) {
 	}));
 }
 
+function toDate(seconds: number | null): Date | null {
+	return seconds === null ? null : new Date(seconds * 1000);
+}
+
+// Bills settled in the last 30 days, by when the money that paid them arrived.
+function recentlySettled(shares: Share[], since: number) {
+	const recent = shares.filter(
+		(share) => share.settledAt !== null && share.settledAt >= since,
+	);
+	const latest = Math.max(0, ...recent.map((share) => share.settledAt ?? 0));
+	return {
+		amountCents: sum(recent, (share) => share.paidCents),
+		billCount: recent.length,
+		sinceIso: new Date(since * 1000).toISOString(),
+		latestPaidIso: latest ? new Date(latest * 1000).toISOString() : null,
+	};
+}
+
 export async function getPublicHousematePayPageData(token: string) {
 	const parsedToken = parsePayToken(token.trim());
 	if (!parsedToken) {
 		return null;
 	}
 
-	const [housemate] = await db
-		.select({
-			id: housemates.id,
-			name: housemates.name,
-		})
-		.from(housemates)
-		.where(eq(housemates.id, parsedToken.housemateId))
-		.limit(1);
-
-	if (!housemate) {
+	const account = await loadAccount(parsedToken.housemateId);
+	if (!account) {
 		return null;
 	}
+	const housemate = account.housemate;
 
-	const today = startOfUtcDay(new Date());
-	const covered = await getCoveredShares(housemate.id);
-	const items = covered.shares
-		.filter((share) => isInPayScope(share, parsedToken.scope))
-		.map((share) => toPayPageItem(share, today));
+	const scoped = account.shares.filter((share) =>
+		isInPayScope(share, parsedToken.scope),
+	);
+	const items = scoped
+		.filter((share) => share.remainingCents > 0)
+		.map(toPayPageItem);
 	const utilityGroups =
 		parsedToken.scope.kind === "all" ? groupUtilityItems(items) : [];
 	const nonUtilityItems =
 		parsedToken.scope.kind === "all"
 			? items.filter((item) => !isUtilityBillType(item.billType))
 			: items;
-	const totals = buildPaySummary(items, covered.credit.amountCents / 100);
+	const totals = buildPaySummary(items, account.creditCents);
 	const canonicalToken = createPayToken({
 		housemateId: housemate.id,
 		billIds:
@@ -174,25 +173,6 @@ export async function getPublicHousematePayPageData(token: string) {
 		canonicalToken ?? token.trim(),
 	);
 
-	const RECENT_WINDOW_DAYS = 30;
-	const recentSince = new Date(
-		Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-	);
-	const recentRows = await getRecentPaidDebtRows({
-		housemateId: housemate.id,
-		scope: parsedToken.scope,
-		recentSince,
-	});
-	const recentlySettledAmount = recentRows.reduce(
-		(total, row) => total + row.amountPaid,
-		0,
-	);
-	const latestPaidAt = recentRows.reduce<Date | null>((latest, row) => {
-		if (!row.paidAt) return latest;
-		if (!latest || row.paidAt.getTime() > latest.getTime()) return row.paidAt;
-		return latest;
-	}, null);
-
 	return {
 		housemate: {
 			id: housemate.id,
@@ -203,12 +183,10 @@ export async function getPublicHousematePayPageData(token: string) {
 			allBillsPath,
 		},
 		...totals,
-		recentlySettled: {
-			amount: recentlySettledAmount,
-			billCount: recentRows.length,
-			sinceIso: recentSince.toISOString(),
-			latestPaidIso: latestPaidAt ? latestPaidAt.toISOString() : null,
-		},
+		recentlySettled: recentlySettled(
+			scoped,
+			Math.floor(Date.now() / 1000) - RECENT_WINDOW_SECONDS,
+		),
 		items,
 		utilityGroups,
 		nonUtilityItems,
@@ -221,59 +199,29 @@ export async function getPublicHousematePayPageData(token: string) {
 	} satisfies PublicHousematePayPageData;
 }
 
-function getPayScopeConditions(scope: PayScope) {
-	if (scope.kind === "stack") {
-		return [eq(bills.stackGroup, scope.stackGroup)];
-	}
-
-	if (scope.kind === "bills") {
-		return [inArray(bills.id, scope.billIds)];
-	}
-
-	return [];
-}
-
-function isInPayScope(share: CoveredShare, scope: PayScope) {
+function isInPayScope(share: Share, scope: PayScope) {
 	if (scope.kind === "stack") return share.stackGroup === scope.stackGroup;
 	if (scope.kind === "bills") return scope.billIds.includes(share.billId);
 	return true;
 }
 
-function toPayPageItem(share: CoveredShare, today: Date): PayPageItem {
+function toPayPageItem(share: Share): PayPageItem {
 	const billPath = BillPdfStorageService.getViewerUrl(share.billId);
 	return {
-		...toPayShare(share, share.dueDate.getTime() < today.getTime()),
+		amountCents: share.amountCents,
+		paidCents: share.paidCents,
+		remainingCents: share.remainingCents,
+		coveredCents: share.coveredCents,
+		leftCents: share.leftCents,
+		isOverdue: share.overdue,
 		billId: share.billId,
-		billerName: share.billerName,
+		billerName: share.name,
 		billType: share.billType,
 		recurringTemplateName: share.recurringTemplateName,
 		billPath,
 		billUrl: BillPdfStorageService.getAbsoluteAppUrl(billPath),
-		dueDate: share.dueDate,
-		billPeriodStart: share.billPeriodStart,
-		billPeriodEnd: share.billPeriodEnd,
+		dueDate: new Date(share.dueAt * 1000),
+		billPeriodStart: toDate(share.billPeriodStart),
+		billPeriodEnd: toDate(share.billPeriodEnd),
 	};
-}
-
-async function getRecentPaidDebtRows(input: {
-	housemateId: string;
-	scope: PayScope;
-	recentSince: Date;
-}) {
-	return await db
-		.select({
-			amountPaid: debts.amountPaid,
-			paidAt: debts.paidAt,
-		})
-		.from(debts)
-		.innerJoin(bills, eq(bills.id, debts.billId))
-		.where(
-			and(
-				eq(debts.housemateId, input.housemateId),
-				eq(debts.isPaid, true),
-				isNotNull(debts.paidAt),
-				gte(debts.paidAt, input.recentSince),
-				...getPayScopeConditions(input.scope),
-			),
-		);
 }

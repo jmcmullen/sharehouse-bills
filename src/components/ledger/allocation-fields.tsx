@@ -1,6 +1,7 @@
+import { formatCents } from "@/lib/money";
 import type { BillPaymentView } from "../../api/services/ledger/account-payments";
 import { Input } from "../ui/input";
-import { ledgerDate, ledgerMoney } from "./statement";
+import { ledgerDate } from "./statement";
 
 export type Amounts = Record<string, string>;
 
@@ -66,7 +67,7 @@ export function BillAllocationFields({
 						{bill.name}
 						<span className="mt-1 block text-muted-foreground text-xs">
 							{bill.dueAt ? ledgerDate(bill.dueAt) : "No due date"} · Share{" "}
-							{ledgerMoney(bill.amountCents)}
+							{formatCents(bill.amountCents)}
 						</span>
 					</span>
 					<Input

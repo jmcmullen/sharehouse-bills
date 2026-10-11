@@ -1,14 +1,18 @@
 // fallow-ignore-file code-duplication
 import { and, asc, desc, eq, gte, isNull, lte, or } from "drizzle-orm";
 import { createError } from "evlog";
-import { getEqualSplitAmounts, roundCurrency } from "../../lib/equal-split";
+import {
+	type Split,
+	getEqualSplitCents,
+	splitEqually,
+} from "../../lib/equal-split";
 import { getRequestLogger } from "../../lib/request-logger";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
-import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
 import { recurringBillAssignments } from "../db/schema/recurring-bill-assignments";
 import { recurringBills } from "../db/schema/recurring-bills";
+import { createShares } from "./bills/shares";
 import { settleLedger } from "./ledger-sync.server";
 import { enqueueBillCreatedNotification } from "./whatsapp-notification-events";
 
@@ -20,10 +24,6 @@ type RecurringBillGenerationClient = Pick<
 type ActiveRecurringAssignments = Awaited<
 	ReturnType<typeof getActiveAssignments>
 >;
-type RecurringDebtEntry = {
-	housemateId: string;
-	amountOwed: number;
-};
 type GeneratedBillResult = {
 	status: "generated";
 	billId: string;
@@ -42,14 +42,14 @@ interface RecurringAssignmentPreview {
 	housemateId: string;
 	name: string;
 	isOwner: boolean;
-	customAmount: number | null;
-	amountOwed: number;
+	customCents: number | null;
+	amountCents: number;
 }
 
 interface RecurringBillPreview {
 	nextDueDate: Date | null;
 	assignments: RecurringAssignmentPreview[];
-	ownerShare: number;
+	ownerShareCents: number;
 }
 
 function startOfUtcDay(date: Date) {
@@ -351,7 +351,7 @@ async function getActiveAssignments(
 	return await client
 		.select({
 			housemateId: recurringBillAssignments.housemateId,
-			customAmount: recurringBillAssignments.customAmount,
+			customCents: recurringBillAssignments.customCents,
 			isOwner: housemates.isOwner,
 			name: housemates.name,
 		})
@@ -370,36 +370,30 @@ async function getActiveAssignments(
 		.orderBy(asc(housemates.name));
 }
 
-function validateCustomAssignments(
-	recurringBill: RecurringBillRecord,
-	assignments: Awaited<ReturnType<typeof getActiveAssignments>>,
-) {
-	const ownerAssignments = assignments.filter(
-		(assignment) => assignment.isOwner,
-	);
-	const nonOwnerAssignments = assignments.filter(
-		(assignment) => !assignment.isOwner,
-	);
+function assignedCents(assignments: ActiveRecurringAssignments): number {
+	return assignments
+		.filter((assignment) => !assignment.isOwner)
+		.reduce((total, assignment) => total + (assignment.customCents ?? 0), 0);
+}
 
-	for (const assignment of nonOwnerAssignments) {
-		if (assignment.customAmount === null) {
-			throw createError({
-				message: "Custom amount required for recurring bill assignment",
-				status: 422,
-				why: `${assignment.name} is missing a custom amount on ${recurringBill.templateName}.`,
-				fix: "Set a custom amount for every non-owner assignment when using custom split strategy.",
-			});
-		}
+function validateCustomAssignments(
+	recurringBill: Pick<RecurringBillRecord, "templateName" | "totalCents">,
+	assignments: ActiveRecurringAssignments,
+) {
+	const missing = assignments.find(
+		(assignment) => !assignment.isOwner && assignment.customCents === null,
+	);
+	if (missing) {
+		throw createError({
+			message: "Custom amount required for recurring bill assignment",
+			status: 422,
+			why: `${missing.name} is missing a custom amount on ${recurringBill.templateName}.`,
+			fix: "Set a custom amount for every non-owner assignment when using custom split strategy.",
+		});
 	}
 
-	const totalAssigned = roundCurrency(
-		nonOwnerAssignments.reduce(
-			(sum, assignment) => sum + (assignment.customAmount ?? 0),
-			0,
-		),
-	);
-
-	if (totalAssigned > recurringBill.totalAmount + 0.01) {
+	const totalAssigned = assignedCents(assignments);
+	if (totalAssigned > recurringBill.totalCents) {
 		throw createError({
 			message: "Custom amounts exceed recurring bill total",
 			status: 422,
@@ -408,10 +402,8 @@ function validateCustomAssignments(
 		});
 	}
 
-	if (
-		ownerAssignments.length === 0 &&
-		Math.abs(totalAssigned - recurringBill.totalAmount) > 0.01
-	) {
+	const hasOwner = assignments.some((assignment) => assignment.isOwner);
+	if (!hasOwner && totalAssigned !== recurringBill.totalCents) {
 		throw createError({
 			message: "Custom amounts must equal recurring bill total",
 			status: 422,
@@ -434,59 +426,51 @@ export async function previewRecurringBill(
 		return {
 			nextDueDate,
 			assignments: [],
-			ownerShare: recurringBill.totalAmount,
+			ownerShareCents: recurringBill.totalCents,
 		};
 	}
 
-	if (recurringBill.splitStrategy === "equal") {
-		const { amountPerDebtor, ownerShareTotal } = getEqualSplitAmounts({
-			totalAmount: recurringBill.totalAmount,
-			participantCount: assignments.length,
-			ownerCount: assignments.filter((assignment) => assignment.isOwner).length,
-		});
-		const previews = assignments.map((assignment) => ({
+	const toPreview = (
+		amountCents: (isOwner: boolean, custom: number | null) => number,
+	) =>
+		assignments.map((assignment) => ({
 			housemateId: assignment.housemateId,
 			name: assignment.name,
 			isOwner: assignment.isOwner,
-			customAmount: assignment.customAmount,
-			amountOwed: assignment.isOwner ? 0 : amountPerDebtor,
+			customCents: assignment.customCents,
+			amountCents: amountCents(assignment.isOwner, assignment.customCents),
 		}));
 
+	if (recurringBill.splitStrategy === "equal") {
+		const { perDebtorCents, ownerShareCents } = getEqualSplitCents({
+			totalCents: recurringBill.totalCents,
+			participantCount: assignments.length,
+			ownerCount: assignments.filter((assignment) => assignment.isOwner).length,
+		});
 		return {
 			nextDueDate,
-			assignments: previews,
-			ownerShare: ownerShareTotal,
+			assignments: toPreview((isOwner) => (isOwner ? 0 : perDebtorCents)),
+			ownerShareCents,
 		};
 	}
 
 	validateCustomAssignments(recurringBill, assignments);
-	const nonOwnerAssignments = assignments.filter(
-		(assignment) => !assignment.isOwner,
-	);
-	const totalAssigned = roundCurrency(
-		nonOwnerAssignments.reduce(
-			(sum, assignment) => sum + (assignment.customAmount ?? 0),
-			0,
-		),
-	);
-
 	return {
 		nextDueDate,
-		assignments: assignments.map((assignment) => ({
-			housemateId: assignment.housemateId,
-			name: assignment.name,
-			isOwner: assignment.isOwner,
-			customAmount: assignment.customAmount,
-			amountOwed: assignment.isOwner ? 0 : (assignment.customAmount ?? 0),
-		})),
-		ownerShare: roundCurrency(recurringBill.totalAmount - totalAssigned),
+		assignments: toPreview((isOwner, custom) => (isOwner ? 0 : (custom ?? 0))),
+		ownerShareCents: recurringBill.totalCents - assignedCents(assignments),
 	};
 }
 
-function buildRecurringDebtEntries(
-	recurringBill: RecurringBillRecord,
+// The shares one generated bill gets: equal across the assignments, or each
+// housemate's custom amount. Owners never get a share.
+export function buildRecurringSplits(
+	recurringBill: Pick<
+		RecurringBillRecord,
+		"templateName" | "totalCents" | "splitStrategy"
+	>,
 	activeAssignments: ActiveRecurringAssignments,
-): RecurringDebtEntry[] {
+): Split[] {
 	if (activeAssignments.length === 0) {
 		throw createError({
 			message: "No active assignments found for recurring bill",
@@ -496,10 +480,7 @@ function buildRecurringDebtEntries(
 		});
 	}
 
-	const nonOwnerAssignments = activeAssignments.filter(
-		(assignment) => !assignment.isOwner,
-	);
-	if (nonOwnerAssignments.length === 0) {
+	if (activeAssignments.every((assignment) => assignment.isOwner)) {
 		throw createError({
 			message: "No active non-owner assignments found for recurring bill",
 			status: 500,
@@ -508,23 +489,16 @@ function buildRecurringDebtEntries(
 		});
 	}
 
-	if (recurringBill.splitStrategy === "equal") {
-		const { amountPerDebtor } = getEqualSplitAmounts({
-			totalAmount: recurringBill.totalAmount,
-			participantCount: activeAssignments.length,
-			ownerCount: activeAssignments.length - nonOwnerAssignments.length,
-		});
-		return nonOwnerAssignments.map((assignment) => ({
-			housemateId: assignment.housemateId,
-			amountOwed: amountPerDebtor,
-		}));
-	}
+	if (recurringBill.splitStrategy === "equal")
+		return splitEqually(recurringBill.totalCents, activeAssignments);
 
 	validateCustomAssignments(recurringBill, activeAssignments);
-	return nonOwnerAssignments.map((assignment) => ({
-		housemateId: assignment.housemateId,
-		amountOwed: roundCurrency(assignment.customAmount ?? 0),
-	}));
+	return activeAssignments
+		.filter((assignment) => !assignment.isOwner)
+		.map((assignment) => ({
+			housemateId: assignment.housemateId,
+			amountCents: assignment.customCents ?? 0,
+		}));
 }
 
 async function generateBillFromTemplate(
@@ -538,15 +512,12 @@ async function generateBillFromTemplate(
 				tx,
 				recurringBill.id,
 			);
-			const debtEntries = buildRecurringDebtEntries(
-				recurringBill,
-				activeAssignments,
-			);
+			const splits = buildRecurringSplits(recurringBill, activeAssignments);
 			const insertedBills = await tx
 				.insert(bills)
 				.values({
 					billerName: recurringBill.billerName,
-					totalAmount: recurringBill.totalAmount,
+					totalCents: recurringBill.totalCents,
 					dueDate: startOfUtcDay(dueDate),
 					recurringBillId: recurringBill.id,
 					pdfUrl: null,
@@ -576,21 +547,13 @@ async function generateBillFromTemplate(
 				} satisfies DuplicateBillResult;
 			}
 
-			await tx.insert(debts).values(
-				debtEntries.map((debtEntry) => ({
-					billId: newBill.id,
-					housemateId: debtEntry.housemateId,
-					amountOwed: debtEntry.amountOwed,
-					amountPaid: 0,
-					isPaid: false,
-				})),
-			);
+			await createShares(newBill.id, splits, tx);
 			await updateRecurringBillLastGeneratedDate(tx, recurringBill.id, dueDate);
 
 			return {
 				status: "generated",
 				billId: newBill.id,
-				debtRecordCount: debtEntries.length,
+				debtRecordCount: splits.length,
 			} satisfies GeneratedBillResult;
 		});
 		// Unallocated money pays the new shares before the created message goes out.

@@ -1,10 +1,3 @@
-export function formatCurrency(amount: number): string {
-	return new Intl.NumberFormat("en-AU", {
-		style: "currency",
-		currency: "AUD",
-	}).format(amount);
-}
-
 export function formatDate(date: Date | string): string {
 	const dateObj = typeof date === "string" ? new Date(date) : date;
 	return dateObj.toLocaleDateString("en-AU", {

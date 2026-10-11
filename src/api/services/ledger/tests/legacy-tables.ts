@@ -1,9 +1,11 @@
-// Minimal legacy app tables the ledger writes paid state into. Migration 0009
+// Minimal app tables as they stood before the ledger migrations. Migration 0009
 // adds triggers to payment_transactions, so it and unreconciled_transactions
-// exist until migration 0021 drops them.
+// exist until migration 0021 drops them; migration 0022 turns the dollar
+// columns into cents.
 export const legacyTables = `CREATE TABLE housemates(id TEXT PRIMARY KEY,name TEXT,bank_alias TEXT,is_owner INTEGER);
-CREATE TABLE bills(id TEXT PRIMARY KEY,biller_name TEXT,due_date INTEGER,created_at INTEGER,status TEXT DEFAULT 'pending',updated_at INTEGER,bill_type TEXT,stack_group TEXT,recurring_bill_id TEXT);
-CREATE TABLE recurringBills(id TEXT PRIMARY KEY,templateName TEXT,billerName TEXT);
+CREATE TABLE bills(id TEXT PRIMARY KEY,biller_name TEXT,total_amount REAL DEFAULT 0,due_date INTEGER,created_at INTEGER,status TEXT DEFAULT 'pending',updated_at INTEGER,bill_type TEXT,stack_group TEXT,recurring_bill_id TEXT,bill_period_start INTEGER,bill_period_end INTEGER);
+CREATE TABLE recurringBills(id TEXT PRIMARY KEY,templateName TEXT,billerName TEXT,totalAmount REAL DEFAULT 0);
+CREATE TABLE recurringBillAssignments(id TEXT PRIMARY KEY,customAmount REAL);
 CREATE TABLE debts(id TEXT PRIMARY KEY,housemate_id TEXT,bill_id TEXT,amount_owed REAL,amount_paid REAL DEFAULT 0,created_at INTEGER,is_paid INTEGER DEFAULT 0,paid_at INTEGER,updated_at INTEGER);
 CREATE TABLE payment_transactions(id TEXT PRIMARY KEY,transaction_id TEXT UNIQUE,housemate_id TEXT,amount REAL,status TEXT,source TEXT,description TEXT,raw_data TEXT,settled_at INTEGER,up_created_at INTEGER,created_at INTEGER,matched_debt_ids TEXT,credit_amount REAL DEFAULT 0);
 CREATE TABLE unreconciled_transactions(id TEXT PRIMARY KEY);

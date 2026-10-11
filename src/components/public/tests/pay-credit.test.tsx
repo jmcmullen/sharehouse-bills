@@ -13,14 +13,14 @@ const covered = [
 		billId: "gas",
 		billerName: "Gas",
 		billPath: "/bill/gas",
-		amount: 30,
+		amountCents: 3000,
 		secondary: "1 Aug to 31 Aug",
 	},
 	{
 		billId: "rent",
 		billerName: "Rent",
 		billPath: "/bill/rent",
-		amount: 388.01,
+		amountCents: 38801,
 		secondary: "Due Tue 22 Sep",
 	},
 ];
@@ -50,7 +50,7 @@ test("an empty covered list renders nothing", () => {
 test("the credit note says what is held, what is applied and what is left", () => {
 	const { container, rerender } = render(
 		createElement(CreditNote, {
-			credit: { heldAmount: 2976, appliedAmount: 418.01 },
+			credit: { heldCents: 297600, appliedCents: 41801 },
 		}),
 	);
 	expect(container.textContent).toBe(
@@ -58,20 +58,20 @@ test("the credit note says what is held, what is applied and what is left", () =
 	);
 	rerender(
 		createElement(CreditNote, {
-			credit: { heldAmount: 40, appliedAmount: 40 },
+			credit: { heldCents: 4000, appliedCents: 4000 },
 		}),
 	);
 	expect(container.textContent).toBe(
 		"You hold $40.00 credit. All of it covers the bills below.",
 	);
 	rerender(
-		createElement(CreditNote, { credit: { heldAmount: 40, appliedAmount: 0 } }),
+		createElement(CreditNote, { credit: { heldCents: 4000, appliedCents: 0 } }),
 	);
 	expect(container.textContent).toBe(
 		"You hold $40.00 credit. Older bills not shown here use all of it.",
 	);
 	rerender(
-		createElement(CreditNote, { credit: { heldAmount: 0, appliedAmount: 0 } }),
+		createElement(CreditNote, { credit: { heldCents: 0, appliedCents: 0 } }),
 	);
 	expect(container.innerHTML).toBe("");
 });

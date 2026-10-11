@@ -21,7 +21,6 @@ export {
 } from "./actions";
 
 export {
-	formatCurrency,
 	formatDate,
 	validateHousemateForm,
 	sanitizeFormData,
@@ -29,8 +28,7 @@ export {
 
 export type {
 	Housemate,
-	HousemateStats,
+	HousemateAccount,
 	HousemateBalanceMetric,
-	HousemateDebt,
 	HousemateFormData,
 } from "./types";

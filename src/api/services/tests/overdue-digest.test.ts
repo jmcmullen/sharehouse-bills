@@ -1,43 +1,38 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { coverShares } from "../bill-reminder-credit";
+import { coverShares } from "../account/compute";
 import {
 	buildOverdueDigest,
+	digestDate,
 	overdueDigestKey,
-	sydneyDate,
 } from "../overdue-digest";
 
-const day = (date: string) => new Date(`${date}T00:00:00Z`);
+const day = (date: string) =>
+	Math.floor(new Date(`${date}T00:00:00Z`).getTime() / 1000);
 // 10am in Sydney on 24 Sep 2026, when the daily cron runs.
 const now = new Date("2026-09-24T00:00:00Z");
 const share = (
 	billId: string,
 	dueDate: string,
-	amountOwed: number,
-	amountPaid = 0,
+	amountCents: number,
+	paidCents = 0,
 ) => ({
+	id: billId,
 	billId,
-	housemateId: "oliver",
-	billerName: billId,
-	recurringTemplateName: null,
-	dueDate: day(dueDate),
-	amountOwed,
-	amountPaid,
+	name: billId,
+	recurringTemplateName: null as string | null,
+	dueAt: day(dueDate),
+	remainingCents: amountCents - paidCents,
 });
 const rows = [
-	share("Rent", "2026-08-24", 100),
-	share("AGL Electricity", "2026-09-01", 80),
-	share("Water", "2026-09-23", 40),
-	share("Internet", "2026-09-24", 25),
-	share("Gas", "2026-10-02", 60),
+	share("Rent", "2026-08-24", 10000),
+	share("AGL Electricity", "2026-09-01", 8000),
+	share("Water", "2026-09-23", 4000),
+	share("Internet", "2026-09-24", 2500),
+	share("Gas", "2026-10-02", 6000),
 ];
-const credit = (amountCents: number) => ({ amountCents, receivedAt: null });
-const digest = (amountCents: number, at = now) =>
-	buildOverdueDigest(
-		coverShares(rows, new Map([["oliver", credit(amountCents)]])),
-		credit(amountCents),
-		at,
-	);
+const digest = (creditCents: number, at = now) =>
+	buildOverdueDigest(coverShares(rows, creditCents), at);
 
 test("only shares due before today in Sydney are overdue", () => {
 	const result = digest(0);
@@ -75,19 +70,14 @@ test("a housemate with nothing overdue after credit gets no digest", () => {
 	assert.equal(digest(22000), null);
 	assert.equal(digest(50000), null);
 	assert.equal(
-		buildOverdueDigest(
-			coverShares([share("Gas", "2026-10-02", 60)], new Map()),
-			null,
-			now,
-		),
+		buildOverdueDigest(coverShares([share("Gas", "2026-10-02", 6000)], 0), now),
 		null,
 	);
 });
 
 test("partly paid shares count only what is still owed", () => {
 	const result = buildOverdueDigest(
-		coverShares([share("Rent", "2026-09-20", 100, 60)], new Map()),
-		null,
+		coverShares([share("Rent", "2026-09-20", 10000, 6000)], 0),
 		now,
 	);
 	assert.deepEqual(
@@ -99,14 +89,14 @@ test("partly paid shares count only what is still owed", () => {
 test("the Sydney date decides what is overdue, not the UTC date", () => {
 	// 23:59 on 24 Sep in Sydney: a bill due on the 24th is not overdue yet.
 	const lateOn24th = new Date("2026-09-24T13:59:00Z");
-	assert.equal(sydneyDate(lateOn24th), "2026-09-24");
+	assert.equal(digestDate(lateOn24th), "2026-09-24");
 	assert.deepEqual(
 		digest(0, lateOn24th)?.items.map((item) => item.label),
 		["Rent", "AGL Electricity", "Water"],
 	);
 	// 00:00 on 25 Sep in Sydney, still the 24th in UTC.
 	const midnight = new Date("2026-09-24T14:00:00Z");
-	assert.equal(sydneyDate(midnight), "2026-09-25");
+	assert.equal(digestDate(midnight), "2026-09-25");
 	const result = digest(0, midnight);
 	assert.deepEqual(
 		result?.items.map((item) => [item.label, item.daysOverdue]),
@@ -118,7 +108,7 @@ test("the Sydney date decides what is overdue, not the UTC date", () => {
 		],
 	);
 	// A due date stored at Sydney midnight still reads as its Sydney day.
-	assert.equal(sydneyDate(new Date("2026-09-23T14:00:00Z")), "2026-09-24");
+	assert.equal(digestDate(new Date("2026-09-23T14:00:00Z")), "2026-09-24");
 });
 
 test("the event key is one per housemate per Sydney day", () => {
@@ -145,13 +135,12 @@ test("recurring template names join the bill label", () => {
 		coverShares(
 			[
 				{
-					...share("Hudson McHugh", "2026-09-20", 250),
+					...share("Hudson McHugh", "2026-09-20", 25000),
 					recurringTemplateName: "Weekly Rent",
 				},
 			],
-			new Map(),
+			0,
 		),
-		null,
 		now,
 	);
 	assert.equal(result?.items[0]?.label, "Hudson McHugh Weekly Rent");

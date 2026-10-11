@@ -6,12 +6,12 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import type { GroupedBill } from "../types";
+import type { BillListItem } from "../types";
 
 interface ViewBillPdfModalProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	bill: GroupedBill | null;
+	bill: BillListItem | null;
 }
 
 export function ViewBillPdfModal({
@@ -19,11 +19,11 @@ export function ViewBillPdfModal({
 	onOpenChange,
 	bill,
 }: ViewBillPdfModalProps) {
-	if (!bill?.bill.pdfUrl || !bill.bill.pdfSha256) {
+	if (!bill?.pdfUrl || !bill.pdfSha256) {
 		return null;
 	}
 
-	const pdfViewerUrl = BillPdfStorageService.getPdfUrl(bill.bill.pdfSha256);
+	const pdfViewerUrl = BillPdfStorageService.getPdfUrl(bill.pdfSha256);
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -31,14 +31,14 @@ export function ViewBillPdfModal({
 				<div className="flex h-full flex-col">
 					<div className="border-b px-6 py-4">
 						<DialogHeader className="gap-3">
-							<DialogTitle>{bill.bill.billerName} PDF</DialogTitle>
+							<DialogTitle>{bill.billerName} PDF</DialogTitle>
 							<DialogDescription>
-								{bill.bill.sourceFilename || "Original bill PDF"}
+								{bill.sourceFilename || "Original bill PDF"}
 							</DialogDescription>
 						</DialogHeader>
 					</div>
 					<iframe
-						title={`${bill.bill.billerName} PDF`}
+						title={`${bill.billerName} PDF`}
 						src={pdfViewerUrl}
 						className="min-h-0 flex-1"
 					/>

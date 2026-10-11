@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { type Client, createClient } from "@libsql/client";
+import { loadBill } from "../../account/account.server";
 import { approveBill } from "../bill-reviews";
 import { loadBillVerification } from "../bill-verification";
 import { drainLedgerEvents } from "../events";
@@ -28,7 +29,8 @@ async function apply(client: Client, name: string): Promise<void> {
 }
 
 // Recreates the live database as it stood before the freeze: history up to
-// 0015 applied and its allocation backfills already processed.
+// 0015 applied and its allocation backfills already processed. Charge events
+// wait for 0022 to carry cents before they are drained.
 async function fixture(run: (client: Client) => Promise<void>): Promise<void> {
 	const directory = await mkdtemp(join(tmpdir(), "bill-reviews-"));
 	const client = createClient({ url: `file:${join(directory, "ledger.db")}` });
@@ -36,12 +38,11 @@ async function fixture(run: (client: Client) => Promise<void>): Promise<void> {
 		await client.executeMultiple(`${legacyTables}
 		INSERT INTO housemates VALUES('oliver','Oliver Caprile','OLIVER WILLIAM CAPRIL',0),('sarah','Sarah O Dwyer',NULL,0),('jay','Jay McMullen',NULL,1);
 		INSERT INTO bills(id,biller_name,due_date,created_at,bill_type) VALUES('gas','Gas',${time - 10},${time - 1000},'gas'),('water','Water',${time},${time - 1000},'water'),('power','Power',${time + 10},${time - 1000},'power');
-		INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-o','oliver','gas',60,60,${time}),('water-o','oliver','water',40,0,${time}),('water-s','sarah','water',40,0,${time}),('power-o','oliver','power',25,0,${time});`);
+		INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-o','oliver','gas',60,60,${time}),('water-o','oliver','water',40,0,${time}),('water-s','sarah','water',40,0,${time}),('power-o','oliver','power',25,0,${time})`);
 		for (const name of before) await apply(client, name);
 		await client.execute(
 			"UPDATE ledger_events SET processed_at=unixepoch() WHERE kind='allocations'",
 		);
-		await drainLedgerEvents(client);
 		await client.executeMultiple(`
 			INSERT INTO ledger_sources(source_key,entry_id,snapshot) VALUES('manual:m-gas','e-gas','{"housemateId":"oliver","amountCents":-6000,"kind":"payment","description":"Manual gas","billId":null,"effectiveAt":${time + 100},"dueAt":null}');
 			INSERT INTO ledger_entries(id,housemate_id,source_key,kind,amount_cents,description,bill_id,effective_at,due_at,recorded_at) VALUES('e-gas','oliver','manual:m-gas','payment',-6000,'Manual gas',NULL,${time + 100},NULL,${time + 100});
@@ -116,41 +117,27 @@ test("migration 0017 releases auto allocations, freezes legacy ones and pre-tick
 			),
 			["gas"],
 		);
-		assert.equal(
-			(
-				await rows(
-					client,
-					"SELECT kind FROM ledger_events WHERE processed_at IS NULL",
-				)
-			)[0]?.kind,
-			"paid_state",
-		);
+		const pendingPaidState =
+			"SELECT count(*) AS n FROM ledger_events WHERE processed_at IS NULL AND kind='paid_state'";
+		assert.equal(Number((await rows(client, pendingPaidState))[0].n), 1);
 
-		assert.equal(await drainLedgerEvents(client), 1);
-		const water = (
-			await rows(
-				client,
-				"SELECT amount_paid,is_paid,paid_at FROM debts WHERE id='water-o'",
-			)
-		)[0];
-		assert.equal(water.amount_paid, 0);
-		assert.equal(water.is_paid, 0);
-		assert.equal(water.paid_at, null);
-		assert.equal(
-			(await rows(client, "SELECT status FROM bills WHERE id='water'"))[0]
-				.status,
-			"pending",
-		);
-		assert.equal(
-			(await rows(client, "SELECT is_paid FROM debts WHERE id='gas-o'"))[0]
-				.is_paid,
-			1,
-		);
+		// 0022 drops the cached paid columns and retires the paid_state event:
+		// paid state now comes from allocations alone.
+		await apply(client, "0022_cents");
+		assert.equal(Number((await rows(client, pendingPaidState))[0].n), 0);
+		await drainLedgerEvents(client);
+		const water = await loadBill("water", { client });
+		assert.equal(water?.status, "pending");
+		assert.equal(water?.paidCents, 0);
+		const gas = await loadBill("gas", { client });
+		assert.equal(gas?.status, "paid");
+		assert.equal(gas?.shares[0].settledAt, time + 100);
 	}));
 
 test("bills report approval from reviews and approveBill toggles the row", async () =>
 	fixture(async (client) => {
 		await apply(client, "0017_freeze_history");
+		await apply(client, "0022_cents");
 		await drainLedgerEvents(client);
 		const initial = await loadBillVerification(client);
 		assert.ok(initial.available);

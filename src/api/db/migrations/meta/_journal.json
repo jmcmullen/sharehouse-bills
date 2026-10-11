@@ -155,6 +155,13 @@
 			"when": 1791688657194,
 			"tag": "0021_drop_legacy_payments",
 			"breakpoints": true
+		},
+		{
+			"idx": 22,
+			"version": "6",
+			"when": 1791689232412,
+			"tag": "0022_cents",
+			"breakpoints": true
 		}
 	]
 }

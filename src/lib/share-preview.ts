@@ -5,13 +5,7 @@ import {
 	formatTiming,
 	sydneyDaysBetween,
 } from "./bill-timing";
-
-export function formatCurrency(amount: number) {
-	return new Intl.NumberFormat("en-AU", {
-		style: "currency",
-		currency: "AUD",
-	}).format(amount);
-}
+import { formatCents } from "./money";
 
 export type BillDueStatus = {
 	label: string;
@@ -61,9 +55,9 @@ export interface BillPreviewInput {
 	billLabel: string;
 	dueDate: Date | string;
 	settledAt: Date | string | null;
-	totalAmount: number;
+	totalCents: number;
 	hasEvenShares: boolean;
-	amountEach: number | null;
+	amountEachCents: number | null;
 	participantCount: number;
 	isAllSorted: boolean;
 }
@@ -91,9 +85,9 @@ function formatSplit(count: number) {
 }
 
 function hasAmountEach(input: BillPreviewInput): input is BillPreviewInput & {
-	amountEach: number;
+	amountEachCents: number;
 } {
-	return input.hasEvenShares && input.amountEach !== null;
+	return input.hasEvenShares && input.amountEachCents !== null;
 }
 
 function buildPaidPreview(input: BillPreviewInput, now: Date): BillPreview {
@@ -111,7 +105,7 @@ function buildPaidPreview(input: BillPreviewInput, now: Date): BillPreview {
 			secondary: settledAt
 				? `${due} · ${formatTiming(input.dueDate, settledAt)}`
 				: due,
-			tertiary: `Total ${formatCurrency(input.totalAmount)}`,
+			tertiary: `Total ${formatCents(input.totalCents)}`,
 		},
 	};
 }
@@ -119,14 +113,14 @@ function buildPaidPreview(input: BillPreviewInput, now: Date): BillPreview {
 function formatUnpaidTitle(input: BillPreviewInput, status: BillDueStatus) {
 	if (status.tone === "overdue") return `${input.billLabel} bill is overdue`;
 	if (status.tone === "today") return `${input.billLabel} bill is due today`;
-	return `Bill from ${input.billLabel} for ${formatCurrency(input.totalAmount)}`;
+	return `Bill from ${input.billLabel} for ${formatCents(input.totalCents)}`;
 }
 
 function buildUnpaidPreview(input: BillPreviewInput, now: Date): BillPreview {
 	const status = getBillDueStatus(input.dueDate, now);
 	const dueLine = formatDueLine(status);
 	const shares = hasAmountEach(input)
-		? `${formatCurrency(input.amountEach)} each.`
+		? `${formatCents(input.amountEachCents)} each.`
 		: `${formatSplit(input.participantCount)}.`;
 	return {
 		title: formatUnpaidTitle(input, status),
@@ -134,11 +128,11 @@ function buildUnpaidPreview(input: BillPreviewInput, now: Date): BillPreview {
 		card: {
 			tone: status.tone,
 			primary: hasAmountEach(input)
-				? `${formatCurrency(input.amountEach)} each`
-				: formatCurrency(input.totalAmount),
+				? `${formatCents(input.amountEachCents)} each`
+				: formatCents(input.totalCents),
 			secondary: dueLine,
 			tertiary: hasAmountEach(input)
-				? `Total ${formatCurrency(input.totalAmount)}`
+				? `Total ${formatCents(input.totalCents)}`
 				: input.participantCount > 0
 					? formatSplit(input.participantCount)
 					: null,

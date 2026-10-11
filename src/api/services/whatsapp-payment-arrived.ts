@@ -1,4 +1,5 @@
 import type { Client } from "@libsql/client";
+import { formatCents } from "../../lib/money";
 import { BillPdfStorageService } from "./bill-pdf-storage";
 import {
 	getAccountPayments,
@@ -115,7 +116,7 @@ async function suggestionLines(
 		const bill = account.bills.find((item) => item.id === allocation.debtId);
 		return bill
 			? [
-					`${shareLabel({ billName: bill.name, dueAt: bill.dueAt })}, ${money(allocation.amountCents)}`,
+					`${shareLabel({ billName: bill.name, dueAt: bill.dueAt })}, ${formatCents(allocation.amountCents)}`,
 				]
 			: [];
 	});
@@ -129,11 +130,4 @@ function shareLabel(share: { billName: string; dueAt: number | null }): string {
 				day: "numeric",
 				month: "short",
 			}).format(new Date(share.dueAt * 1000))}`;
-}
-
-function money(cents: number): string {
-	return new Intl.NumberFormat("en-AU", {
-		style: "currency",
-		currency: "AUD",
-	}).format(cents / 100);
 }

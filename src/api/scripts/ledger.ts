@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { createClient } from "@libsql/client";
 import { z } from "zod";
+import { loadAccounts } from "../services/account/account.server";
 import { ingestBankTransaction } from "../services/ledger/bank-ingest";
 import { drainLedgerEvents } from "../services/ledger/events";
 import {
@@ -91,30 +92,24 @@ async function importBankFile(bankPath: string): Promise<void> {
 }
 
 async function writeReport(reportPath: string): Promise<void> {
-	const housemates = (
-		await client.execute(
-			"SELECT id,name FROM housemates WHERE is_owner=0 ORDER BY name",
-		)
-	).rows;
-	const accounts = [];
-	for (const housemate of housemates) {
-		const statement = await getAccountStatement(client, String(housemate.id));
-		const old = (
-			await client.execute({
-				sql: "SELECT coalesce(sum(round(amount_owed*100)-round(amount_paid*100)),0) AS balance FROM debts WHERE housemate_id=?",
-				args: [housemate.id],
-			})
-		).rows[0];
-		const legacyBalanceCents = Number(old.balance);
-		accounts.push({
-			housemateId: housemate.id,
-			name: housemate.name,
-			legacyBalanceCents,
-			ledgerBalanceCents: statement.balanceCents,
-			differenceCents: statement.balanceCents - legacyBalanceCents,
-			entries: statement.entries.length,
-		});
-	}
+	const housemates = (await loadAccounts({ client })).filter(
+		(account) => !account.housemate.isOwner,
+	);
+	// The journal's balance against the account module's, which derives it
+	// from shares and receipts.
+	const accounts = await Promise.all(
+		housemates.map(async (account) => {
+			const statement = await getAccountStatement(client, account.housemate.id);
+			return {
+				housemateId: account.housemate.id,
+				name: account.housemate.name,
+				accountBalanceCents: account.balanceCents,
+				ledgerBalanceCents: statement.balanceCents,
+				differenceCents: statement.balanceCents - account.balanceCents,
+				entries: statement.entries.length,
+			};
+		}),
+	);
 	const reviews = (
 		await client.execute(
 			"SELECT id,description,message,amount_cents,housemate_id,reason,effective_at FROM ledger_bank_transactions WHERE decision='review' ORDER BY effective_at",

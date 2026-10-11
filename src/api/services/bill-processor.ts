@@ -1,13 +1,10 @@
 // fallow-ignore-file code-duplication
 import { eq, or } from "drizzle-orm";
-import { createError } from "evlog";
-import { getEqualSplitAmounts } from "../../lib/equal-split";
 import { getRequestLogger } from "../../lib/request-logger";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
-import { debts } from "../db/schema/debts";
-import { housemates } from "../db/schema/housemates";
 import { BillPdfStorageService } from "./bill-pdf-storage";
+import { createShares, splitAcrossHousemates } from "./bills/shares";
 import { settleLedger } from "./ledger-sync.server";
 import {
 	type ExtractedBillData,
@@ -214,7 +211,7 @@ export class BillProcessorService {
 					{
 						billId: newBill.id,
 						billerName: input.parsedData.billerName,
-						totalAmount: input.parsedData.totalAmount,
+						totalCents: input.parsedData.totalCents,
 						referenceNumber: input.parsedData.referenceNumber,
 					},
 				],
@@ -286,13 +283,14 @@ export class BillProcessorService {
 		parsedData: ExtractedBillData,
 		pdfUrl: string | null,
 	) {
+		const splits = await splitAcrossHousemates(parsedData.totalCents);
 		const [newBill] = await db
 			.insert(bills)
 			.values({
 				billerName: parsedData.billerName,
 				provider: parsedData.provider,
 				billType: parsedData.billType,
-				totalAmount: parsedData.totalAmount,
+				totalCents: parsedData.totalCents,
 				dueDate: parsedData.dueDate,
 				statementDate: parsedData.statementDate,
 				chargeDueDate: parsedData.chargeDueDate,
@@ -310,57 +308,12 @@ export class BillProcessorService {
 			})
 			.returning();
 
-		await this.createDebtRecords(newBill.id, parsedData.totalAmount);
-		return newBill;
-	}
-
-	private async createDebtRecords(billId: string, totalAmount: number) {
-		const activeHousemates = await db
-			.select()
-			.from(housemates)
-			.where(eq(housemates.isActive, true));
-		if (activeHousemates.length === 0) {
-			throw createError({
-				message: "No active housemates found to assign bill to",
-				status: 500,
-				why: "The bill processor could not find any active housemates for debt assignment.",
-				fix: "Add or reactivate at least one housemate before importing bills.",
-			});
-		}
-
-		const nonOwnerHousemates = activeHousemates.filter(
-			(housemate) => !housemate.isOwner,
-		);
-		if (nonOwnerHousemates.length === 0) {
-			throw createError({
-				message: "No active non-owner housemates found to assign bill to",
-				status: 500,
-				why: "The bill processor only creates debts for non-owner housemates, but none are active.",
-				fix: "Mark at least one active housemate as a non-owner before importing bills.",
-			});
-		}
-
-		const { amountPerDebtor } = getEqualSplitAmounts({
-			totalAmount,
-			participantCount: activeHousemates.length,
-			ownerCount: activeHousemates.length - nonOwnerHousemates.length,
-		});
-		const debtRecords = nonOwnerHousemates.map((housemate) => ({
-			billId,
-			housemateId: housemate.id,
-			amountOwed: amountPerDebtor,
-			amountPaid: 0,
-		}));
-
-		await db.insert(debts).values(debtRecords);
+		await createShares(newBill.id, splits);
 		await settleLedger();
 		getRequestLogger()?.set({
-			debtCreation: {
-				billId,
-				debtRecordCount: debtRecords.length,
-				amountPerPerson: amountPerDebtor,
-			},
+			debtCreation: { billId: newBill.id, debtRecordCount: splits.length },
 		});
+		return newBill;
 	}
 
 	private buildResultFilename(

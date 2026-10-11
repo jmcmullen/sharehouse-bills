@@ -1,5 +1,5 @@
 import { formatDueDate, formatTiming } from "../../lib/bill-timing";
-import { formatCurrency } from "../../lib/share-preview";
+import { formatCents } from "../../lib/money";
 
 function getLowercaseFirstNames(names: string[]) {
 	return [
@@ -71,10 +71,10 @@ export function buildInitIntroSummary() {
 
 export function buildInitBillsSummary(input: {
 	asOf: Date;
-	totalOutstanding: number;
+	totalOutstandingCents: number;
 	bills: Array<{
 		billerName: string;
-		remainingAmount: number;
+		remainingCents: number;
 		billCount: number;
 	}>;
 }) {
@@ -99,10 +99,10 @@ export function buildInitBillsSummary(input: {
 		"",
 		...input.bills.map(
 			(bill, index) =>
-				`${index + 1}. ${bill.billerName}\n${formatCurrency(bill.remainingAmount)}${bill.billCount > 1 ? ` across ${bill.billCount} bills` : ""}`,
+				`${index + 1}. ${bill.billerName}\n${formatCents(bill.remainingCents)}${bill.billCount > 1 ? ` across ${bill.billCount} bills` : ""}`,
 		),
 		"",
-		`Total: ${formatCurrency(input.totalOutstanding)}`,
+		`Total: ${formatCents(input.totalOutstandingCents)}`,
 	].join("\n");
 }
 
@@ -159,10 +159,6 @@ interface PaymentCorrectionInput extends Omit<PaymentReceiptInput, "covered"> {
 	after: ReceiptLine[];
 }
 
-function cents(amount: number) {
-	return formatCurrency(amount / 100);
-}
-
 // The day money arrived, read against its own year.
 function formatReceivedDate(date: Date) {
 	return formatDueDate(date, date);
@@ -173,14 +169,15 @@ function formatReceivedDate(date: Date) {
 function receiptLines(lines: ReceiptLine[], receivedAt: Date) {
 	return lines.map(({ billName, dueDate, amountCents }) =>
 		dueDate
-			? `- ${billName} (due ${formatDueDate(dueDate, receivedAt)}) · ${cents(amountCents)} · ${formatTiming(dueDate, receivedAt)}`
-			: `- ${billName} · ${cents(amountCents)}`,
+			? `- ${billName} (due ${formatDueDate(dueDate, receivedAt)}) · ${formatCents(amountCents)} · ${formatTiming(dueDate, receivedAt)}`
+			: `- ${billName} · ${formatCents(amountCents)}`,
 	);
 }
 
 function balanceLine(balanceCents: number) {
-	if (balanceCents > 0) return `You still owe ${cents(balanceCents)}.`;
-	if (balanceCents < 0) return `You're ${cents(-balanceCents)} in credit.`;
+	if (balanceCents > 0) return `You still owe ${formatCents(balanceCents)}.`;
+	if (balanceCents < 0)
+		return `You're ${formatCents(-balanceCents)} in credit.`;
 	return "You're all settled up.";
 }
 
@@ -191,7 +188,7 @@ function receiptFooter(input: Pick<PaymentReceiptInput, "balanceCents">) {
 export function buildPaymentReceiptSummary(input: PaymentReceiptInput) {
 	const header = [
 		`*Thanks ${input.firstName}, payment received*`,
-		`${cents(input.amountCents)} on ${formatReceivedDate(input.receivedAt)}`,
+		`${formatCents(input.amountCents)} on ${formatReceivedDate(input.receivedAt)}`,
 		"",
 	];
 	if (!input.covered.length)
@@ -206,7 +203,9 @@ export function buildPaymentReceiptSummary(input: PaymentReceiptInput) {
 		...receiptLines(input.covered, input.receivedAt),
 		"",
 		...(input.creditCents > 0
-			? [`${cents(input.creditCents)} is held as credit for your next bill.`]
+			? [
+					`${formatCents(input.creditCents)} is held as credit for your next bill.`,
+				]
 			: []),
 		...receiptFooter(input),
 	].join("\n");
@@ -215,7 +214,7 @@ export function buildPaymentReceiptSummary(input: PaymentReceiptInput) {
 export function buildPaymentCorrectionSummary(input: PaymentCorrectionInput) {
 	return [
 		`*${input.firstName}, a correction to your payment*`,
-		`${cents(input.amountCents)} on ${formatReceivedDate(input.receivedAt)}`,
+		`${formatCents(input.amountCents)} on ${formatReceivedDate(input.receivedAt)}`,
 		"",
 		...(input.before.length
 			? ["Previously covered:", ...receiptLines(input.before, input.receivedAt)]
@@ -227,7 +226,7 @@ export function buildPaymentCorrectionSummary(input: PaymentCorrectionInput) {
 					...receiptLines(input.after, input.receivedAt),
 					...(input.creditCents > 0
 						? [
-								`${cents(input.creditCents)} is held as credit for your next bill.`,
+								`${formatCents(input.creditCents)} is held as credit for your next bill.`,
 							]
 						: []),
 				]
@@ -256,7 +255,7 @@ function arrivalHint(input: PaymentArrivedInput) {
 export function buildPaymentArrivedSummary(input: PaymentArrivedInput) {
 	return [
 		`*Payment arrived from ${input.senderName}*`,
-		`${cents(input.amountCents)} on ${formatReceivedDate(input.receivedAt)} · ${
+		`${formatCents(input.amountCents)} on ${formatReceivedDate(input.receivedAt)} · ${
 			input.reference ? `"${input.reference}"` : "no reference"
 		}`,
 		"",
@@ -277,7 +276,7 @@ const DIGEST_LINE_LIMIT = 8;
 
 function overdueLine(item: OverdueDigestInput["items"][number]) {
 	const days = `${item.daysOverdue} ${item.daysOverdue === 1 ? "day" : "days"}`;
-	return `- ${item.label} · ${cents(item.amountCents)} · ${days} overdue`;
+	return `- ${item.label} · ${formatCents(item.amountCents)} · ${days} overdue`;
 }
 
 // The one private message a housemate gets each day while anything is
@@ -285,13 +284,13 @@ function overdueLine(item: OverdueDigestInput["items"][number]) {
 export function buildOverdueDigestSummary(input: OverdueDigestInput) {
 	const hidden = input.items.length - DIGEST_LINE_LIMIT;
 	return [
-		`*Hi ${input.firstName}, you have ${cents(input.overdueCents)} overdue*`,
+		`*Hi ${input.firstName}, you have ${formatCents(input.overdueCents)} overdue*`,
 		"",
 		...input.items.slice(0, DIGEST_LINE_LIMIT).map(overdueLine),
 		...(hidden > 0 ? [`+${hidden} more`] : []),
 		"",
 		...(input.creditCents > 0
-			? [`${cents(input.creditCents)} of your credit is already applied.`]
+			? [`${formatCents(input.creditCents)} of your credit is already applied.`]
 			: []),
 		input.payUrl,
 	].join("\n");
@@ -307,7 +306,8 @@ export function buildOverdueDigestPreviewSummary(input: {
 		`*Overdue digests for ${input.date}*`,
 		"",
 		...input.digests.map(
-			(digest) => `- ${digest.housemateName} · ${cents(digest.overdueCents)}`,
+			(digest) =>
+				`- ${digest.housemateName} · ${formatCents(digest.overdueCents)}`,
 		),
 		"",
 		"Exact WhatsApp message(s) below:",

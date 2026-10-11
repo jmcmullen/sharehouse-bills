@@ -8,6 +8,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
+import { formatCents, formatDecimal } from "@/lib/money";
 import { Check, Copy } from "lucide-react";
 import { type ComponentProps, useState } from "react";
 import { toast } from "sonner";
@@ -17,16 +18,9 @@ type PayNowDialogProps = {
 	triggerVariant?: ComponentProps<typeof Button>["variant"];
 	title: string;
 	payId: string | null;
-	amount: number;
+	amountCents: number;
 	descriptionValue: string;
 };
-
-function formatCurrency(amount: number) {
-	return new Intl.NumberFormat("en-AU", {
-		style: "currency",
-		currency: "AUD",
-	}).format(amount);
-}
 
 function sanitizeCopyValue(value: string) {
 	return value.replace(/\$/g, "").replace(/,/g, "").replace(/\s+/g, "").trim();
@@ -95,8 +89,8 @@ export function PayNowDialog(input: PayNowDialogProps) {
 		{
 			id: "amount",
 			label: `${input.payId ? "2" : "1"}. Copy this amount`,
-			displayValue: formatCurrency(input.amount),
-			copyValue: input.amount.toFixed(2),
+			displayValue: formatCents(input.amountCents),
+			copyValue: formatDecimal(input.amountCents),
 		},
 		{
 			id: "description",

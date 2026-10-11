@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { getPublicDebtReceipt } from "@/functions/public-debt-receipt";
 import { formatDueDate, formatPaidTiming } from "@/lib/bill-timing";
 import { getReceiptBillLabel } from "@/lib/debt-receipt";
-import { buildOpenGraphMeta, formatCurrency } from "@/lib/share-preview";
+import { formatCents } from "@/lib/money";
+import { buildOpenGraphMeta } from "@/lib/share-preview";
 import { createFileRoute } from "@tanstack/react-router";
 
 const SECTION_LABEL_CLASS =
@@ -75,7 +76,7 @@ export const Route = createFileRoute("/receipt/$token")({
 			};
 		}
 
-		const title = `${loaderData.housemate.name} paid ${formatCurrency(loaderData.receipt.amountPaid)}`;
+		const title = `${loaderData.housemate.name} paid ${formatCents(loaderData.receipt.paidCents)}`;
 		const billLabel = getReceiptBillLabel(loaderData.receipt);
 		const description = `${billLabel} due ${formatDueDate(loaderData.receipt.dueDateIso)}. ${formatPaidTiming(loaderData.receipt.dueDateIso, loaderData.receipt.paidAtIso)}.`;
 		const previewDate = loaderData.previewDate;
@@ -151,7 +152,7 @@ function PublicReceiptPage() {
 					<div className="flex flex-col gap-1">
 						<p className={SECTION_LABEL_CLASS}>Paid</p>
 						<h1 className="font-bold text-[3.25rem] tabular-nums leading-[1.02] tracking-[-0.03em]">
-							{formatCurrency(loaderData.receipt.amountPaid)}
+							{formatCents(loaderData.receipt.paidCents)}
 						</h1>
 						<div>
 							<span className="inline-flex items-center rounded-full bg-success-muted px-2.5 py-1 font-semibold text-[11.5px] text-success-muted-foreground tracking-tight">

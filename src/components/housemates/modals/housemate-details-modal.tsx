@@ -18,6 +18,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { formatCents } from "@/lib/money";
 import {
 	IconChartPie,
 	IconCheck,
@@ -25,71 +26,72 @@ import {
 	IconUser,
 	IconX,
 } from "@tabler/icons-react";
-import type { Housemate, HousemateDebt, HousemateStats } from "../types";
-import { formatCurrency, formatDate } from "../utils";
+import type { Housemate, HousemateAccount } from "../types";
+import { formatDate } from "../utils";
+
+function formatDay(seconds: number) {
+	return formatDate(new Date(seconds * 1000));
+}
 
 interface HousemateDetailsModalProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	housemate: Housemate | null;
-	stats: HousemateStats | null;
-	debts: HousemateDebt[];
-	statsLoading: boolean;
-	debtsLoading: boolean;
+	account: HousemateAccount | null;
+	isLoading: boolean;
 }
 
 export function HousemateDetailsModal({
 	open,
 	onOpenChange,
 	housemate,
-	stats,
-	debts,
-	statsLoading,
-	debtsLoading,
+	account,
+	isLoading,
 }: HousemateDetailsModalProps) {
+	const shares = account?.shares ?? [];
 	const renderStatsCards = () => (
 		<div className="grid gap-4 md:grid-cols-3">
 			<Card>
 				<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-					<CardTitle className="font-medium text-sm">Total Owed</CardTitle>
+					<CardTitle className="font-medium text-sm">Owes</CardTitle>
 					<IconCurrencyDollar className="h-4 w-4 text-muted-foreground" />
 				</CardHeader>
 				<CardContent>
 					<div className="font-bold text-2xl">
-						{statsLoading ? (
+						{isLoading ? (
 							<Skeleton className="h-8 w-20" />
 						) : (
-							formatCurrency(stats?.totalOwed || 0)
+							formatCents(account?.owesCents ?? 0)
 						)}
 					</div>
 				</CardContent>
 			</Card>
 			<Card>
 				<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-					<CardTitle className="font-medium text-sm">Total Paid</CardTitle>
+					<CardTitle className="font-medium text-sm">Credit held</CardTitle>
 					<IconCheck className="h-4 w-4 text-muted-foreground" />
 				</CardHeader>
 				<CardContent>
 					<div className="font-bold text-2xl">
-						{statsLoading ? (
+						{isLoading ? (
 							<Skeleton className="h-8 w-20" />
 						) : (
-							formatCurrency(stats?.totalPaid || 0)
+							formatCents(account?.creditCents ?? 0)
 						)}
 					</div>
 				</CardContent>
 			</Card>
 			<Card>
 				<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-					<CardTitle className="font-medium text-sm">Outstanding</CardTitle>
+					<CardTitle className="font-medium text-sm">Unpaid shares</CardTitle>
 					<IconChartPie className="h-4 w-4 text-muted-foreground" />
 				</CardHeader>
 				<CardContent>
 					<div className="font-bold text-2xl">
-						{statsLoading ? (
+						{isLoading ? (
 							<Skeleton className="h-8 w-20" />
 						) : (
-							formatCurrency(stats?.totalOutstanding || 0)
+							formatCents(account?.remainingCents ?? 0)
 						)}
 					</div>
 				</CardContent>
@@ -103,13 +105,13 @@ export function HousemateDetailsModal({
 				<CardTitle>Payment History</CardTitle>
 			</CardHeader>
 			<CardContent>
-				{debtsLoading ? (
+				{isLoading ? (
 					<div className="space-y-3">
 						{Array.from({ length: 3 }, () => (
 							<Skeleton key={crypto.randomUUID()} className="h-12 w-full" />
 						))}
 					</div>
-				) : debts.length === 0 ? (
+				) : shares.length === 0 ? (
 					<div className="py-8 text-center">
 						<p className="text-muted-foreground">No payment history found</p>
 					</div>
@@ -126,20 +128,18 @@ export function HousemateDetailsModal({
 								</TableRow>
 							</TableHeader>
 							<TableBody>
-								{debts.map(({ debt, bill }) => (
-									<TableRow key={debt.id}>
-										<TableCell className="font-medium">
-											{bill.billerName}
-										</TableCell>
+								{shares.map((share) => (
+									<TableRow key={share.id}>
+										<TableCell className="font-medium">{share.name}</TableCell>
 										<TableCell className="font-mono">
-											{formatCurrency(
-												debt.amountOwed - debt.amountPaid > 0
-													? debt.amountOwed - debt.amountPaid
-													: debt.amountPaid,
+											{formatCents(
+												share.remainingCents > 0
+													? share.remainingCents
+													: share.paidCents,
 											)}
 										</TableCell>
 										<TableCell>
-											{debt.isPaid ? (
+											{share.remainingCents === 0 ? (
 												<Badge className="bg-green-100 text-green-800">
 													<IconCheck className="mr-1 h-3 w-3" />
 													Paid
@@ -154,9 +154,11 @@ export function HousemateDetailsModal({
 												</Badge>
 											)}
 										</TableCell>
-										<TableCell>{formatDate(bill.dueDate)}</TableCell>
+										<TableCell>{formatDay(share.dueAt)}</TableCell>
 										<TableCell>
-											{debt.paidAt ? formatDate(debt.paidAt) : "-"}
+											{share.settledAt === null
+												? "-"
+												: formatDay(share.settledAt)}
 										</TableCell>
 									</TableRow>
 								))}

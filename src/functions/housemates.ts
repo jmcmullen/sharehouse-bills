@@ -1,30 +1,19 @@
 // fallow-ignore-file code-duplication
 import { createServerFn } from "@tanstack/react-start";
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { createError } from "evlog";
 import { z } from "zod";
 import { db } from "../api/db/index.server";
-import { bills } from "../api/db/schema/bills";
-import { debts } from "../api/db/schema/debts";
 import { housemates } from "../api/db/schema/housemates";
-import { getRemainingDebtAmount } from "../api/services/debt-payment-state";
 import {
-	getUnallocatedCredit,
-	getUnallocatedCredits,
-} from "../api/services/ledger/credit.server";
+	loadAccount,
+	loadAccounts,
+} from "../api/services/account/account.server";
+import { sum } from "../api/services/account/compute";
 import { createPayPath } from "../api/services/pay-token.server";
-import { getCoveredShares } from "../api/services/unpaid-shares.server";
-import { overdueCents } from "../api/services/unpaid-totals";
 import { normalizeWhatsappNumber } from "../api/services/whatsapp-phone";
 import { authMiddleware } from "../lib/auth-middleware";
 import { entityIdSchema } from "../lib/id";
-
-interface HousemateBalanceRow {
-	id: string;
-	name: string;
-	isActive: boolean;
-	amount: number;
-}
 
 function createHousemateNotFoundError(housemateId: string) {
 	return createError({
@@ -52,73 +41,60 @@ export const getAllHousemates = createServerFn({ method: "GET" })
 		}));
 	});
 
-// Get outstanding debt totals for each housemate
-export const getHousemateOutstandingBalances = createServerFn({ method: "GET" })
+interface BalanceRow {
+	id: string;
+	name: string;
+	isActive: boolean;
+	amountCents: number;
+}
+
+function toMetric(rows: BalanceRow[]) {
+	const sorted = [...rows].sort(
+		(left, right) =>
+			right.amountCents - left.amountCents ||
+			left.name.localeCompare(right.name),
+	);
+	const owing = sorted.filter((row) => row.amountCents > 0);
+	return {
+		rows: sorted,
+		totalCents: sum(owing, (row) => row.amountCents),
+		count: owing.length,
+	};
+}
+
+// What each housemate owes and has overdue, after held credit covers their
+// oldest shares, straight from their accounts.
+export const getHousemateBalances = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
 	.handler(async () => {
-		const rows = await db
-			.select({
-				id: housemates.id,
-				name: housemates.name,
-				isActive: housemates.isActive,
-				debt: debts,
-			})
-			.from(housemates)
-			.leftJoin(debts, eq(debts.housemateId, housemates.id))
-			.orderBy(housemates.name);
-		const credits = await getUnallocatedCredits(rows.map((row) => row.id));
-
-		const balances = Array.from(
-			rows
-				.reduce((map, row) => {
-					const existing = map.get(row.id) ?? {
-						id: row.id,
-						name: row.name,
-						isActive: row.isActive,
-						amount: 0,
-					};
-
-					if (row.debt) {
-						existing.amount += getRemainingDebtAmount(row.debt);
-					}
-
-					map.set(row.id, existing);
-					return map;
-				}, new Map<string, HousemateBalanceRow>())
-				.values(),
-		).map((row) => ({
-			...row,
-			amount: Math.max(0, row.amount - (credits.get(row.id) ?? 0)),
+		const [rows, accounts] = await Promise.all([
+			db
+				.select({ id: housemates.id, isActive: housemates.isActive })
+				.from(housemates),
+			loadAccounts(),
+		]);
+		const active = new Map(rows.map((row) => [row.id, row.isActive]));
+		const balances = accounts.map((account) => ({
+			id: account.housemate.id,
+			name: account.housemate.name,
+			isActive: active.get(account.housemate.id) ?? false,
+			owesCents: account.owesCents,
+			overdueCents: account.overdueCents,
 		}));
-
-		return balances.sort((left, right) => {
-			return right.amount - left.amount || left.name.localeCompare(right.name);
-		});
-	});
-
-// Overdue totals per housemate, after held credit covers the oldest shares.
-export const getHousemateOverdueBalances = createServerFn({ method: "GET" })
-	.middleware([authMiddleware])
-	.handler(async () => {
-		const now = new Date();
-		const rows = await db
-			.select({
-				id: housemates.id,
-				name: housemates.name,
-				isActive: housemates.isActive,
-			})
-			.from(housemates)
-			.orderBy(housemates.name);
-		const balances: HousemateBalanceRow[] = await Promise.all(
-			rows.map(async (row) => {
-				const { shares } = await getCoveredShares(row.id);
-				return { ...row, amount: overdueCents(shares, now) / 100 };
-			}),
-		);
-
-		return balances.sort((left, right) => {
-			return right.amount - left.amount || left.name.localeCompare(right.name);
-		});
+		return {
+			outstanding: toMetric(
+				balances.map(({ owesCents, overdueCents, ...row }) => ({
+					...row,
+					amountCents: owesCents,
+				})),
+			),
+			overdue: toMetric(
+				balances.map(({ owesCents, overdueCents, ...row }) => ({
+					...row,
+					amountCents: overdueCents,
+				})),
+			),
+		};
 	});
 
 // Get active housemates only
@@ -214,71 +190,29 @@ export const updateHousemate = createServerFn({ method: "POST" })
 		return updatedHousemate;
 	});
 
-// Get housemate's debt history
-export const getHousemateDebts = createServerFn({ method: "GET" })
+// One housemate's account for the details modal: every share with its paid
+// state, newest due first, and the account totals.
+export const getHousemateAccount = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
 	.inputValidator(z.object({ housemateId: entityIdSchema }))
 	.handler(async ({ data }) => {
-		return await db
-			.select({
-				debt: debts,
-				bill: bills,
-			})
-			.from(debts)
-			.innerJoin(bills, eq(debts.billId, bills.id))
-			.where(eq(debts.housemateId, data.housemateId))
-			.orderBy(desc(bills.createdAt));
-	});
-
-// Get housemate's outstanding debts
-export const getHousemateOutstandingDebts = createServerFn({ method: "GET" })
-	.middleware([authMiddleware])
-	.inputValidator(z.object({ housemateId: entityIdSchema }))
-	.handler(async ({ data }) => {
-		return await db
-			.select({
-				debt: debts,
-				bill: bills,
-			})
-			.from(debts)
-			.innerJoin(bills, eq(debts.billId, bills.id))
-			.where(
-				and(eq(debts.housemateId, data.housemateId), eq(debts.isPaid, false)),
-			)
-			.orderBy(desc(bills.dueDate));
-	});
-
-// Get housemate payment statistics
-export const getHousemateStats = createServerFn({ method: "GET" })
-	.middleware([authMiddleware])
-	.inputValidator(z.object({ housemateId: entityIdSchema }))
-	.handler(async ({ data }) => {
-		const allDebts = await db
-			.select()
-			.from(debts)
-			.where(eq(debts.housemateId, data.housemateId));
-
-		const paidDebts = allDebts.filter((debt) => debt.isPaid);
-		const unpaidDebts = allDebts.filter((debt) => !debt.isPaid);
-		const credit = await getUnallocatedCredit(data.housemateId);
-
-		const totalOwed = allDebts.reduce((sum, debt) => sum + debt.amountOwed, 0);
-		const totalPaid = allDebts.reduce((sum, debt) => sum + debt.amountPaid, 0);
-		const totalOutstanding = Math.max(
-			0,
-			unpaidDebts.reduce((sum, debt) => {
-				return sum + getRemainingDebtAmount(debt);
-			}, 0) - credit,
-		);
-
+		const account = await loadAccount(data.housemateId);
+		if (!account) throw createHousemateNotFoundError(data.housemateId);
 		return {
-			totalDebts: allDebts.length,
-			paidDebts: paidDebts.length,
-			unpaidDebts: unpaidDebts.length,
-			totalOwed,
-			totalPaid,
-			totalOutstanding,
-			paymentRate: allDebts.length > 0 ? paidDebts.length / allDebts.length : 0,
+			remainingCents: account.remainingCents,
+			owesCents: account.owesCents,
+			creditCents: account.creditCents,
+			shares: [...account.shares]
+				.sort((a, b) => b.dueAt - a.dueAt || a.id.localeCompare(b.id))
+				.map((share) => ({
+					id: share.id,
+					name: share.name,
+					dueAt: share.dueAt,
+					amountCents: share.amountCents,
+					paidCents: share.paidCents,
+					remainingCents: share.remainingCents,
+					settledAt: share.settledAt,
+				})),
 		};
 	});
 

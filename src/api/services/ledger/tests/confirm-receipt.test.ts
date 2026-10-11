@@ -33,7 +33,7 @@ const count = async (client: Client, sql: string) =>
 async function openShares(client: Client): Promise<void> {
 	await client.executeMultiple(
 		`INSERT INTO bills(id,biller_name,due_date,created_at,bill_type) VALUES('cleaning','Cleaners',${time + 86400},${time - 1000},'cleaning');
-		INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,0,${time}),('clean-share','oliver','cleaning',30,0,${time});`,
+		INSERT INTO debts(id,housemate_id,bill_id,amount_cents,created_at) VALUES('gas-share','oliver','bill',6000,${time}),('clean-share','oliver','cleaning',3000,${time})`,
 	);
 	await drainLedgerEvents(client);
 }
@@ -133,7 +133,7 @@ test("a rent reference confirms onto a template-generated rent bill with no bill
 		await client.executeMultiple(
 			`INSERT INTO recurringBills(id,templateName,billerName) VALUES('weekly','Weekly Rent','Agent');
 		INSERT INTO bills(id,biller_name,due_date,created_at,recurring_bill_id) VALUES('rent','Agent',${time + 86400},${time - 1000},'weekly');
-		INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('rent-share','oliver','rent',420,0,${time});`,
+		INSERT INTO debts(id,housemate_id,bill_id,amount_cents,created_at) VALUES('rent-share','oliver','rent',42000,${time})`,
 		);
 		await drainLedgerEvents(client);
 		await ingest(client, receipt("rent", 42000, "Rent"));

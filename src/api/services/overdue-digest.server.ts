@@ -1,9 +1,10 @@
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { db } from "../db/index.server";
 import { housemates } from "../db/schema/housemates";
+import type { Account } from "./account/account";
+import { loadAccount, loadAccounts } from "./account/account.server";
 import { type OverdueDigest, buildOverdueDigest } from "./overdue-digest";
 import { createAbsolutePayUrl } from "./pay-token.server";
-import { getCoveredShares } from "./unpaid-shares.server";
 import { buildOverdueDigestSummary } from "./whatsapp-message-composer";
 import { getWhatsappNotificationById } from "./whatsapp-notifications";
 
@@ -33,12 +34,16 @@ function withNumber(
 	);
 }
 
-async function digestFor(
+function seconds(date: Date): number {
+	return Math.floor(date.getTime() / 1000);
+}
+
+function digestFor(
 	housemate: DigestHousemate,
+	account: Account | null | undefined,
 	now: Date,
-): Promise<HousemateDigest | null> {
-	const covered = await getCoveredShares(housemate.id);
-	const digest = buildOverdueDigest(covered.shares, covered.credit, now);
+): HousemateDigest | null {
+	const digest = account ? buildOverdueDigest(account.shares, now) : null;
 	return digest ? { housemate, digest } : null;
 }
 
@@ -52,10 +57,15 @@ export async function getOverdueDigests(now: Date): Promise<HousemateDigest[]> {
 			and(eq(housemates.isOwner, false), isNotNull(housemates.whatsappNumber)),
 		)
 		.orderBy(asc(housemates.name));
-	const digests = await Promise.all(
-		withNumber(rows).map((housemate) => digestFor(housemate, now)),
+	const accounts = new Map(
+		(await loadAccounts({ now: seconds(now) })).map((account) => [
+			account.housemate.id,
+			account,
+		]),
 	);
-	return digests.filter((entry) => entry !== null);
+	return withNumber(rows).flatMap(
+		(housemate) => digestFor(housemate, accounts.get(housemate.id), now) ?? [],
+	);
 }
 
 export function composeOverdueDigest(
@@ -91,5 +101,6 @@ export async function getOverdueDigestNotificationContext(
 			.limit(1),
 	);
 	if (!housemate) return null;
-	return { notification, entry: await digestFor(housemate, now) };
+	const account = await loadAccount(housemate.id, { now: seconds(now) });
+	return { notification, entry: digestFor(housemate, account, now) };
 }

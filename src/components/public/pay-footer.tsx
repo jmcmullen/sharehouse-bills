@@ -11,21 +11,19 @@ export function PayFooterActions({
 	nothingToPay,
 	payVerb,
 	payId,
-	remainingAmount,
-	overdueAmount,
+	remainingCents,
+	overdueCents,
 }: {
 	statementPath: string;
 	allBillsPath: string | null;
 	nothingToPay: boolean;
 	payVerb: string;
 	payId: string | null;
-	remainingAmount: number;
-	overdueAmount: number;
+	remainingCents: number;
+	overdueCents: number;
 }) {
 	const canPayOverdueOnly =
-		!nothingToPay &&
-		overdueAmount > 0.009 &&
-		remainingAmount - overdueAmount > 0.009;
+		!nothingToPay && overdueCents > 0 && remainingCents > overdueCents;
 	return (
 		<div className="fixed inset-x-0 bottom-0 z-20 bg-background/95 px-5 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:static sm:z-auto sm:mt-auto sm:bg-transparent sm:px-0 sm:pt-0 sm:pb-0 sm:backdrop-blur-none">
 			<div className="mx-auto flex w-full max-w-md flex-col gap-2.5">
@@ -43,7 +41,7 @@ export function PayFooterActions({
 						triggerVariant="outline"
 						title="Pay overdue only"
 						payId={payId}
-						amount={overdueAmount}
+						amountCents={overdueCents}
 						descriptionValue="Bills"
 					/>
 				) : null}
@@ -52,7 +50,7 @@ export function PayFooterActions({
 						triggerLabel={payVerb}
 						title={payVerb}
 						payId={payId}
-						amount={remainingAmount}
+						amountCents={remainingCents}
 						descriptionValue="Bills"
 					/>
 				)}

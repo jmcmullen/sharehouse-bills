@@ -16,8 +16,8 @@ const at = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
 
 const data: HousemateStatementData = {
 	housemate: { name: "Sarah O'Dwyer" },
-	headline: { label: "You owe", amount: 106.23 },
-	credit: { heldAmount: 50, appliedAmount: 30 },
+	headline: { label: "You owe", amountCents: 10623 },
+	credit: { heldCents: 5000, appliedCents: 3000 },
 	timeline: {
 		recent: [
 			{
@@ -125,8 +125,8 @@ test("the pay footer links to the statement above the pay actions, even when not
 		allBillsPath: null,
 		payVerb: "Pay all bills",
 		payId: null,
-		remainingAmount: 100,
-		overdueAmount: 40,
+		remainingCents: 10000,
+		overdueCents: 4000,
 	};
 	const { rerender } = render(
 		createElement(PayFooterActions, { ...props, nothingToPay: false }),

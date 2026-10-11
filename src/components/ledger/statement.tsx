@@ -1,11 +1,8 @@
+import { formatCents } from "@/lib/money";
 import { useState } from "react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 
-export const ledgerMoney = (cents: number): string =>
-	new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(
-		cents / 100,
-	);
 export const ledgerDate = (seconds: number): string =>
 	new Intl.DateTimeFormat("en-AU", {
 		timeZone: "Australia/Sydney",
@@ -46,7 +43,7 @@ export function StatementHistory({ entries }: { entries: VisibleEntry[] }) {
 					(kind === "payments"
 						? entry.kind === "payment" || entry.kind === "refund"
 						: entry.kind === "charge")) &&
-				`${entry.description} ${ledgerMoney(Math.abs(entry.amountCents))} ${ledgerDate(entry.effectiveAt)}`
+				`${entry.description} ${formatCents(Math.abs(entry.amountCents))} ${ledgerDate(entry.effectiveAt)}`
 					.toLowerCase()
 					.includes(query.toLowerCase()),
 		);
@@ -109,10 +106,10 @@ export function StatementHistory({ entries }: { entries: VisibleEntry[] }) {
 									}
 								>
 									{entry.amountCents > 0 ? "+" : ""}
-									{ledgerMoney(entry.amountCents)}
+									{formatCents(entry.amountCents)}
 								</p>
 								<p className="mt-1 text-muted-foreground text-xs">
-									Balance {ledgerMoney(entry.runningBalanceCents)}
+									Balance {formatCents(entry.runningBalanceCents)}
 								</p>
 							</div>
 						</div>

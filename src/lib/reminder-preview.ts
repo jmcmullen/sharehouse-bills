@@ -1,5 +1,5 @@
 import { formatDueDate } from "./bill-timing";
-import { formatCurrency } from "./share-preview";
+import { formatCents } from "./money";
 
 export function formatReminderBillLabel(input: {
 	billerName: string;
@@ -27,9 +27,9 @@ export function formatReminderMetaDescription(input: {
 	billerName: string;
 	recurringTemplateName?: string | null;
 	dueDate: Date | string;
-	remainingAmount: number;
+	remainingCents: number;
 	isOverdue: boolean;
 }) {
 	const label = formatReminderBillLabel(input);
-	return `${label} ${input.isOverdue ? "was" : "is"} due ${formatDueDate(input.dueDate)} for ${formatCurrency(input.remainingAmount)}`;
+	return `${label} ${input.isOverdue ? "was" : "is"} due ${formatDueDate(input.dueDate)} for ${formatCents(input.remainingCents)}`;
 }

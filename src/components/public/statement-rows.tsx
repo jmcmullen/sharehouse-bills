@@ -1,17 +1,17 @@
 import type {
-	BillStatus,
 	StatementBill,
 	StatementMonth,
 	StatementPayment,
-} from "@/api/services/statement-timeline";
-import { formatCurrency } from "@/lib/share-preview";
+	StatementStatus,
+} from "@/api/services/account/statement";
+import { formatCents } from "@/lib/money";
 import type { ReactNode } from "react";
 import { RowContent } from "./row-content";
 import { SectionHeader } from "./section-header";
 import { PublicStatusBadge } from "./status-badge";
 
 const STATUS: Record<
-	BillStatus,
+	StatementStatus,
 	{ label: string; tone: "danger" | "info" | "neutral" | "success" | "warning" }
 > = {
 	paid: { label: "Paid", tone: "success" },
@@ -20,10 +20,6 @@ const STATUS: Record<
 	overdue: { label: "Overdue", tone: "danger" },
 	due: { label: "Due", tone: "neutral" },
 };
-
-function money(cents: number) {
-	return formatCurrency(cents / 100);
-}
 
 function day(seconds: number) {
 	return new Intl.DateTimeFormat("en-AU", {
@@ -37,7 +33,7 @@ function day(seconds: number) {
 function billDetail(bill: StatementBill) {
 	const due = `Due ${day(bill.at)}`;
 	return bill.leftCents > 0 && bill.leftCents < bill.amountCents
-		? `${due} · ${money(bill.leftCents)} left`
+		? `${due} · ${formatCents(bill.leftCents)} left`
 		: due;
 }
 
@@ -46,7 +42,7 @@ function Amount({ cents, paid }: { cents: number; paid?: boolean }) {
 		<p
 			className={`font-semibold text-[15px] tabular-nums leading-tight ${paid ? "text-success" : ""}`}
 		>
-			{money(cents)}
+			{formatCents(cents)}
 		</p>
 	);
 }
@@ -64,7 +60,9 @@ function Linked({ lines }: { lines: Line[] }) {
 				<li key={line.key} className="flex items-start justify-between gap-3">
 					<span className="min-w-0">{line.label}</span>
 					{line.cents === null ? null : (
-						<span className="shrink-0 tabular-nums">{money(line.cents)}</span>
+						<span className="shrink-0 tabular-nums">
+							{formatCents(line.cents)}
+						</span>
 					)}
 				</li>
 			))}

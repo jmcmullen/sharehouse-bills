@@ -1,5 +1,6 @@
 // fallow-ignore-file code-duplication
-import { getEqualSplitAmounts } from "@/lib/equal-split";
+import { getEqualSplitCents } from "@/lib/equal-split";
+import { formatDecimal, parseCents } from "@/lib/money";
 import type {
 	HousemateOption,
 	RecurringBillFormData,
@@ -181,13 +182,6 @@ function getNextDueDateForForm(formData: RecurringBillFormData) {
 	return getNextYearlyDueDate(startDate, baseDate);
 }
 
-export function formatCurrency(amount: number) {
-	return new Intl.NumberFormat("en-AU", {
-		style: "currency",
-		currency: "AUD",
-	}).format(amount);
-}
-
 export function formatDate(value: string | Date | null | undefined) {
 	const date = toDate(value);
 	if (!date) {
@@ -240,7 +234,7 @@ export function buildEmptyRecurringBillFormData(
 		id: null,
 		templateName: "",
 		billerName: "",
-		totalAmount: "",
+		totalDollars: "",
 		frequency: "weekly",
 		dayOfWeek: "4",
 		dayOfMonth: "1",
@@ -254,7 +248,7 @@ export function buildEmptyRecurringBillFormData(
 			name: housemate.name,
 			isOwner: housemate.isOwner,
 			isActive: true,
-			customAmount: "",
+			customDollars: "",
 		})),
 	};
 }
@@ -271,7 +265,7 @@ export function buildRecurringBillFormData(
 		id: item.template.id,
 		templateName: item.template.templateName,
 		billerName: item.template.billerName,
-		totalAmount: String(item.template.totalAmount),
+		totalDollars: formatDecimal(item.template.totalCents),
 		frequency: item.template.frequency,
 		dayOfWeek:
 			item.template.dayOfWeek === null ? "" : String(item.template.dayOfWeek),
@@ -289,35 +283,35 @@ export function buildRecurringBillFormData(
 				name: housemate.name,
 				isOwner: housemate.isOwner,
 				isActive: assignment?.isActive ?? false,
-				customAmount:
-					assignment?.customAmount === null ||
-					assignment?.customAmount === undefined
+				customDollars:
+					assignment?.customCents === null ||
+					assignment?.customCents === undefined
 						? ""
-						: String(assignment.customAmount),
+						: formatDecimal(assignment.customCents),
 			};
 		}),
 	};
 }
 
 export function validateRecurringBillForm(formData: RecurringBillFormData) {
-	const totalAmount = Number.parseFloat(formData.totalAmount);
+	const totalCents = parseCents(formData.totalDollars);
 	const activeAssignments = formData.assignments.filter(
 		(assignment) => assignment.isActive,
 	);
 
 	return (
-		validateRecurringBillBasics(formData, totalAmount) ??
+		validateRecurringBillBasics(formData, totalCents) ??
 		validateRecurringBillAssignments({
 			activeAssignments,
 			splitStrategy: formData.splitStrategy,
-			totalAmount,
+			totalCents: totalCents ?? 0,
 		})
 	);
 }
 
 function validateRecurringBillBasics(
 	formData: RecurringBillFormData,
-	totalAmount: number,
+	totalCents: number | null,
 ) {
 	if (!formData.templateName.trim()) {
 		return "Template name is required";
@@ -327,7 +321,7 @@ function validateRecurringBillBasics(
 		return "Biller name is required";
 	}
 
-	if (Number.isNaN(totalAmount) || totalAmount <= 0) {
+	if (totalCents === null || totalCents <= 0) {
 		return "Total amount must be greater than zero";
 	}
 
@@ -348,7 +342,7 @@ function validateRecurringBillBasics(
 function validateRecurringBillAssignments(input: {
 	activeAssignments: RecurringBillAssignmentFormData[];
 	splitStrategy: RecurringBillFormData["splitStrategy"];
-	totalAmount: number;
+	totalCents: number;
 }) {
 	if (input.activeAssignments.length === 0) {
 		return "Select at least one active housemate";
@@ -360,122 +354,105 @@ function validateRecurringBillAssignments(input: {
 
 	return validateCustomRecurringAssignments(
 		input.activeAssignments,
-		input.totalAmount,
+		input.totalCents,
 	);
 }
 
 function validateCustomRecurringAssignments(
 	activeAssignments: RecurringBillAssignmentFormData[],
-	totalAmount: number,
+	totalCents: number,
 ) {
 	const hasOwner = activeAssignments.some((assignment) => assignment.isOwner);
-	const customTotalResult = getCustomAssignmentTotal(activeAssignments);
-	if (typeof customTotalResult === "string") {
-		return customTotalResult;
+	const missing = activeAssignments.find((assignment) => {
+		const cents = parseCents(assignment.customDollars);
+		return !assignment.isOwner && (cents === null || cents < 0);
+	});
+	if (missing) {
+		return `Custom amount required for ${missing.name}`;
 	}
 
-	if (customTotalResult - totalAmount > 0.01) {
+	const customCents = customTotalCents(activeAssignments);
+	if (customCents > totalCents) {
 		return "Custom amounts cannot exceed the total amount";
 	}
 
-	if (!hasOwner && Math.abs(customTotalResult - totalAmount) > 0.01) {
+	if (!hasOwner && customCents !== totalCents) {
 		return "Custom amounts must match the total amount unless an owner is included";
 	}
 
 	return null;
 }
 
-function getCustomAssignmentTotal(
-	activeAssignments: RecurringBillAssignmentFormData[],
-) {
-	return activeAssignments.reduce<number | string>((total, assignment) => {
-		if (typeof total === "string" || assignment.isOwner) {
-			return total;
-		}
+function customCentsFor(assignment: RecurringBillAssignmentFormData) {
+	return assignment.isOwner ? null : parseCents(assignment.customDollars);
+}
 
-		const customAmount = Number.parseFloat(assignment.customAmount);
-		return Number.isNaN(customAmount) || customAmount < 0
-			? `Custom amount required for ${assignment.name}`
-			: total + customAmount;
-	}, 0);
+function customTotalCents(assignments: RecurringBillAssignmentFormData[]) {
+	return assignments.reduce(
+		(total, assignment) => total + (customCentsFor(assignment) ?? 0),
+		0,
+	);
 }
 
 export function calculateRecurringBillPreview(
 	formData: RecurringBillFormData,
 ): RecurringBillPreviewSummary {
-	const totalAmount = Number.parseFloat(formData.totalAmount) || 0;
-	const includedAssignments = formData.assignments.filter(
+	const totalCents = parseCents(formData.totalDollars) ?? 0;
+	const included = formData.assignments.filter(
 		(assignment) => assignment.isActive,
 	);
 
-	if (includedAssignments.length === 0) {
+	if (included.length === 0) {
 		return {
 			includedCount: 0,
-			amountPerPerson: null,
-			ownerShare: totalAmount,
-			nonOwnerTotal: 0,
+			perPersonCents: null,
+			ownerShareCents: totalCents,
+			nonOwnerCents: 0,
 			assignments: [],
 		};
 	}
 
-	if (formData.splitStrategy === "equal") {
-		const { amountPerDebtor, ownerShareTotal } = getEqualSplitAmounts({
-			totalAmount,
-			participantCount: includedAssignments.length,
-			ownerCount: includedAssignments.filter((assignment) => assignment.isOwner)
-				.length,
-		});
-		const assignments = includedAssignments.map((assignment) => ({
+	const preview = (
+		amountCents: (assignment: RecurringBillAssignmentFormData) => number,
+		customCents: (assignment: RecurringBillAssignmentFormData) => number | null,
+	) =>
+		included.map((assignment) => ({
 			housemateId: assignment.housemateId,
 			name: assignment.name,
 			isOwner: assignment.isOwner,
 			isActive: true,
-			amountOwed: assignment.isOwner ? 0 : amountPerDebtor,
-			customAmount: null,
+			amountCents: assignment.isOwner ? 0 : amountCents(assignment),
+			customCents: customCents(assignment),
 		}));
 
+	if (formData.splitStrategy === "equal") {
+		const { perDebtorCents, ownerShareCents } = getEqualSplitCents({
+			totalCents,
+			participantCount: included.length,
+			ownerCount: included.filter((assignment) => assignment.isOwner).length,
+		});
 		return {
-			includedCount: includedAssignments.length,
-			amountPerPerson: amountPerDebtor,
-			ownerShare: ownerShareTotal,
-			nonOwnerTotal: assignments.reduce(
-				(sum, assignment) => sum + assignment.amountOwed,
-				0,
+			includedCount: included.length,
+			perPersonCents: perDebtorCents,
+			ownerShareCents,
+			nonOwnerCents: totalCents - ownerShareCents,
+			assignments: preview(
+				() => perDebtorCents,
+				() => null,
 			),
-			assignments,
 		};
 	}
 
-	const assignments = includedAssignments.map((assignment) => {
-		const parsedCustomAmount = assignment.isOwner
-			? null
-			: Number.parseFloat(assignment.customAmount);
-		const customAmount =
-			parsedCustomAmount === null || Number.isNaN(parsedCustomAmount)
-				? null
-				: parsedCustomAmount;
-		const amountOwed = assignment.isOwner ? 0 : (customAmount ?? 0);
-
-		return {
-			housemateId: assignment.housemateId,
-			name: assignment.name,
-			isOwner: assignment.isOwner,
-			isActive: true,
-			amountOwed,
-			customAmount,
-		};
-	});
-	const nonOwnerTotal = assignments.reduce(
-		(sum, assignment) => sum + assignment.amountOwed,
-		0,
-	);
-
+	const nonOwnerCents = customTotalCents(included);
 	return {
-		includedCount: includedAssignments.length,
-		amountPerPerson: null,
-		ownerShare: totalAmount - nonOwnerTotal,
-		nonOwnerTotal,
-		assignments,
+		includedCount: included.length,
+		perPersonCents: null,
+		ownerShareCents: totalCents - nonOwnerCents,
+		nonOwnerCents,
+		assignments: preview(
+			(assignment) => customCentsFor(assignment) ?? 0,
+			customCentsFor,
+		),
 	};
 }
 

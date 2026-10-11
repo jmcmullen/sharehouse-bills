@@ -1,5 +1,6 @@
 import { createError } from "evlog";
 import { Resend } from "resend";
+import { formatCents } from "../../lib/money";
 import { getRequestLogger } from "../../lib/request-logger";
 import type { ProcessingResult } from "./bill-processor";
 
@@ -75,7 +76,7 @@ export class EmailNotifierService {
 				resultDetails += "  Status: Successfully processed\n";
 				resultDetails += `  Bill ID: ${result.billId}\n`;
 				if (result.parsedData) {
-					resultDetails += `  Amount: ${result.parsedData.totalAmount}\n`;
+					resultDetails += `  Amount: ${formatCents(result.parsedData.totalCents)}\n`;
 					resultDetails += `  Biller: ${result.parsedData.billerName}\n`;
 					resultDetails += `  Due date: ${result.parsedData.dueDate}\n`;
 				}

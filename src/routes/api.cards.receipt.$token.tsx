@@ -1,13 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getPublicDebtReceiptPageData } from "../api/services/debt-receipt-page.server";
 import { formatReceiptTiming, getReceiptBillLabel } from "../lib/debt-receipt";
+import { formatCents } from "../lib/money";
 import { OgCard } from "../lib/og-card";
 import { loadGoogleFonts, resolveFontSetup } from "../lib/og-fonts.server";
 import {
 	createOgHeadResponse,
 	createOgRouteHandler,
 } from "../lib/og-route.server";
-import { formatCurrency, truncate } from "../lib/share-preview";
+import { truncate } from "../lib/share-preview";
 
 const receiptCardFontSetupPromise = resolveFontSetup({
 	baseFonts: loadGoogleFonts({
@@ -37,7 +38,7 @@ export const Route = createFileRoute("/api/cards/receipt/$token")({
 						<OgCard
 							backgroundColor="#1f241d"
 							fontFamily={fontSetup.families.base}
-							primaryValue={formatCurrency(receipt.receipt.amountPaid)}
+							primaryValue={formatCents(receipt.receipt.paidCents)}
 							secondaryColor="#bbcfad"
 							secondaryValue={formatReceiptTiming(receipt.receipt)}
 							tertiaryColor="#8fa083"

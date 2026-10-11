@@ -6,12 +6,12 @@ import { PublicStatusBadge } from "@/components/public/status-badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { getPublicBillByPdfSha } from "@/functions/public-bill";
+import { formatCents } from "@/lib/money";
 import { formatReminderBillLabel } from "@/lib/reminder-preview";
 import {
 	type BillDueStatus,
 	buildBillPreview,
 	buildOpenGraphMeta,
-	formatCurrency,
 	getBillDueStatus,
 } from "@/lib/share-preview";
 import { createFileRoute } from "@tanstack/react-router";
@@ -91,9 +91,9 @@ export const Route = createFileRoute("/bill/$pdfSha256")({
 			billLabel: formatReminderBillLabel(loaderData.bill),
 			dueDate: loaderData.bill.dueDateIso,
 			settledAt: loaderData.bill.settledAtIso,
-			totalAmount: loaderData.bill.totalAmount,
+			totalCents: loaderData.bill.totalCents,
 			hasEvenShares: loaderData.shareSummary.hasEvenShares,
-			amountEach: loaderData.shareSummary.amountEach,
+			amountEachCents: loaderData.shareSummary.amountEachCents,
 			participantCount: loaderData.shareSummary.participantCount,
 			isAllSorted: loaderData.paymentProgress.percentage === 100,
 		});
@@ -203,11 +203,12 @@ function getBillStatusBadge(input: {
 	};
 }
 
-function getPayNowAmount(data: PublicBillPageData) {
+function getPayNowCents(data: PublicBillPageData) {
 	return (
-		data.shareSummary.amountEach ??
-		data.participants.find((participant) => !participant.isOwner)?.amountOwed ??
-		data.paymentProgress.remainingAmount
+		data.shareSummary.amountEachCents ??
+		data.participants.find((participant) => !participant.isOwner)
+			?.amountCents ??
+		data.paymentProgress.remainingCents
 	);
 }
 
@@ -224,7 +225,7 @@ function BillHero({
 				{bill.billerName || "Untitled bill"}
 			</p>
 			<h1 className="font-bold text-[3.25rem] tabular-nums leading-[1.02] tracking-[-0.03em]">
-				{formatCurrency(bill.totalAmount)}
+				{formatCents(bill.totalCents)}
 			</h1>
 			<div>
 				<PublicStatusBadge tone={statusBadge.tone}>
@@ -251,12 +252,12 @@ function BillProgressSection({
 			<div className="flex items-baseline justify-between gap-3">
 				<p className="font-medium text-muted-foreground text-sm">
 					<span className="tabular-nums">
-						{formatCurrency(paymentProgress.settledAmount)}
+						{formatCents(paymentProgress.settledCents)}
 					</span>{" "}
 					of{" "}
 					<span className="tabular-nums">
-						{formatCurrency(
-							paymentProgress.settledAmount + paymentProgress.remainingAmount,
+						{formatCents(
+							paymentProgress.settledCents + paymentProgress.remainingCents,
 						)}
 					</span>{" "}
 					paid
@@ -277,7 +278,7 @@ function BillProgressSection({
 function ParticipantStatus({
 	participant,
 }: { participant: PublicBillParticipant }) {
-	const left = participant.amountOwed - participant.amountPaid;
+	const left = participant.amountCents - participant.paidCents;
 	return participant.isPaid ? (
 		<span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success-muted px-2.5 py-1 font-semibold text-[11.5px] text-success-muted-foreground tracking-tight">
 			<span aria-hidden className="h-1.5 w-1.5 rounded-full bg-success" />
@@ -285,7 +286,7 @@ function ParticipantStatus({
 		</span>
 	) : (
 		<span className="inline-flex shrink-0 items-center rounded-full bg-muted px-2.5 py-1 font-semibold text-[11.5px] text-muted-foreground tabular-nums tracking-tight">
-			{participant.amountPaid > 0.005 ? `${formatCurrency(left)} left` : "Due"}
+			{participant.paidCents > 0 ? `${formatCents(left)} left` : "Due"}
 		</span>
 	);
 }
@@ -307,7 +308,7 @@ function ParticipantRow({
 						"Paid the bill"
 					) : (
 						<span className="tabular-nums">
-							{formatCurrency(participant.amountOwed)} share
+							{formatCents(participant.amountCents)} share
 						</span>
 					)}
 				</p>
@@ -347,13 +348,13 @@ function BillFooterActions({
 	isAllSorted,
 	links,
 	payId,
-	payNowAmount,
+	payNowCents,
 }: {
 	bill: PublicBillPageData["bill"];
 	isAllSorted: boolean;
 	links: PublicBillPageData["links"];
 	payId: string | null;
-	payNowAmount: number;
+	payNowCents: number;
 }) {
 	if (!bill.hasPdf && isAllSorted) {
 		return null;
@@ -374,7 +375,7 @@ function BillFooterActions({
 						triggerLabel="Pay now"
 						title="Pay this bill"
 						payId={payId}
-						amount={payNowAmount}
+						amountCents={payNowCents}
 						descriptionValue="Bills"
 					/>
 				) : null}
@@ -413,7 +414,7 @@ function PublicBillPage() {
 					isAllSorted={isAllSorted}
 					links={loaderData.links}
 					payId={loaderData.payId}
-					payNowAmount={getPayNowAmount(loaderData)}
+					payNowCents={getPayNowCents(loaderData)}
 				/>
 			</div>
 		</div>

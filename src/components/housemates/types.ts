@@ -10,32 +10,32 @@ export interface Housemate {
 	createdAt: Date;
 }
 
-export interface HousemateStats {
-	totalOwed: number;
-	totalPaid: number;
-	totalOutstanding: number;
-}
-
-export interface HousemateBalanceMetric {
+interface HousemateBalanceRow {
 	id: string;
 	name: string;
 	isActive: boolean;
-	amount: number;
+	amountCents: number;
 }
 
-export interface HousemateDebt {
-	debt: {
+export interface HousemateBalanceMetric {
+	rows: HousemateBalanceRow[];
+	totalCents: number;
+	count: number;
+}
+
+export interface HousemateAccount {
+	remainingCents: number;
+	owesCents: number;
+	creditCents: number;
+	shares: Array<{
 		id: string;
-		amountOwed: number;
-		amountPaid: number;
-		isPaid: boolean;
-		paidAt?: Date | null;
-	};
-	bill: {
-		id: string;
-		billerName: string;
-		dueDate: Date;
-	};
+		name: string;
+		dueAt: number;
+		amountCents: number;
+		paidCents: number;
+		remainingCents: number;
+		settledAt: number | null;
+	}>;
 }
 
 export interface HousemateFormData {

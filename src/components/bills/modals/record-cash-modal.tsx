@@ -9,24 +9,20 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { formatCents, formatDecimal, parseCents } from "@/lib/money";
 import { useState } from "react";
-import type { CashReceiptData, GroupedBill } from "../types";
-import { formatCurrency } from "../utils";
+import type { BillListItem, CashReceiptData } from "../types";
 
 interface RecordCashModalProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	bill: GroupedBill | null;
+	bill: BillListItem | null;
 	onConfirm: (data: CashReceiptData) => void;
 	isProcessing: boolean;
 }
 
 function today() {
 	return new Date().toLocaleDateString("en-CA");
-}
-
-function remainingFor(debt: GroupedBill["debts"][number]["debt"]) {
-	return Math.max(0, Math.round((debt.amountOwed - debt.amountPaid) * 100));
 }
 
 export function RecordCashModal({
@@ -41,7 +37,7 @@ export function RecordCashModal({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-w-md">
 				<CashForm
-					key={bill.bill.id}
+					key={bill.id}
 					bill={bill}
 					onConfirm={onConfirm}
 					isProcessing={isProcessing}
@@ -56,27 +52,26 @@ function CashForm({
 	onConfirm,
 	isProcessing,
 }: Omit<RecordCashModalProps, "open" | "onOpenChange" | "bill"> & {
-	bill: GroupedBill;
+	bill: BillListItem;
 }) {
-	const shares = bill.debts.filter(({ debt }) => remainingFor(debt) > 0);
-	const [debtId, setDebtId] = useState(shares[0]?.debt.id ?? "");
-	const share = shares.find(({ debt }) => debt.id === debtId);
-	const remaining = share ? remainingFor(share.debt) : 0;
-	const [amount, setAmount] = useState((remaining / 100).toFixed(2));
+	const shares = bill.shares.filter((share) => share.remainingCents > 0);
+	const [debtId, setDebtId] = useState(shares[0]?.id ?? "");
+	const share = shares.find((item) => item.id === debtId);
+	const remaining = share?.remainingCents ?? 0;
+	const [amount, setAmount] = useState(formatDecimal(remaining));
 	const [date, setDate] = useState(today());
 	const [note, setNote] = useState("");
-	const amountCents = Math.round(Number(amount) * 100);
+	const amountCents = parseCents(amount) ?? 0;
 	const valid =
 		Boolean(share) &&
-		Number.isFinite(amountCents) &&
 		amountCents > 0 &&
 		amountCents <= remaining &&
 		date.length > 0;
 
 	function choose(id: string) {
 		setDebtId(id);
-		const next = shares.find(({ debt }) => debt.id === id);
-		setAmount(next ? (remainingFor(next.debt) / 100).toFixed(2) : "");
+		const next = shares.find((item) => item.id === id);
+		setAmount(next ? formatDecimal(next.remainingCents) : "");
 	}
 
 	return (
@@ -96,9 +91,8 @@ function CashForm({
 			<DialogHeader>
 				<DialogTitle>Record cash received</DialogTitle>
 				<DialogDescription>
-					Cash for <span className="font-semibold">{bill.bill.billerName}</span>{" "}
-					is applied to the share straight away and the housemate gets a
-					receipt.
+					Cash for <span className="font-semibold">{bill.billerName}</span> is
+					applied to the share straight away and the housemate gets a receipt.
 				</DialogDescription>
 			</DialogHeader>
 			{shares.length === 0 ? (
@@ -115,9 +109,9 @@ function CashForm({
 							value={debtId}
 							onChange={(event) => choose(event.target.value)}
 						>
-							{shares.map(({ debt, housemate }) => (
-								<option key={debt.id} value={debt.id}>
-									{housemate.name} · {formatCurrency(remainingFor(debt) / 100)}{" "}
+							{shares.map((item) => (
+								<option key={item.id} value={item.id}>
+									{item.housemateName} · {formatCents(item.remainingCents)}{" "}
 									remaining
 								</option>
 							))}
@@ -132,7 +126,7 @@ function CashForm({
 								inputMode="decimal"
 								step="0.01"
 								min="0.01"
-								max={(remaining / 100).toFixed(2)}
+								max={formatDecimal(remaining)}
 								value={amount}
 								onChange={(event) => setAmount(event.target.value)}
 							/>
@@ -160,8 +154,8 @@ function CashForm({
 					</div>
 					{amountCents > remaining && (
 						<p className="text-destructive text-sm">
-							Cash cannot exceed the {formatCurrency(remaining / 100)} remaining
-							on this share.
+							Cash cannot exceed the {formatCents(remaining)} remaining on this
+							share.
 						</p>
 					)}
 				</div>

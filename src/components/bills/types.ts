@@ -1,54 +1,9 @@
-export interface BillData {
-	bill: {
-		id: string;
-		totalAmount: number;
-		billerName: string;
-		publicPath?: string | null;
-		dueDate: string | Date;
-		status: string;
-		pdfSha256?: string | null;
-		pdfUrl?: string | null;
-		sourceFilename?: string | null;
-	};
-	debt?: {
-		id: string;
-		amountOwed: number;
-		amountPaid: number;
-		isPaid: boolean;
-	} | null;
-	housemate?: {
-		name: string;
-		payPath?: string | null;
-	} | null;
-}
+import type { getAllBills } from "@/functions/bills";
 
-export interface BillSummary {
-	totalBills: number;
-	totalAmount: number;
-	totalUnpaid: number;
-	unpaidCount: number;
-	paidAmount: number;
-	outstandingAmount: number;
-}
-
-export interface GroupedBill {
-	bill: BillData["bill"];
-	debts: Array<{
-		debt: NonNullable<BillData["debt"]>;
-		housemate: NonNullable<BillData["housemate"]>;
-	}>;
-}
-
-export interface DebtSummary {
-	paid: number;
-	total: number;
-	paidAmount: number;
-	owedAmount: number;
-	debts: Array<{
-		debt: NonNullable<BillData["debt"]>;
-		housemate: NonNullable<BillData["housemate"]>;
-	}>;
-}
+type BillsData = Awaited<ReturnType<typeof getAllBills>>;
+export type BillListItem = BillsData["bills"][number];
+export type BillSummary = BillsData["summary"];
+export type BillListShare = BillListItem["shares"][number];
 
 export interface CashReceiptData {
 	debtId: string;

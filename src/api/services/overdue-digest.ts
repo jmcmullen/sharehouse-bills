@@ -1,21 +1,18 @@
 import { formatReminderBillLabel } from "../../lib/reminder-preview";
-import { type ShareCover, reminderCredit } from "./bill-reminder-credit";
-import type { Credit } from "./ledger/credit.server";
+import type { Share } from "./account/account";
+import { sum, sydneyDate } from "./account/compute";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const sydneyDay = new Intl.DateTimeFormat("en-CA", {
-	timeZone: "Australia/Sydney",
-	year: "numeric",
-	month: "2-digit",
-	day: "2-digit",
-});
 
-interface DigestShare extends ShareCover {
-	billId: string;
-	billerName: string;
-	recurringTemplateName: string | null;
-	dueDate: Date;
-}
+type DigestShare = Pick<
+	Share,
+	| "billId"
+	| "name"
+	| "recurringTemplateName"
+	| "dueAt"
+	| "coveredCents"
+	| "leftCents"
+>;
 interface OverdueDigestItem {
 	billId: string;
 	label: string;
@@ -31,40 +28,43 @@ export interface OverdueDigest {
 
 // The calendar day in Sydney, as YYYY-MM-DD, so "overdue" and the once-a-day
 // key follow the house's clock rather than UTC.
-export function sydneyDate(date: Date): string {
-	return sydneyDay.format(date);
+export function digestDate(date: Date): string {
+	return sydneyDate(Math.floor(date.getTime() / 1000));
 }
 
 export function overdueDigestKey(housemateId: string, now: Date): string {
-	return `overdue-digest:${housemateId}:${sydneyDate(now)}`;
+	return `overdue-digest:${housemateId}:${digestDate(now)}`;
 }
 
 function daysBetween(from: string, to: string) {
 	return Math.round((Date.parse(to) - Date.parse(from)) / DAY_MS);
 }
 
-// What a housemate still owes on bills due before today in Sydney, after
-// their held credit is applied oldest first. Null when nothing is overdue.
+// What a housemate still owes on bills due before today in Sydney, from the
+// account's shares with held credit already applied oldest first. Null when
+// nothing is overdue.
 export function buildOverdueDigest(
 	shares: DigestShare[],
-	credit: Credit | null,
 	now: Date,
 ): OverdueDigest | null {
-	const today = sydneyDate(now);
-	const overdue = shares.filter((share) => sydneyDate(share.dueDate) < today);
+	const today = digestDate(now);
+	const overdue = shares.filter((share) => sydneyDate(share.dueAt) < today);
 	const items = overdue
 		.filter((share) => share.leftCents > 0)
 		.map((share) => ({
 			billId: share.billId,
-			label: formatReminderBillLabel(share),
+			label: formatReminderBillLabel({
+				billerName: share.name,
+				recurringTemplateName: share.recurringTemplateName,
+			}),
 			amountCents: share.leftCents,
-			daysOverdue: daysBetween(sydneyDate(share.dueDate), today),
+			daysOverdue: daysBetween(sydneyDate(share.dueAt), today),
 		}));
 	if (!items.length) return null;
 	return {
 		date: today,
 		items,
-		overdueCents: items.reduce((sum, item) => sum + item.amountCents, 0),
-		creditCents: reminderCredit(credit, overdue)?.creditCents ?? 0,
+		overdueCents: sum(items, (item) => item.amountCents),
+		creditCents: sum(overdue, (share) => share.coveredCents),
 	};
 }

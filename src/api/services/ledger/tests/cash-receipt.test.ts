@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { loadBill } from "../../account/account.server";
 import { getAccountPayments } from "../account-payments";
 import { recordCashReceipt } from "../cash-receipt";
 import { drainLedgerEvents } from "../events";
@@ -8,7 +9,7 @@ import { fixture, time } from "./fixture";
 test("cash received settles the share, marks the receipt reviewed and sends one housemate receipt", async () =>
 	fixture(async (client) => {
 		await client.execute(
-			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,0,${time})`,
+			`INSERT INTO debts(id,housemate_id,bill_id,amount_cents,created_at) VALUES('gas-share','oliver','bill',6000,${time})`,
 		);
 		await drainLedgerEvents(client);
 		const { receiptId } = await recordCashReceipt(client, {
@@ -18,18 +19,10 @@ test("cash received settles the share, marks the receipt reviewed and sends one 
 			note: "Handed over at dinner",
 		});
 		assert.match(receiptId, /^manual:cash-/);
-		const paid = (
-			await client.execute(
-				"SELECT amount_paid,is_paid FROM debts WHERE id='gas-share'",
-			)
-		).rows[0];
-		assert.equal(paid.amount_paid, 60);
-		assert.equal(paid.is_paid, 1);
-		assert.equal(
-			(await client.execute("SELECT status FROM bills WHERE id='bill'")).rows[0]
-				.status,
-			"paid",
-		);
+		const bill = await loadBill("bill", { client });
+		assert.equal(bill?.shares[0].paidCents, 6000);
+		assert.equal(bill?.shares[0].remainingCents, 0);
+		assert.equal(bill?.status, "paid");
 		assert.deepEqual(
 			(
 				await client.execute(
@@ -73,7 +66,7 @@ test("cash received settles the share, marks the receipt reviewed and sends one 
 test("cash cannot exceed the remaining share, be dated in the future, or land on the owner or a missing share", async () =>
 	fixture(async (client) => {
 		await client.execute(
-			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,0,${time}),('jay-share','jay','bill',40,0,${time})`,
+			`INSERT INTO debts(id,housemate_id,bill_id,amount_cents,created_at) VALUES('gas-share','oliver','bill',6000,${time}),('jay-share','jay','bill',4000,${time})`,
 		);
 		await drainLedgerEvents(client);
 		await assert.rejects(

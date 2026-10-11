@@ -1,6 +1,6 @@
 import type { HousemateStatementData } from "@/api/services/housemate-statement.server";
 import { Button } from "@/components/ui/button";
-import { formatCurrency } from "@/lib/share-preview";
+import { formatCents } from "@/lib/money";
 import { ChevronLeft } from "lucide-react";
 import { useState } from "react";
 import { AmountHeader, PublicPage } from "./page-shell";
@@ -63,7 +63,7 @@ export function HousemateStatement({
 			<AmountHeader
 				name={data.housemate.name}
 				label={data.headline.label}
-				amount={formatCurrency(data.headline.amount)}
+				amount={formatCents(data.headline.amountCents)}
 			>
 				<PublicStatusBadge tone="neutral">Statement</PublicStatusBadge>
 			</AmountHeader>

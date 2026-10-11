@@ -20,10 +20,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { formatCents } from "@/lib/money";
 import type { RecurringBillFormData } from "../types";
 import {
 	calculateRecurringBillPreview,
-	formatCurrency,
 	formatDate,
 	getFormScheduleSummary,
 	getNextDueDatePreview,
@@ -110,15 +110,15 @@ export function RecurringBillModal({
 								/>
 							</div>
 							<div className="space-y-2">
-								<Label htmlFor="totalAmount">Total Amount</Label>
+								<Label htmlFor="totalDollars">Total Amount</Label>
 								<Input
-									id="totalAmount"
+									id="totalDollars"
 									type="number"
 									min="0"
 									step="0.01"
-									value={formData.totalAmount}
+									value={formData.totalDollars}
 									onChange={(event) =>
-										updateField("totalAmount", event.target.value)
+										updateField("totalDollars", event.target.value)
 									}
 									placeholder="1890.00"
 								/>
@@ -310,9 +310,7 @@ export function RecurringBillModal({
 														<p className="text-muted-foreground text-sm">
 															{assignment.isOwner
 																? "Included in the split but no debt created"
-																: `Will owe ${formatCurrency(
-																		previewAssignment.amountOwed,
-																	)}`}
+																: `Will owe ${formatCents(previewAssignment.amountCents)}`}
 														</p>
 													) : (
 														<p className="text-muted-foreground text-sm">
@@ -329,7 +327,7 @@ export function RecurringBillModal({
 														type="number"
 														min="0"
 														step="0.01"
-														value={assignment.customAmount}
+														value={assignment.customDollars}
 														disabled={
 															!assignment.isActive || assignment.isOwner
 														}
@@ -337,7 +335,7 @@ export function RecurringBillModal({
 															const nextAssignments = [...formData.assignments];
 															nextAssignments[index] = {
 																...assignment,
-																customAmount: event.target.value,
+																customDollars: event.target.value,
 															};
 															updateField("assignments", nextAssignments);
 														}}
@@ -349,8 +347,8 @@ export function RecurringBillModal({
 											) : (
 												<div className="flex items-end justify-end text-muted-foreground text-sm">
 													{assignment.isActive
-														? preview.amountPerPerson
-															? formatCurrency(preview.amountPerPerson)
+														? preview.perPersonCents
+															? formatCents(preview.perPersonCents)
 															: "Included"
 														: "Excluded"}
 												</div>
@@ -385,13 +383,13 @@ export function RecurringBillModal({
 								<div className="space-y-1">
 									<p className="text-muted-foreground">Debt total</p>
 									<p className="font-medium">
-										{formatCurrency(preview.nonOwnerTotal)}
+										{formatCents(preview.nonOwnerCents)}
 									</p>
 								</div>
 								<div className="space-y-1">
 									<p className="text-muted-foreground">Owner share</p>
 									<p className="font-medium">
-										{formatCurrency(preview.ownerShare)}
+										{formatCents(preview.ownerShareCents)}
 									</p>
 								</div>
 							</CardContent>

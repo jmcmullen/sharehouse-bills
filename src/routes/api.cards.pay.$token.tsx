@@ -1,6 +1,7 @@
 // fallow-ignore-file code-duplication
 import { createFileRoute } from "@tanstack/react-router";
 import { getPublicHousematePayPageData } from "../api/services/housemate-pay-page.server";
+import { formatCents } from "../lib/money";
 import { OgCard } from "../lib/og-card";
 import { loadGoogleFonts, resolveFontSetup } from "../lib/og-fonts.server";
 import {
@@ -11,11 +12,7 @@ import {
 	formatReminderBillLabel,
 	formatReminderDueLine,
 } from "../lib/reminder-preview";
-import {
-	formatCurrency,
-	formatStackGroupLabel,
-	truncate,
-} from "../lib/share-preview";
+import { formatStackGroupLabel, truncate } from "../lib/share-preview";
 
 function getFirstName(fullName: string) {
 	const trimmed = fullName.trim();
@@ -94,7 +91,7 @@ function getAllSortedPayCardProps(
 		secondaryValue: `Thanks, ${getFirstName(payPage.housemate.name)}`,
 		tertiaryValue:
 			payPage.recentlySettled.billCount > 0
-				? `${formatCurrency(payPage.recentlySettled.amount)} paid across ${payPage.recentlySettled.billCount} ${payPage.recentlySettled.billCount === 1 ? "bill" : "bills"} recently`
+				? `${formatCents(payPage.recentlySettled.amountCents)} paid across ${payPage.recentlySettled.billCount} ${payPage.recentlySettled.billCount === 1 ? "bill" : "bills"} recently`
 				: "You're all caught up",
 		title: getPayCardTitle(payPage),
 		titleColor: "#f0fbf4",
@@ -108,7 +105,7 @@ function getReminderPayCardProps(
 ) {
 	return {
 		backgroundColor: "#291717",
-		primaryValue: formatCurrency(reminderBill.remainingAmount),
+		primaryValue: formatCents(reminderBill.leftCents),
 		secondaryColor: "#e0b5b8",
 		secondaryValue: reminderBill.isOverdue ? "Overdue reminder" : "Reminder",
 		tertiaryColor: "#c99599",
@@ -134,7 +131,7 @@ function getOutstandingPayCardProps(
 ) {
 	return {
 		backgroundColor: "#1f221b",
-		primaryValue: formatCurrency(payPage.summary.remainingAmount),
+		primaryValue: formatCents(payPage.summary.remainingCents),
 		secondaryColor: "#c7d1be",
 		tertiaryValue: `${payPage.summary.billCount} unpaid ${payPage.summary.billCount === 1 ? "bill" : "bills"}`,
 		title: getPayCardTitle(payPage),

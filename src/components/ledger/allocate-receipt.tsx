@@ -1,3 +1,4 @@
+import { formatCents } from "@/lib/money";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { AccountPayments } from "../../api/services/ledger/account-payments";
@@ -20,7 +21,7 @@ import {
 	allocationsFrom,
 	amountsFrom,
 } from "./allocation-fields";
-import { ledgerMoney, ledgerTime } from "./statement";
+import { ledgerTime } from "./statement";
 
 export function AllocateReceipt(props: {
 	housemateId: string;
@@ -73,7 +74,7 @@ export function AllocateReceipt(props: {
 			<DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
 				<DialogHeader>
 					<DialogTitle>
-						Payment of {ledgerMoney(receipt.amountCents)}
+						Payment of {formatCents(receipt.amountCents)}
 					</DialogTitle>
 					<DialogDescription>
 						{receipt.description} ·{" "}
@@ -108,7 +109,7 @@ export function AllocateReceipt(props: {
 						onChange={setAmounts}
 					/>
 					<p className={remaining < 0 ? "text-destructive" : "text-sm"}>
-						Unallocated after saving: {ledgerMoney(remaining)}
+						Unallocated after saving: {formatCents(remaining)}
 					</p>
 					<div className="flex gap-2">
 						<Button type="submit" disabled={busy || remaining < 0}>

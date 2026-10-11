@@ -69,12 +69,24 @@ const manualPayments: Ready["manualPayments"] = [
 ];
 const bill = (id: string, name: string, amountCents: number) => ({
 	id,
+	billId: `bill-${id}`,
+	housemateId: "oliver",
+	isOwner: false,
 	name,
+	billType: null,
 	category: name.toLowerCase(),
+	stackGroup: null,
+	recurringTemplateName: null,
 	dueAt: payment.effectiveAt,
+	billPeriodStart: null,
+	billPeriodEnd: null,
 	amountCents,
 	paidCents: 0,
 	remainingCents: amountCents,
+	settledAt: null,
+	overdue: false,
+	coveredCents: 0,
+	leftCents: amountCents,
 	payments: [],
 });
 const billing: AccountPayments = {

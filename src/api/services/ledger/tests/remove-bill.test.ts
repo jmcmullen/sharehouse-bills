@@ -9,7 +9,7 @@ import { fixture, time } from "./fixture";
 test("a deleted bill releases the money allocated to it back to credit once settled", async () =>
 	fixture(async (client) => {
 		await client.execute(
-			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,0,${time})`,
+			`INSERT INTO debts(id,housemate_id,bill_id,amount_cents,created_at) VALUES('gas-share','oliver','bill',6000,${time})`,
 		);
 		await drainLedgerEvents(client);
 		await recordCashReceipt(client, {

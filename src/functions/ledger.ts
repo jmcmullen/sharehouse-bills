@@ -1,11 +1,9 @@
 import type { Client } from "@libsql/client";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { loadAccount } from "../api/services/account/account.server";
 import { settleLedger } from "../api/services/ledger-sync.server";
-import {
-	getAccountPayments,
-	upcomingUnpaidCents,
-} from "../api/services/ledger/account-payments";
+import { getAccountPayments } from "../api/services/ledger/account-payments";
 import {
 	allocateReceipt,
 	allocateReceiptSchema,
@@ -63,16 +61,17 @@ async function loadHousemates(
 	}));
 }
 
-async function loadAccount(client: Executor, housemate: Housemate) {
-	const [statement, billing] = await Promise.all([
+async function loadLedgerAccount(client: Executor, housemate: Housemate) {
+	const [statement, billing, account] = await Promise.all([
 		getAccountStatement(client, housemate.id),
 		getAccountPayments(client, housemate.id),
+		loadAccount(housemate.id, { client }),
 	]);
 	return {
 		...housemate,
 		...withUpcoming(
 			currentStatement(statement, nowSeconds()),
-			upcomingUnpaidCents(billing, nowSeconds()),
+			account?.upcomingCents ?? 0,
 		),
 		auditEntries: statement.entries,
 		billing,
@@ -99,7 +98,7 @@ export const getLedgerAccounts = createServerFn({ method: "GET" })
 			await drainLedgerEvents(client);
 			const housemates = await loadHousemates(client);
 			const accounts = await Promise.all(
-				housemates.map((housemate) => loadAccount(client, housemate)),
+				housemates.map((housemate) => loadLedgerAccount(client, housemate)),
 			);
 			return { available: true as const, accounts };
 		}),
@@ -113,7 +112,7 @@ export const getLedgerAccount = createServerFn({ method: "GET" })
 			await drainLedgerEvents(client);
 			const [housemate] = await loadHousemates(client, data.housemateId);
 			if (!housemate) throw new Error("Housemate not found");
-			return loadAccount(client, housemate);
+			return loadLedgerAccount(client, housemate);
 		}),
 	);
 

@@ -15,7 +15,7 @@ export async function runBillPaidNotification(notificationId: string) {
 			return;
 		}
 
-		if (context.debts.length <= 1) {
+		if (context.bill.shares.length <= 1) {
 			await markNotificationIgnored(
 				notificationId,
 				"single-debt bill; covered by individual debt paid DM",

@@ -1,3 +1,4 @@
+import { formatCents } from "@/lib/money";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { BillPaymentView } from "../../api/services/ledger/account-payments";
@@ -21,7 +22,6 @@ import {
 	reviewValidation,
 } from "./review-form";
 import type { Payment, Ready } from "./review-payment";
-import { ledgerMoney } from "./statement";
 
 // The "Change" path: pick the housemate, adjust the proposed bills, or match
 // the transfer to money already recorded manually.
@@ -359,7 +359,7 @@ function BillsSection({
 				onChange={onChange}
 			/>
 			<p className={invalid ? "text-destructive text-sm" : "text-sm"}>
-				Kept as credit: {ledgerMoney(payment.amountCents - allocatedCents)}
+				Kept as credit: {formatCents(payment.amountCents - allocatedCents)}
 			</p>
 		</fieldset>
 	);

@@ -1,10 +1,10 @@
+import { formatCents } from "@/lib/money";
 import { useState } from "react";
 import { toast } from "sonner";
 import { decideLedgerTransaction } from "../../functions/ledger";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import type { Payment } from "./review-payment";
-import { ledgerMoney } from "./statement";
 
 export function SplitPayment({
 	payment,
@@ -69,7 +69,7 @@ export function SplitPayment({
 		<div className="space-y-4">
 			<p className="text-muted-foreground text-sm">
 				Enter each housemate's share. Leave everyone else blank. The shares must
-				total {ledgerMoney(payment.amountCents)}.
+				total {formatCents(payment.amountCents)}.
 			</p>
 			{accounts.map((account) => (
 				<label
@@ -93,7 +93,7 @@ export function SplitPayment({
 			))}
 			<output className="block text-sm tabular-nums" aria-live="polite">
 				{valid
-					? `${ledgerMoney(total)} allocated · ${ledgerMoney(payment.amountCents - total)} remaining`
+					? `${formatCents(total)} allocated · ${formatCents(payment.amountCents - total)} remaining`
 					: "Use positive amounts with at most two decimal places"}
 			</output>
 			<label htmlFor="split-note" className="block space-y-2 text-sm">

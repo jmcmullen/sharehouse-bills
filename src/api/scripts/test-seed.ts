@@ -1,5 +1,7 @@
+import { formatCents } from "../../lib/money";
 import { db } from "../db/index.server";
 import { bills, debts, housemates } from "../db/schema";
+import { createShares, splitAcrossHousemates } from "../services/bills/shares";
 
 // Test data for realistic sharehouse scenario
 const testHousemates = [
@@ -45,265 +47,204 @@ const testBills = [
 	// Recent bills (last 2 months)
 	{
 		billerName: "Origin Energy",
-		totalAmount: 342.85,
+		totalCents: 34285,
 		dueDate: new Date("2024-06-10"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "AGL Gas",
-		totalAmount: 89.45,
+		totalCents: 8945,
 		dueDate: new Date("2024-06-08"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "Telstra",
-		totalAmount: 79.99,
+		totalCents: 7999,
 		dueDate: new Date("2024-06-05"),
-		status: "partially_paid" as const,
 	},
 	{
 		billerName: "Sydney Water",
-		totalAmount: 156.7,
+		totalCents: 15670,
 		dueDate: new Date("2024-05-28"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "Weekly Rent",
-		totalAmount: 1890.0,
+		totalCents: 189000,
 		dueDate: new Date("2024-06-13"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "Weekly Rent",
-		totalAmount: 1890.0,
+		totalCents: 189000,
 		dueDate: new Date("2024-06-06"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "Weekly Rent",
-		totalAmount: 1890.0,
+		totalCents: 189000,
 		dueDate: new Date("2024-05-30"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "Plumber - Blocked Drain",
-		totalAmount: 185.0,
+		totalCents: 18500,
 		dueDate: new Date("2024-05-22"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "Optus Mobile",
-		totalAmount: 65.0,
+		totalCents: 6500,
 		dueDate: new Date("2024-05-20"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "Netflix",
-		totalAmount: 19.99,
+		totalCents: 1999,
 		dueDate: new Date("2024-05-15"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "Spotify Premium Family",
-		totalAmount: 23.99,
+		totalCents: 2399,
 		dueDate: new Date("2024-05-12"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "TPG Internet",
-		totalAmount: 69.99,
+		totalCents: 6999,
 		dueDate: new Date("2024-05-10"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "Electrician - Outlet Repair",
-		totalAmount: 145.0,
+		totalCents: 14500,
 		dueDate: new Date("2024-05-08"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "EnergyAustralia",
-		totalAmount: 298.45,
+		totalCents: 29845,
 		dueDate: new Date("2024-05-05"),
-		status: "paid" as const,
 	},
 	{
 		billerName: "Jemena Gas",
-		totalAmount: 76.32,
+		totalCents: 7632,
 		dueDate: new Date("2024-05-03"),
-		status: "paid" as const,
 	},
 
 	// Current/upcoming bills
 	{
 		billerName: "Weekly Rent",
-		totalAmount: 1890.0,
+		totalCents: 189000,
 		dueDate: new Date("2024-06-20"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "NBN Internet",
-		totalAmount: 89.99,
+		totalCents: 8999,
 		dueDate: new Date("2024-06-22"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Origin Energy",
-		totalAmount: 298.65,
+		totalCents: 29865,
 		dueDate: new Date("2024-06-25"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "AGL Gas",
-		totalAmount: 67.8,
+		totalCents: 6780,
 		dueDate: new Date("2024-06-28"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Telstra",
-		totalAmount: 79.99,
+		totalCents: 7999,
 		dueDate: new Date("2024-07-05"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Gardening Service",
-		totalAmount: 120.0,
+		totalCents: 12000,
 		dueDate: new Date("2024-07-01"),
-		status: "partially_paid" as const,
 	},
 	{
 		billerName: "Cleaning Service",
-		totalAmount: 85.0,
+		totalCents: 8500,
 		dueDate: new Date("2024-06-24"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Vodafone",
-		totalAmount: 55.0,
+		totalCents: 5500,
 		dueDate: new Date("2024-06-26"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "YouTube Premium Family",
-		totalAmount: 22.99,
+		totalCents: 2299,
 		dueDate: new Date("2024-06-30"),
-		status: "partially_paid" as const,
 	},
 	{
 		billerName: "Disney+ Annual",
-		totalAmount: 139.99,
+		totalCents: 13999,
 		dueDate: new Date("2024-07-02"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "HVAC Maintenance",
-		totalAmount: 195.0,
+		totalCents: 19500,
 		dueDate: new Date("2024-07-03"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Pest Control Service",
-		totalAmount: 165.0,
+		totalCents: 16500,
 		dueDate: new Date("2024-07-08"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Optus NBN",
-		totalAmount: 79.0,
+		totalCents: 7900,
 		dueDate: new Date("2024-07-10"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Stan Streaming",
-		totalAmount: 16.0,
+		totalCents: 1600,
 		dueDate: new Date("2024-07-12"),
-		status: "pending" as const,
 	},
 
 	// Future bills
 	{
 		billerName: "Weekly Rent",
-		totalAmount: 1890.0,
+		totalCents: 189000,
 		dueDate: new Date("2024-06-27"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Weekly Rent",
-		totalAmount: 1890.0,
+		totalCents: 189000,
 		dueDate: new Date("2024-07-04"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Weekly Rent",
-		totalAmount: 1890.0,
+		totalCents: 189000,
 		dueDate: new Date("2024-07-11"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Home Insurance",
-		totalAmount: 245.5,
+		totalCents: 24550,
 		dueDate: new Date("2024-07-15"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Contents Insurance",
-		totalAmount: 89.0,
+		totalCents: 8900,
 		dueDate: new Date("2024-07-18"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Pool Maintenance",
-		totalAmount: 125.0,
+		totalCents: 12500,
 		dueDate: new Date("2024-07-22"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Window Cleaning",
-		totalAmount: 95.0,
+		totalCents: 9500,
 		dueDate: new Date("2024-07-25"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Amazon Prime",
-		totalAmount: 9.99,
+		totalCents: 999,
 		dueDate: new Date("2024-07-28"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Car Insurance",
-		totalAmount: 145.8,
+		totalCents: 14580,
 		dueDate: new Date("2024-08-01"),
-		status: "pending" as const,
 	},
 	{
 		billerName: "Handyman - Door Repair",
-		totalAmount: 89.0,
+		totalCents: 8900,
 		dueDate: new Date("2024-08-03"),
-		status: "pending" as const,
 	},
 ];
-
-function calculateDebtSplit(
-	totalAmount: number,
-	billStatus: string,
-	activateHousematesCount: number,
-	housemateIndex: number,
-) {
-	const amountPerPerson = totalAmount / activateHousematesCount;
-
-	if (billStatus === "paid") {
-		return { amountOwed: amountPerPerson, isPaid: true };
-	}
-	if (billStatus === "partially_paid") {
-		// Make it more realistic - first housemate more likely to have paid
-		const paymentChance =
-			housemateIndex === 0 ? 0.8 : housemateIndex === 1 ? 0.6 : 0.3;
-		return Math.random() < paymentChance
-			? { amountOwed: amountPerPerson, isPaid: true }
-			: { amountOwed: amountPerPerson, isPaid: false };
-	}
-	return { amountOwed: amountPerPerson, isPaid: false };
-}
 
 export async function populateTestData() {
 	console.log("🏠 Starting to populate test data...");
@@ -341,29 +282,14 @@ export async function populateTestData() {
 				.values(billData)
 				.returning();
 			console.log(
-				`💰 Created bill: ${insertedBill.billerName} - $${insertedBill.totalAmount}`,
+				`💰 Created bill: ${insertedBill.billerName} - ${formatCents(insertedBill.totalCents)}`,
 			);
 
-			// Create debts for each active housemate
-			const debtsToInsert = activeHousemates.map((housemate, index) => {
-				const { amountOwed, isPaid } = calculateDebtSplit(
-					insertedBill.totalAmount,
-					insertedBill.status,
-					activeHousemates.length,
-					index,
-				);
-
-				return {
-					billId: insertedBill.id,
-					housemateId: housemate.id,
-					amountOwed,
-					isPaid,
-					paidAt: isPaid ? new Date() : null,
-				};
-			});
-
-			await db.insert(debts).values(debtsToInsert);
-			console.log(`  💸 Created ${debtsToInsert.length} debt records`);
+			// Shares split equally like any new bill; paid state comes only from
+			// allocations, so seeded shares start unpaid.
+			const splits = await splitAcrossHousemates(insertedBill.totalCents);
+			await createShares(insertedBill.id, splits);
+			console.log(`  💸 Created ${splits.length} debt records`);
 		}
 
 		console.log("🎉 Test data population completed successfully!");
@@ -375,17 +301,6 @@ export async function populateTestData() {
 		console.log(
 			`   💸 Total debt records: ${testBills.length * activeHousemates.length}`,
 		);
-
-		// Print some stats
-		const paidBills = testBills.filter((b) => b.status === "paid").length;
-		const partialBills = testBills.filter(
-			(b) => b.status === "partially_paid",
-		).length;
-		const pendingBills = testBills.filter((b) => b.status === "pending").length;
-
-		console.log(`   ✅ Paid bills: ${paidBills}`);
-		console.log(`   ⏳ Partially paid bills: ${partialBills}`);
-		console.log(`   📋 Pending bills: ${pendingBills}`);
 	} catch (error) {
 		console.error("❌ Error populating test data:", error);
 		throw error;

@@ -2,7 +2,7 @@ interface RecurringBillListAssignment {
 	id: string;
 	recurringBillId: string;
 	housemateId: string;
-	customAmount: number | null;
+	customCents: number | null;
 	isActive: boolean;
 	housemateName: string;
 	housemateIsOwner: boolean;
@@ -13,7 +13,7 @@ interface RecurringBillTemplate {
 	id: string;
 	templateName: string;
 	billerName: string;
-	totalAmount: number;
+	totalCents: number;
 	frequency: "weekly" | "fortnightly" | "monthly" | "yearly";
 	dayOfWeek: number | null;
 	dayOfMonth: number | null;
@@ -31,14 +31,14 @@ interface RecurringBillPreviewAssignment {
 	housemateId: string;
 	name: string;
 	isOwner: boolean;
-	customAmount: number | null;
-	amountOwed: number;
+	customCents: number | null;
+	amountCents: number;
 }
 
 interface RecurringBillPreview {
 	nextDueDate: string | Date | null;
 	assignments: RecurringBillPreviewAssignment[];
-	ownerShare: number;
+	ownerShareCents: number;
 }
 
 export interface RecurringBillListItem {
@@ -63,14 +63,16 @@ interface RecurringBillAssignmentFormData {
 	name: string;
 	isOwner: boolean;
 	isActive: boolean;
-	customAmount: string;
+	// Dollars as typed.
+	customDollars: string;
 }
 
 export interface RecurringBillFormData {
 	id: string | null;
 	templateName: string;
 	billerName: string;
-	totalAmount: string;
+	// Dollars as typed.
+	totalDollars: string;
 	frequency: "weekly" | "fortnightly" | "monthly" | "yearly";
 	dayOfWeek: string;
 	dayOfMonth: string;
@@ -84,15 +86,15 @@ export interface RecurringBillFormData {
 
 export interface RecurringBillPreviewSummary {
 	includedCount: number;
-	amountPerPerson: number | null;
-	ownerShare: number;
-	nonOwnerTotal: number;
+	perPersonCents: number | null;
+	ownerShareCents: number;
+	nonOwnerCents: number;
 	assignments: Array<{
 		housemateId: string;
 		name: string;
 		isOwner: boolean;
 		isActive: boolean;
-		amountOwed: number;
-		customAmount: number | null;
+		amountCents: number;
+		customCents: number | null;
 	}>;
 }
