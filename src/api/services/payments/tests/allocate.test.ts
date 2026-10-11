@@ -4,7 +4,6 @@ import type { Client } from "@libsql/client";
 import { loadAccount, loadBill } from "../../account/account.server";
 import { getAccountPayments, toAccountPayments } from "../account-payments";
 import { allocateReceipt } from "../allocate";
-import { recordCashReceipt } from "../cash";
 import {
 	addBill,
 	addShares,
@@ -14,6 +13,7 @@ import {
 	fixture,
 	ingest,
 	receipt,
+	recordCash,
 	time,
 } from "./fixture";
 
@@ -142,10 +142,11 @@ test("paid state follows allocations and the allocation that pays a bill queues 
 			0,
 			"a settled share alone sends no group message",
 		);
-		await recordCashReceipt(client, {
-			debtId: "sarah-gas",
+		await recordCash(client, {
+			housemateId: "sarah",
 			amountCents: 4000,
 			receivedAt: time,
+			allocations: [{ debtId: "sarah-gas", amountCents: 4000 }],
 		});
 		assert.equal((await shareState(client, "sarah-gas")).bill, "paid");
 		await reallocate(client, []);

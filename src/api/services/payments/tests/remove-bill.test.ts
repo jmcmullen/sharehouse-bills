@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { getAccountPayments } from "../account-payments";
-import { recordCashReceipt } from "../cash";
 import { removeBill } from "../remove-bill";
 import { approveBill } from "../verification";
-import { addShares, count, fixture, time } from "./fixture";
+import { addShares, count, fixture, recordCash, time } from "./fixture";
 
 test("a deleted bill releases the money allocated to it back to credit", async () =>
 	fixture(async (client) => {
 		await addShares(client, [["gas-share", "oliver", "bill", 6000]]);
-		const { receiptId } = await recordCashReceipt(client, {
-			debtId: "gas-share",
+		const { receiptId } = await recordCash(client, {
+			housemateId: "oliver",
 			amountCents: 6000,
 			receivedAt: time,
+			allocations: [{ debtId: "gas-share", amountCents: 6000 }],
 		});
 		await approveBill(client, "bill", true);
 		assert.equal(

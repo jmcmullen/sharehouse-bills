@@ -11,6 +11,10 @@ import {
 	allocateReceipt,
 	allocateReceiptSchema,
 } from "../api/services/payments/allocate";
+import {
+	cashReceiptSchema,
+	recordCashReceipt,
+} from "../api/services/payments/cash";
 import { createLedgerClient } from "../api/services/payments/client.server";
 import {
 	batchDecisionSchema,
@@ -23,6 +27,7 @@ import { reviewFiltersSchema } from "../api/services/payments/review-policy";
 import type { Executor } from "../api/services/payments/transaction";
 import { startPendingPaidNotifications } from "../api/services/whatsapp-notification-events";
 import { authMiddleware } from "../lib/auth-middleware";
+import { getRequestLogger } from "../lib/request-logger";
 
 interface Housemate {
 	id: string;
@@ -129,6 +134,27 @@ export const allocateLedgerReceipt = createServerFn({ method: "POST" })
 	.handler(({ data }) =>
 		withClient(async (client) => {
 			await allocateReceipt(client, data);
+			await startPendingPaidNotifications();
+			return { success: true };
+		}),
+	);
+
+// Cash handed to the admin: one receipt allocated as the admin chose, then the
+// housemate's receipt and any bill-paid message are sent.
+export const recordCashReceived = createServerFn({ method: "POST" })
+	.middleware([authMiddleware])
+	.inputValidator(cashReceiptSchema)
+	.handler(({ data }) =>
+		withClient(async (client) => {
+			getRequestLogger()?.set({
+				cashReceipt: {
+					housemateId: data.housemateId,
+					amountCents: data.amountCents,
+					receivedAt: data.receivedAt,
+					allocationCount: data.allocations.length,
+				},
+			});
+			await recordCashReceipt(client, data);
 			await startPendingPaidNotifications();
 			return { success: true };
 		}),

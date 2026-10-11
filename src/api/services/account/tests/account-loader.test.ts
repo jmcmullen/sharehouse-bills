@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Client } from "@libsql/client";
-import { recordCashReceipt } from "../../payments/cash";
 import { decideBankTransaction } from "../../payments/decisions";
 import {
 	addBill,
@@ -11,6 +10,7 @@ import {
 	fixture,
 	ingest,
 	receipt,
+	recordCash,
 	revision,
 	time,
 } from "../../payments/tests/fixture";
@@ -55,10 +55,11 @@ test("a bill settles when money for its last non-owner share arrived, by bank or
 			["sarah-share", "sarah", "bill", 4000],
 			["jay-share", "jay", "bill", 5000],
 		]);
-		await recordCashReceipt(client, {
-			debtId: "sarah-share",
+		await recordCash(client, {
+			housemateId: "sarah",
 			amountCents: 2000,
 			receivedAt: time + day,
+			allocations: [{ debtId: "sarah-share", amountCents: 2000 }],
 		});
 		await bankPayment(
 			client,
@@ -68,10 +69,11 @@ test("a bill settles when money for its last non-owner share arrived, by bank or
 			time + 2 * day,
 			"oliver-share",
 		);
-		await recordCashReceipt(client, {
-			debtId: "sarah-share",
+		await recordCash(client, {
+			housemateId: "sarah",
 			amountCents: 2000,
 			receivedAt: time + 4 * day,
+			allocations: [{ debtId: "sarah-share", amountCents: 2000 }],
 		});
 		const bill = await loadBill("bill", { client });
 		assert.equal(bill?.status, "paid");

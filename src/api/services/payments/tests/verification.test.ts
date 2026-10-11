@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { recordCashReceipt } from "../cash";
 import { approveBill, loadBillVerification } from "../verification";
 import {
 	addBill,
@@ -10,6 +9,7 @@ import {
 	fixture,
 	ingest,
 	receipt,
+	recordCash,
 	time,
 } from "./fixture";
 
@@ -37,11 +37,12 @@ test("pivots housemate payments into bills with shares, receipts, status and sum
 		await confirm(client, "bank-1", "oliver", [
 			{ debtId: "gas-o", amountCents: 10000 },
 		]);
-		await recordCashReceipt(client, {
-			debtId: "gas-s",
+		await recordCash(client, {
+			housemateId: "sarah",
 			amountCents: 2000,
 			receivedAt: time - 5,
 			note: "From Sarah",
+			allocations: [{ debtId: "gas-s", amountCents: 2000 }],
 		});
 
 		const result = await loadBillVerification(client);
@@ -109,10 +110,11 @@ test("a bill is paid once every housemate share is, and approval toggles", async
 			{ debtId: "water-o", amountCents: 4000 },
 		]);
 		assert.equal((await loadBillVerification(client)).bills[0].status, "part");
-		await recordCashReceipt(client, {
-			debtId: "water-s",
+		await recordCash(client, {
+			housemateId: "sarah",
 			amountCents: 4000,
 			receivedAt: time - 5,
+			allocations: [{ debtId: "water-s", amountCents: 4000 }],
 		});
 		const paid = await loadBillVerification(client);
 		assert.equal(paid.bills[0].status, "paid");

@@ -4,11 +4,7 @@ import { IconPlus } from "@tabler/icons-react";
 import { useLoaderData, useRouter } from "@tanstack/react-router";
 import { useTransition } from "react";
 import { toast } from "sonner";
-import {
-	deleteBillAction,
-	recordCashAction,
-	uploadBillAction,
-} from "./actions";
+import { deleteBillAction, uploadBillAction } from "./actions";
 import { BillVerificationSection } from "./bill-verification";
 import { BillsTable } from "./bills-table";
 import { useBillModals } from "./hooks/use-bill-modals";
@@ -16,10 +12,8 @@ import { useFileUpload } from "./hooks/use-file-upload";
 import { usePagination } from "./hooks/use-pagination";
 import { AddBillModal } from "./modals/add-bill-modal";
 import { DeleteBillModal } from "./modals/delete-bill-modal";
-import { RecordCashModal } from "./modals/record-cash-modal";
 import { ViewBillPdfModal } from "./modals/view-bill-pdf-modal";
 import { SummaryCards } from "./summary-cards";
-import type { CashReceiptData } from "./types";
 
 export function BillsPage() {
 	const { billsData, verification } = useLoaderData({ from: "/_app/bills" });
@@ -31,10 +25,6 @@ export function BillsPage() {
 		billToDelete,
 		openDeleteModal,
 		closeDeleteModal,
-		cashModalOpen,
-		billForCash,
-		openCashModal,
-		closeCashModal,
 		addBillModalOpen,
 		openAddBillModal,
 		closeAddBillModal,
@@ -74,21 +64,6 @@ export function BillsPage() {
 				closeDeleteModal();
 			});
 		}
-	};
-
-	const handleRecordCash = (data: CashReceiptData) => {
-		startTransition(async () => {
-			try {
-				await recordCashAction(data);
-				toast.success("Cash recorded and applied to the bill");
-				router.invalidate();
-				closeCashModal();
-			} catch (error) {
-				toast.error("Failed to record cash", {
-					description: error instanceof Error ? error.message : "Unknown error",
-				});
-			}
-		});
 	};
 
 	const handleUploadBill = async (): Promise<boolean> => {
@@ -144,11 +119,9 @@ export function BillsPage() {
 				endIndex={endIndex}
 				onPrevious={goToPrevious}
 				onNext={goToNext}
-				onRecordCash={openCashModal}
 				onDeleteBill={openDeleteModal}
 				onViewPdf={openViewPdfModal}
 				onAddBill={openAddBillModal}
-				processingPayments={isPending}
 				deletingBill={isPending}
 				billToDelete={billToDelete}
 			/>
@@ -160,16 +133,6 @@ export function BillsPage() {
 				onOpenChange={closeDeleteModal}
 				onConfirm={handleDeleteConfirm}
 				isDeleting={isPending}
-			/>
-
-			<RecordCashModal
-				open={cashModalOpen}
-				onOpenChange={(open) => {
-					if (!open) closeCashModal();
-				}}
-				bill={billForCash}
-				onConfirm={handleRecordCash}
-				isProcessing={isPending}
 			/>
 
 			<AddBillModal

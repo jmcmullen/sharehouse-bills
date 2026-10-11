@@ -1,21 +1,27 @@
 import type { Client } from "@libsql/client";
 import { z } from "zod";
 import { getAccountPayments } from "./account-payments";
-import { insertReceipt, writeAllocations } from "./allocate";
-import { isRentReference } from "./model";
+import {
+	billAllocationsSchema,
+	insertReceipt,
+	writeAllocations,
+} from "./allocate";
 import { enqueuePaymentReceipt } from "./receipt-notifications";
 import { nowSeconds, withWriteTransaction } from "./transaction";
 
 export const cashReceiptSchema = z.object({
-	debtId: z.string().min(1),
+	housemateId: z.string().min(1),
 	amountCents: z.number().int().safe().positive(),
 	receivedAt: z.number().int().positive(),
 	note: z.string().trim().max(200).default(""),
+	allocations: billAllocationsSchema,
+	expectedRevision: z.string(),
 });
 
-// Records cash handed to the admin and allocates it to one bill share in the
-// same transaction. It is the only way money enters without a bank transfer,
-// and the housemate gets a receipt for it.
+// Records cash handed to the admin as one receipt and allocates it to the
+// housemate's shares in the same transaction. Empty allocations keep it as
+// credit. It is the only way money enters without a bank transfer, and the
+// housemate gets a receipt for it.
 export async function recordCashReceipt(
 	client: Client,
 	input: z.input<typeof cashReceiptSchema>,
@@ -24,37 +30,33 @@ export async function recordCashReceipt(
 	if (data.receivedAt > nowSeconds())
 		throw new Error("Cash received cannot have a future date");
 	return withWriteTransaction(client, async (tx) => {
-		const debt = (
+		const housemate = (
 			await tx.execute({
-				sql: "SELECT d.housemate_id FROM debts d JOIN housemates h ON h.id=d.housemate_id WHERE d.id=? AND h.is_owner=0",
-				args: [data.debtId],
+				sql: "SELECT id FROM housemates WHERE id=? AND is_owner=0",
+				args: [data.housemateId],
 			})
 		).rows[0];
-		if (!debt) throw new Error("Bill share not found");
-		const housemateId = String(debt.housemate_id);
-		const share = (await getAccountPayments(tx, housemateId)).bills.find(
-			(bill) => bill.id === data.debtId,
-		);
-		if (!share) throw new Error("Bill share not found");
-		if (data.amountCents > share.remainingCents)
-			throw new Error("Cash exceeds the remaining share");
-		if (isRentReference(data.note) && !/rent/i.test(share.category))
-			throw new Error("Allocate a rent payment to rent bills");
+		if (!housemate) throw new Error("Housemate not found");
+		const before = await getAccountPayments(tx, data.housemateId);
+		if (before.revision !== data.expectedRevision)
+			throw new Error("Payments or bills changed. Refresh before saving.");
 		const receiptId = await insertReceipt(tx, {
-			housemateId,
+			housemateId: data.housemateId,
 			amountCents: data.amountCents,
 			receivedAt: data.receivedAt,
 			kind: "cash",
 			bankTransactionId: null,
 			note: data.note,
 		});
+		// The receipt's description carries the note, so a note saying rent
+		// limits the cash to rent bills.
 		await writeAllocations(
 			tx,
-			await getAccountPayments(tx, housemateId),
+			await getAccountPayments(tx, data.housemateId),
 			receiptId,
-			[{ debtId: data.debtId, amountCents: data.amountCents }],
+			data.allocations,
 		);
-		await enqueuePaymentReceipt(tx, housemateId, receiptId, "receipt");
+		await enqueuePaymentReceipt(tx, data.housemateId, receiptId, "receipt");
 		return { receiptId };
 	});
 }

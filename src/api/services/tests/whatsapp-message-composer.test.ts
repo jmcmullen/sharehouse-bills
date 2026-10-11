@@ -22,6 +22,7 @@ const cleaners = {
 test("payment receipt names the bills covered, leftover credit and balance", () => {
 	const lines = buildPaymentReceiptSummary({
 		firstName: "Oliver",
+		method: "bank",
 		amountCents: 24900,
 		receivedAt: received,
 		covered: [gas, cleaners],
@@ -41,6 +42,7 @@ test("payment receipt names the bills covered, leftover credit and balance", () 
 test("receipt lines time each bill against the day the money arrived", () => {
 	const lines = buildPaymentReceiptSummary({
 		firstName: "Oliver",
+		method: "bank",
 		amountCents: 60000,
 		receivedAt: received,
 		covered: [
@@ -69,6 +71,7 @@ test("receipt lines time each bill against the day the money arrived", () => {
 test("credit-held receipt says the money waits for the next bill", () => {
 	const message = buildPaymentReceiptSummary({
 		firstName: "Oliver",
+		method: "bank",
 		amountCents: 5000,
 		receivedAt: received,
 		covered: [],
@@ -82,6 +85,42 @@ test("credit-held receipt says the money waits for the next bill", () => {
 			"$50.00 on Sat 12 Sep",
 			"",
 			"This payment is held as credit for your next bill.",
+			"You're $50.00 in credit.",
+		].join("\n"),
+	);
+});
+
+test("cash receipt says cash was received", () => {
+	const covered = buildPaymentReceiptSummary({
+		firstName: "Oliver",
+		method: "cash",
+		amountCents: 10000,
+		receivedAt: received,
+		covered: [gas],
+		creditCents: 0,
+		balanceCents: 0,
+	}).split("\n");
+	assert.equal(covered[0], "*Thanks Oliver, cash received*");
+	assert.equal(
+		covered[4],
+		"- Gas (due Sat 12 Sep) · $100.00 · on the due date",
+	);
+	const credit = buildPaymentReceiptSummary({
+		firstName: "Oliver",
+		method: "cash",
+		amountCents: 5000,
+		receivedAt: received,
+		covered: [],
+		creditCents: 5000,
+		balanceCents: -5000,
+	});
+	assert.equal(
+		credit,
+		[
+			"*Thanks Oliver, cash received*",
+			"$50.00 on Sat 12 Sep",
+			"",
+			"This cash is held as credit for your next bill.",
 			"You're $50.00 in credit.",
 		].join("\n"),
 	);

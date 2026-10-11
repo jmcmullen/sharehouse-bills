@@ -108,8 +108,8 @@ functions read through it.
 ## Bank transaction lifecycle
 
 Code: `src/api/services/payments/`. Server functions:
-`src/functions/ledger.ts` (review and accounts), `src/functions/bills.ts`
-(cash, delete), `src/functions/bill-verification.ts` (bill review ticks).
+`src/functions/ledger.ts` (review, accounts and cash),
+`src/functions/bills.ts` (delete), `src/functions/bill-verification.ts` (bill review ticks).
 
 1. **Ingest.** The Up webhook (`POST /api/hooks/up`, `bank-events.server.ts`)
    and the history import (`bun ledger --import-up`, `up-import.ts`) upsert
@@ -160,9 +160,15 @@ Code: `src/api/services/payments/`. Server functions:
    and allocations only, so a form open across Sydney midnight still saves. The first allocation message is a receipt; later
    changes queue a `payment_correction` only when the allocations differ from
    the last message.
-5. **Record cash.** The Bills page inserts a cash receipt and allocates it to
-   one share, up to that share's remaining amount, and queues a receipt
-   message. It is the only manual way money enters.
+5. **Record cash** (`cash.ts`). From the Accounts page the admin enters one
+   housemate's cash once: amount, date (not in the future) and note. The form
+   proposes allocations with `fillOldestFirst` (oldest due first, undated
+   last, part-paying the last share reached) and the admin can change them.
+   One write transaction checks the account revision, inserts one cash
+   receipt, writes its allocations (empty keeps the money as credit; the
+   usual share, total and rent-only checks apply, with the note as the
+   reference) and queues the housemate's `payment_receipt`, which reads "cash
+   received". It is the only manual way money enters.
 6. **Delete a bill.** Its allocations are released back to credit (recorded in
    history) in the same transaction as the delete.
 

@@ -148,13 +148,15 @@ interface ReceiptLine {
 }
 interface PaymentReceiptInput {
 	firstName: string;
+	method: "bank" | "cash";
 	amountCents: number;
 	receivedAt: Date;
 	covered: ReceiptLine[];
 	creditCents: number;
 	balanceCents: number;
 }
-interface PaymentCorrectionInput extends Omit<PaymentReceiptInput, "covered"> {
+interface PaymentCorrectionInput
+	extends Omit<PaymentReceiptInput, "covered" | "method"> {
 	before: ReceiptLine[];
 	after: ReceiptLine[];
 	// The money was voided: it no longer counts toward anything.
@@ -187,16 +189,18 @@ function receiptFooter(input: Pick<PaymentReceiptInput, "balanceCents">) {
 	return [balanceLine(input.balanceCents)];
 }
 
+// Cash handed over reads as cash, not as a payment that arrived in the bank.
 export function buildPaymentReceiptSummary(input: PaymentReceiptInput) {
+	const money = input.method === "cash" ? "cash" : "payment";
 	const header = [
-		`*Thanks ${input.firstName}, payment received*`,
+		`*Thanks ${input.firstName}, ${money} received*`,
 		`${formatCents(input.amountCents)} on ${formatReceivedDate(input.receivedAt)}`,
 		"",
 	];
 	if (!input.covered.length)
 		return [
 			...header,
-			"This payment is held as credit for your next bill.",
+			`This ${money} is held as credit for your next bill.`,
 			...receiptFooter(input),
 		].join("\n");
 	return [

@@ -13,8 +13,11 @@ type Ready = Parameters<typeof ReviewPaymentComponent>[0]["data"];
 type Decision = Parameters<typeof decideLedgerTransaction>[0];
 
 const decide = mock(async (_input: Decision): Promise<void> => {});
+// Bun shares module mocks across test files, so every ledger component test
+// mocks the same server functions.
 mock.module("../../../functions/ledger", () => ({
 	decideLedgerTransaction: decide,
+	recordCashReceived: mock(async () => {}),
 }));
 const { cleanup, fireEvent, render, screen, waitFor } = await import(
 	"@testing-library/react"

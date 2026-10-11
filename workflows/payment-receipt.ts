@@ -84,7 +84,11 @@ async function sendPaymentReceipt(notificationId: string) {
 					after: context.after,
 					voided: context.voided,
 				})
-			: buildPaymentReceiptSummary({ ...shared, covered: context.after });
+			: buildPaymentReceiptSummary({
+					...shared,
+					method: context.method,
+					covered: context.after,
+				});
 
 	await performTrackedWhatsappDelivery({
 		notificationId,

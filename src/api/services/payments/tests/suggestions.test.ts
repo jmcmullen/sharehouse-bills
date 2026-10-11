@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { suggestAllocations } from "../suggestions";
+import { fillOldestFirst, suggestAllocations } from "../suggestions";
 
 const day = 86400;
 const received = 1780000000;
@@ -162,4 +162,34 @@ test("rent-only payments ignore utility shares", () => {
 		}),
 		null,
 	);
+});
+
+test("fillOldestFirst covers the oldest shares first and stops at the amount", () => {
+	assert.deepEqual(
+		fillOldestFirst(
+			[
+				share("undated", 1000, null),
+				share("new", 3000, received),
+				share("old", 2000, received - 2 * day),
+				share("paid", 0, received - 3 * day),
+				share("mid", 4000, received - day),
+			],
+			7500,
+		),
+		[
+			{ debtId: "old", amountCents: 2000 },
+			{ debtId: "mid", amountCents: 4000 },
+			{ debtId: "new", amountCents: 1500 },
+		],
+	);
+});
+
+test("fillOldestFirst reaches undated shares last and allocates nothing beyond the open total", () => {
+	const shares = [share("undated", 1000, null), share("dated", 2000)];
+	assert.deepEqual(fillOldestFirst(shares, 5000), [
+		{ debtId: "dated", amountCents: 2000 },
+		{ debtId: "undated", amountCents: 1000 },
+	]);
+	assert.deepEqual(fillOldestFirst(shares, 0), []);
+	assert.deepEqual(fillOldestFirst([], 5000), []);
 });

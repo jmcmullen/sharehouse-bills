@@ -109,9 +109,12 @@ decision. The full model is in [docs/payments.md](./docs/payments.md).
   statement with a running balance. The admin can reallocate any receipt; the
   housemate gets a receipt the first time and a correction when a later change
   differs.
-- **Cash.** Recording cash on the Bills page is the only manual payment. It
-  creates a cash receipt allocated to one share and sends the housemate a
-  receipt.
+- **Cash.** Recording cash on the Accounts page is the only manual payment.
+  The admin enters the amount, date and note once; the app proposes the
+  housemate's open shares oldest due first, the admin can change the split,
+  and one cash receipt is written with its allocations (anything left is held
+  as credit). The housemate gets a WhatsApp receipt that says cash was
+  received.
 - **Corrections.** Receipts are never deleted, only voided with a reason. If
   the bank changes or deletes a confirmed transaction, its receipts are voided
   and it goes back to review; a new decision on a transaction voids the

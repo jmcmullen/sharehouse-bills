@@ -46,11 +46,9 @@ interface BillsTableProps {
 	endIndex: number;
 	onPrevious: () => void;
 	onNext: () => void;
-	onRecordCash: (bill: BillListItem) => void;
 	onDeleteBill: (billId: string) => void;
 	onViewPdf: (bill: BillListItem) => void;
 	onAddBill: () => void;
-	processingPayments: boolean;
 	deletingBill: boolean;
 	billToDelete: string | null;
 }
@@ -65,11 +63,9 @@ export function BillsTable({
 	endIndex,
 	onPrevious,
 	onNext,
-	onRecordCash,
 	onDeleteBill,
 	onViewPdf,
 	onAddBill,
-	processingPayments,
 	deletingBill,
 	billToDelete,
 }: BillsTableProps) {
@@ -186,18 +182,6 @@ export function BillsTable({
 											</TableCell>
 											<TableCell className="text-right">
 												<div className="flex items-center justify-end gap-1">
-													{bill.remainingCents > 0 && (
-														<Button
-															variant="default"
-															size="sm"
-															disabled={processingPayments}
-															onClick={() => onRecordCash(bill)}
-														>
-															{processingPayments
-																? "Recording..."
-																: "Record cash"}
-														</Button>
-													)}
 													<DropdownMenu>
 														<DropdownMenuTrigger asChild>
 															<Button

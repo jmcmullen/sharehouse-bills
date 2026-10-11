@@ -10,6 +10,7 @@ import { StatementMonthSection } from "../public/statement-rows";
 import { Button } from "../ui/button";
 import { AllocateReceipt } from "./allocate-receipt";
 import { BillPayments, PaymentSummary } from "./bill-payments";
+import { RecordCash } from "./record-cash";
 
 type Account = Awaited<ReturnType<typeof getLedgerAccount>>;
 
@@ -23,6 +24,7 @@ export function LedgerPage() {
 		accounts: Record<string, Account>;
 	}>({ source: loaded, accounts: {} });
 	const [receiptId, setReceiptId] = useState<string | null>(null);
+	const [recordingCash, setRecordingCash] = useState(false);
 	const [showCorrections, setShowCorrections] = useState(false);
 	const patches = patch.source === loaded ? patch.accounts : {};
 	async function reload(id: string) {
@@ -56,6 +58,7 @@ export function LedgerPage() {
 					value={account?.id ?? ""}
 					onChange={(e) => {
 						setReceiptId(null);
+						setRecordingCash(false);
 						void navigate({ search: { housemateId: e.target.value } });
 					}}
 					className="h-10 rounded-md border bg-background px-3"
@@ -66,6 +69,11 @@ export function LedgerPage() {
 						</option>
 					))}
 				</select>
+				{account && (
+					<Button variant="outline" onClick={() => setRecordingCash(true)}>
+						Record cash
+					</Button>
+				)}
 			</div>
 			{account && timeline ? (
 				<>
@@ -109,6 +117,19 @@ export function LedgerPage() {
 							billing={account.billing}
 							onClose={() => setReceiptId(null)}
 							onSaved={() => reload(account.id)}
+						/>
+					)}
+					{recordingCash && (
+						<RecordCash
+							key={account.id}
+							housemateId={account.id}
+							housemateName={account.name}
+							billing={account.billing}
+							onClose={() => setRecordingCash(false)}
+							onSaved={async () => {
+								await reload(account.id);
+								await router.invalidate();
+							}}
 						/>
 					)}
 				</>

@@ -1,13 +1,8 @@
-import { deleteBill, recordCashReceived } from "@/functions/bills";
+import { deleteBill } from "@/functions/bills";
 import { uploadBillPdf } from "@/functions/upload-bill";
-import type { CashReceiptData } from "./types";
 
 export async function deleteBillAction(billId: string) {
 	await deleteBill({ data: { billId } });
-}
-
-export async function recordCashAction(data: CashReceiptData) {
-	await recordCashReceived({ data });
 }
 
 function bytesToBase64(bytes: Uint8Array) {

@@ -5,7 +5,9 @@ import { type Client, createClient } from "@libsql/client";
 import { pushSQLiteSchema } from "drizzle-kit/api";
 import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "../../../db/schema";
+import { getAccountPayments } from "../account-payments";
 import { ingestBankTransaction } from "../bank-ingest";
+import { recordCashReceipt } from "../cash";
 import { decideBankTransaction } from "../decisions";
 import { type BankTransaction, bankTransactionSchema } from "../model";
 import { withWriteTransaction } from "../transaction";
@@ -138,6 +140,24 @@ export async function confirm(
 		allocations,
 		reason,
 		expectedRevision: await revision(client, transactionId),
+	});
+}
+
+// Records cash against the housemate's current account revision.
+export async function recordCash(
+	client: Client,
+	cash: {
+		housemateId: string;
+		amountCents: number;
+		receivedAt: number;
+		note?: string;
+		allocations: Array<{ debtId: string; amountCents: number }>;
+	},
+): Promise<{ receiptId: string }> {
+	return recordCashReceipt(client, {
+		...cash,
+		expectedRevision: (await getAccountPayments(client, cash.housemateId))
+			.revision,
 	});
 }
 

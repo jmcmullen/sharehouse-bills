@@ -15,6 +15,8 @@ interface ReceiptLine {
 }
 interface PaymentReceiptContext {
 	kind: "receipt" | "correction";
+	// How the money arrived, so cash is not described as a transfer.
+	method: "bank" | "cash";
 	housemate: {
 		id: string;
 		name: string;
@@ -58,8 +60,8 @@ async function loadContext(
 	);
 	if (!parsed.success) return null;
 	const payload = parsed.data;
-	if (!payload.voided && (await isVoided(client, payload.receiptId)))
-		return null;
+	const receipt = await loadReceipt(client, payload.receiptId);
+	if (!payload.voided && receipt?.voided) return null;
 	const housemateId = String(row.housemate_id);
 	const name = String(row.name);
 	const [before, after, account] = await Promise.all([
@@ -72,6 +74,7 @@ async function loadContext(
 			String(row.event_type) === "payment_correction"
 				? "correction"
 				: "receipt",
+		method: receipt?.method ?? "bank",
 		housemate: {
 			id: housemateId,
 			name,
@@ -94,14 +97,21 @@ async function loadContext(
 	};
 }
 
-async function isVoided(client: Executor, receiptId: string): Promise<boolean> {
+async function loadReceipt(
+	client: Executor,
+	receiptId: string,
+): Promise<{ method: "bank" | "cash"; voided: boolean } | null> {
 	const row = (
 		await client.execute({
-			sql: "SELECT voided_at FROM receipts WHERE id=?",
+			sql: "SELECT kind,voided_at FROM receipts WHERE id=?",
 			args: [receiptId],
 		})
 	).rows[0];
-	return row !== undefined && row.voided_at !== null;
+	if (!row) return null;
+	return {
+		method: row.kind === "cash" ? "cash" : "bank",
+		voided: row.voided_at !== null,
+	};
 }
 
 async function billLines(

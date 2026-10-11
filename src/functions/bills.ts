@@ -10,20 +10,10 @@ import {
 	insertBillWithShares,
 	splitAcrossHousemates,
 } from "../api/services/bills/shares";
-import {
-	cashReceiptSchema,
-	recordCashReceipt,
-} from "../api/services/payments/cash";
-import {
-	createLedgerClient,
-	withLedgerClient,
-} from "../api/services/payments/client.server";
+import { withLedgerClient } from "../api/services/payments/client.server";
 import { removeBill } from "../api/services/payments/remove-bill";
 import { generateWeeklyRentBill } from "../api/services/recurring-bill";
-import {
-	enqueueBillCreatedNotification,
-	startPendingPaidNotifications,
-} from "../api/services/whatsapp-notification-events";
+import { enqueueBillCreatedNotification } from "../api/services/whatsapp-notification-events";
 import { authMiddleware } from "../lib/auth-middleware";
 import { entityIdSchema } from "../lib/id";
 import { getRequestLogger } from "../lib/request-logger";
@@ -145,28 +135,6 @@ export const deleteBill = createServerFn({ method: "POST" })
 		return { success: true };
 	});
 
-// Cash handed to the admin: recorded and allocated in one transaction, then
-// the housemate's receipt and any bill-paid message are sent.
-export const recordCashReceived = createServerFn({ method: "POST" })
-	.middleware([authMiddleware])
-	.inputValidator(cashReceiptSchema)
-	.handler(async ({ data }) => {
-		getRequestLogger()?.set({
-			cashReceipt: {
-				debtId: data.debtId,
-				amountCents: data.amountCents,
-				receivedAt: data.receivedAt,
-			},
-		});
-		const client = createLedgerClient();
-		try {
-			await recordCashReceipt(client, data);
-		} finally {
-			client.close();
-		}
-		await startPendingPaidNotifications();
-		return { success: true };
-	});
 // Generate weekly rent bill
 export const generateWeeklyRent = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])

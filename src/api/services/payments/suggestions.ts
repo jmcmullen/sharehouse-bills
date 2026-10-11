@@ -52,6 +52,35 @@ export function suggestAllocations(input: SuggestionInput): Suggestion | null {
 	return partial(open, input.amountCents);
 }
 
+// Spreads money across open shares oldest due first (undated last), part-paying
+// the last share reached. Nothing is allocated beyond the amount.
+export function fillOldestFirst(
+	shares: OpenShare[],
+	amountCents: number,
+): Array<{ debtId: string; amountCents: number }> {
+	const open = shares
+		.filter((share) => share.remainingCents > 0)
+		.sort((a, b) => age(a) - age(b) || a.debtId.localeCompare(b.debtId));
+	return open.reduce<{
+		left: number;
+		allocations: Array<{ debtId: string; amountCents: number }>;
+	}>(
+		({ left, allocations }, share) => {
+			const take = Math.min(left, share.remainingCents);
+			return take > 0
+				? {
+						left: left - take,
+						allocations: [
+							...allocations,
+							{ debtId: share.debtId, amountCents: take },
+						],
+					}
+				: { left, allocations };
+		},
+		{ left: Math.max(amountCents, 0), allocations: [] },
+	).allocations;
+}
+
 // Oldest debt first, so a payment that matches several open weeks settles the
 // longest-outstanding one; undated shares come last.
 function age(share: OpenShare): number {
@@ -87,21 +116,7 @@ function exactGroup(
 }
 
 function partial(shares: OpenShare[], amount: number): Suggestion {
-	const allocations = shares.flatMap((share, index) => {
-		const left =
-			amount -
-			shares
-				.slice(0, index)
-				.reduce((sum, item) => sum + item.remainingCents, 0);
-		return left > 0
-			? [
-					{
-						debtId: share.debtId,
-						amountCents: Math.min(left, share.remainingCents),
-					},
-				]
-			: [];
-	});
+	const allocations = fillOldestFirst(shares, amount);
 	const allocated = allocations.reduce(
 		(sum, item) => sum + item.amountCents,
 		0,

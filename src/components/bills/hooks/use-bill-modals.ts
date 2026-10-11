@@ -4,8 +4,6 @@ import type { BillListItem } from "../types";
 export function useBillModals() {
 	const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 	const [billToDelete, setBillToDelete] = useState<string | null>(null);
-	const [cashModalOpen, setCashModalOpen] = useState(false);
-	const [billForCash, setBillForCash] = useState<BillListItem | null>(null);
 	const [addBillModalOpen, setAddBillModalOpen] = useState(false);
 	const [viewPdfModalOpen, setViewPdfModalOpen] = useState(false);
 	const [billToViewPdf, setBillToViewPdf] = useState<BillListItem | null>(null);
@@ -18,16 +16,6 @@ export function useBillModals() {
 	const closeDeleteModal = () => {
 		setDeleteModalOpen(false);
 		setBillToDelete(null);
-	};
-
-	const openCashModal = (bill: BillListItem) => {
-		setBillForCash(bill);
-		setCashModalOpen(true);
-	};
-
-	const closeCashModal = () => {
-		setCashModalOpen(false);
-		setBillForCash(null);
 	};
 
 	const openAddBillModal = () => {
@@ -54,12 +42,6 @@ export function useBillModals() {
 		billToDelete,
 		openDeleteModal,
 		closeDeleteModal,
-
-		// Record cash modal
-		cashModalOpen,
-		billForCash,
-		openCashModal,
-		closeCashModal,
 
 		// Add bill modal
 		addBillModalOpen,
