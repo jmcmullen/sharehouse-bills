@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { BankTransaction } from "./model";
 
 export function ignoredBankReason(transaction: BankTransaction): string | null {
@@ -18,6 +19,20 @@ export const reviewGroups = {
 } as const;
 export type ReviewGroup = keyof typeof reviewGroups;
 // The stored group; "suggested" is derived at read time from the live suggestion.
+export const reviewFiltersSchema = z.object({
+	reviewPage: z.number().int().min(0).default(0),
+	housemateId: z.string().optional(),
+	status: z
+		.enum(["review", "confirmed", "excluded", "archived"])
+		.default("review"),
+	scope: z.enum(["all", "known", "unidentified"]).default("all"),
+	recentOnly: z.boolean().default(false),
+	group: z
+		.enum(["all", ...(Object.keys(reviewGroups) as [ReviewGroup])])
+		.default("all"),
+	query: z.string().max(100).default(""),
+});
+
 type StoredReviewGroup = Exclude<ReviewGroup, "suggested">;
 
 export function reviewGroupFor(facts: {

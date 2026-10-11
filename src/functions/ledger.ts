@@ -18,10 +18,8 @@ import {
 	decideBankTransactions,
 	decisionSchema,
 } from "../api/services/payments/decisions";
-import {
-	loadPaymentReview,
-	reviewFiltersSchema,
-} from "../api/services/payments/review-data";
+import { loadPaymentReview } from "../api/services/payments/review-data";
+import { reviewFiltersSchema } from "../api/services/payments/review-policy";
 import type { Executor } from "../api/services/payments/transaction";
 import { startPendingPaidNotifications } from "../api/services/whatsapp-notification-events";
 import { authMiddleware } from "../lib/auth-middleware";

@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { z } from "zod";
-import type { reviewFiltersSchema } from "../../api/services/payments/review-data";
+import type { reviewFiltersSchema } from "../../api/services/payments/review-policy";
 import { reviewGroups } from "../../api/services/payments/review-policy";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";

@@ -8,6 +8,7 @@ import { loadHousemates } from "./housemates";
 import { bankTransactionSchema, namedBeneficiaries } from "./model";
 import {
 	type ReviewGroup,
+	reviewFiltersSchema,
 	reviewGroupSql,
 	reviewGroups,
 } from "./review-policy";
@@ -19,20 +20,6 @@ interface ReviewAccount {
 	name: string;
 	billing: AccountPayments;
 }
-
-export const reviewFiltersSchema = z.object({
-	reviewPage: z.number().int().min(0).default(0),
-	housemateId: z.string().optional(),
-	status: z
-		.enum(["review", "confirmed", "excluded", "archived"])
-		.default("review"),
-	scope: z.enum(["all", "known", "unidentified"]).default("all"),
-	recentOnly: z.boolean().default(false),
-	group: z
-		.enum(["all", ...(Object.keys(reviewGroups) as [ReviewGroup])])
-		.default("all"),
-	query: z.string().max(100).default(""),
-});
 
 const allocationsSchema = z.array(
 	z.object({ housemateId: z.string(), amountCents: z.number() }),
