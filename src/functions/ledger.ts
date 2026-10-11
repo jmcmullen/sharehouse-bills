@@ -1,50 +1,34 @@
 import type { Client } from "@libsql/client";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { loadAccount } from "../api/services/account/account.server";
-import { settleLedger } from "../api/services/ledger-sync.server";
-import { getAccountPayments } from "../api/services/ledger/account-payments";
+import {
+	loadAccount,
+	loadVoidedReceipts,
+} from "../api/services/account/account.server";
+import { buildStatement } from "../api/services/account/statement";
+import { toAccountPayments } from "../api/services/payments/account-payments";
 import {
 	allocateReceipt,
 	allocateReceiptSchema,
-	recordReceipt,
-	recordReceiptSchema,
-} from "../api/services/ledger/allocation-actions";
-import { createLedgerClient } from "../api/services/ledger/client.server";
+} from "../api/services/payments/allocate";
+import { createLedgerClient } from "../api/services/payments/client.server";
 import {
-	confirmReceipt,
-	confirmReceiptSchema,
-} from "../api/services/ledger/confirm-receipt";
-import { drainLedgerEvents } from "../api/services/ledger/events";
-import { currentStatement, withUpcoming } from "../api/services/ledger/model";
+	batchDecisionSchema,
+	decideBankTransaction,
+	decideBankTransactions,
+	decisionSchema,
+} from "../api/services/payments/decisions";
 import {
 	loadPaymentReview,
 	reviewFiltersSchema,
-} from "../api/services/ledger/payment-review-data";
-import {
-	batchReviewSchema,
-	reviewBankTransaction,
-	reviewBankTransactions,
-	reviewDecisionSchema,
-} from "../api/services/ledger/review-decisions";
-import {
-	type Executor,
-	getAccountStatement,
-	nowSeconds,
-} from "../api/services/ledger/sources";
+} from "../api/services/payments/review-data";
+import type { Executor } from "../api/services/payments/transaction";
 import { startPendingPaidNotifications } from "../api/services/whatsapp-notification-events";
 import { authMiddleware } from "../lib/auth-middleware";
 
 interface Housemate {
 	id: string;
 	name: string;
-}
-
-async function ledgerAvailable(client: Executor): Promise<boolean> {
-	const tables = await client.execute(
-		"SELECT name FROM sqlite_master WHERE type='table' AND name='ledger_entries'",
-	);
-	return tables.rows.length > 0;
 }
 
 async function loadHousemates(
@@ -61,20 +45,21 @@ async function loadHousemates(
 	}));
 }
 
+// One housemate's account for the admin: bills and money received, and the
+// statement with and without the receipts later decisions voided.
 async function loadLedgerAccount(client: Executor, housemate: Housemate) {
-	const [statement, billing, account] = await Promise.all([
-		getAccountStatement(client, housemate.id),
-		getAccountPayments(client, housemate.id),
-		loadAccount(housemate.id, { client }),
+	const now = Math.floor(Date.now() / 1000);
+	const [account, voided] = await Promise.all([
+		loadAccount(housemate.id, { client, now }),
+		loadVoidedReceipts(housemate.id, { client }),
 	]);
+	if (!account) throw new Error("Housemate not found");
 	return {
 		...housemate,
-		...withUpcoming(
-			currentStatement(statement, nowSeconds()),
-			account?.upcomingCents ?? 0,
-		),
-		auditEntries: statement.entries,
-		billing,
+		balanceCents: account.balanceCents,
+		billing: toAccountPayments(account),
+		statement: buildStatement(account, now, { admin: { voided: [] } }),
+		corrections: buildStatement(account, now, { admin: { voided } }),
 	};
 }
 
@@ -93,14 +78,10 @@ export const getLedgerAccounts = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
 	.handler(() =>
 		withClient(async (client) => {
-			if (!(await ledgerAvailable(client)))
-				return { available: false as const };
-			await drainLedgerEvents(client);
 			const housemates = await loadHousemates(client);
-			const accounts = await Promise.all(
+			return Promise.all(
 				housemates.map((housemate) => loadLedgerAccount(client, housemate)),
 			);
-			return { available: true as const, accounts };
 		}),
 	);
 
@@ -109,7 +90,6 @@ export const getLedgerAccount = createServerFn({ method: "GET" })
 	.inputValidator(z.object({ housemateId: z.string().min(1) }))
 	.handler(({ data }) =>
 		withClient(async (client) => {
-			await drainLedgerEvents(client);
 			const [housemate] = await loadHousemates(client, data.housemateId);
 			if (!housemate) throw new Error("Housemate not found");
 			return loadLedgerAccount(client, housemate);
@@ -120,26 +100,15 @@ export const getPaymentReview = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
 	.inputValidator(reviewFiltersSchema)
 	.handler(({ data }) =>
-		withClient(async (client) => {
-			if (!(await ledgerAvailable(client)))
-				return { available: false as const };
-			return {
-				available: true as const,
-				...(await loadPaymentReview(client, data)),
-			};
-		}),
+		withClient((client) => loadPaymentReview(client, data)),
 	);
-
-export const syncLedger = createServerFn({ method: "POST" })
-	.middleware([authMiddleware])
-	.handler(async () => ({ processed: await settleLedger() }));
 
 export const decideLedgerTransaction = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.inputValidator(reviewDecisionSchema)
+	.inputValidator(decisionSchema)
 	.handler(({ data }) =>
 		withClient(async (client) => {
-			await reviewBankTransaction(client, data);
+			await decideBankTransaction(client, data);
 			await startPendingPaidNotifications();
 			return { success: true };
 		}),
@@ -147,21 +116,10 @@ export const decideLedgerTransaction = createServerFn({ method: "POST" })
 
 export const decideLedgerBatch = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
-	.inputValidator(batchReviewSchema)
+	.inputValidator(batchDecisionSchema)
 	.handler(({ data }) =>
 		withClient(async (client) => {
-			await reviewBankTransactions(client, data);
-			await startPendingPaidNotifications();
-			return { success: true };
-		}),
-	);
-
-export const confirmLedgerReceipt = createServerFn({ method: "POST" })
-	.middleware([authMiddleware])
-	.inputValidator(confirmReceiptSchema)
-	.handler(({ data }) =>
-		withClient(async (client) => {
-			await confirmReceipt(client, data);
+			await decideBankTransactions(client, data);
 			await startPendingPaidNotifications();
 			return { success: true };
 		}),
@@ -173,17 +131,6 @@ export const allocateLedgerReceipt = createServerFn({ method: "POST" })
 	.handler(({ data }) =>
 		withClient(async (client) => {
 			await allocateReceipt(client, data);
-			await startPendingPaidNotifications();
-			return { success: true };
-		}),
-	);
-
-export const recordLedgerReceipt = createServerFn({ method: "POST" })
-	.middleware([authMiddleware])
-	.inputValidator(recordReceiptSchema)
-	.handler(({ data }) =>
-		withClient(async (client) => {
-			await recordReceipt(client, data);
 			await startPendingPaidNotifications();
 			return { success: true };
 		}),

@@ -7,8 +7,6 @@ import {
 	useSearch,
 } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
-import { syncLedger } from "../../functions/ledger";
 import { Button } from "../ui/button";
 import { BatchReview } from "./batch-review";
 import { confirmRow, excludeRow } from "./review-actions";
@@ -42,20 +40,9 @@ export function PaymentReviewPage() {
 		if (page === filters.reviewPage) return router.invalidate();
 		await navigate({ search: (prev) => ({ ...prev, reviewPage: page }) });
 	}
-	async function sync() {
-		setBusy(true);
-		try {
-			await syncLedger();
-			await router.invalidate();
-		} catch {
-			toast.error("Could not refresh payments");
-		} finally {
-			setBusy(false);
-		}
-	}
 	// Reloads after a decision, stepping back a page when this one empties.
 	async function decided(saved: boolean) {
-		if (!saved || !data.available) return;
+		if (!saved) return;
 		await showPage(
 			data.reviews.length === 1
 				? Math.max(0, filters.reviewPage - 1)
@@ -70,7 +57,6 @@ export function PaymentReviewPage() {
 			setBusy(false);
 		}
 	}
-	if (!data.available) return <p>The ledger migration is not installed yet.</p>;
 	const pages = Math.max(1, Math.ceil(data.reviewCount / pageSize));
 	const chosen = data.reviews.filter((item) => checked.includes(item.id));
 	return (
@@ -84,7 +70,11 @@ export function PaymentReviewPage() {
 						Review payments that match your housemates.
 					</p>
 				</div>
-				<Button variant="outline" onClick={sync} disabled={disabled}>
+				<Button
+					variant="outline"
+					onClick={() => router.invalidate()}
+					disabled={disabled}
+				>
 					{disabled ? "Loading…" : "Refresh payments"}
 				</Button>
 			</header>

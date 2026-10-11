@@ -40,7 +40,7 @@ export function SplitPayment({
 			Number(amounts[account.id]) > 0,
 	);
 	const total = allocations.reduce((sum, item) => sum + item.amountCents, 0);
-	const needsNote = payment.decision === "archive" || payment.matchCandidate;
+	const needsNote = payment.decision === "archived";
 	async function save() {
 		setBusy(true);
 		onBusy(true);

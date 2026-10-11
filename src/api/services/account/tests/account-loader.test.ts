@@ -1,34 +1,29 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Client } from "@libsql/client";
-import { getAccountPayments } from "../../ledger/account-payments";
-import { allocateReceipt } from "../../ledger/allocation-actions";
-import { recordCashReceipt } from "../../ledger/cash-receipt";
-import { drainLedgerEvents } from "../../ledger/events";
-import { reviewBankTransaction } from "../../ledger/review-decisions";
-import { applySource, withWriteTransaction } from "../../ledger/sources";
+import { recordCashReceipt } from "../../payments/cash";
+import { decideBankTransaction } from "../../payments/decisions";
 import {
+	addBill,
+	addShares,
+	confirm,
+	day,
 	fixture,
 	ingest,
-	manual,
 	receipt,
+	revision,
 	time,
-} from "../../ledger/tests/fixture";
+} from "../../payments/tests/fixture";
 import {
 	loadAccount,
 	loadAccounts,
 	loadBill,
 	loadBills,
+	loadVoidedReceipts,
 } from "../account.server";
 
-const day = 86_400;
-
 function at(seconds: number) {
-	return new Date(seconds * 1000);
-}
-
-async function billSettledAt(client: Client, billId: string) {
-	return (await loadBill(billId, { client }))?.settledAt ?? null;
+	return new Date(seconds * 1000).toISOString();
 }
 
 async function shareSettledAt(client: Client, debtId: string) {
@@ -36,104 +31,61 @@ async function shareSettledAt(client: Client, debtId: string) {
 	return bill?.shares.find((share) => share.id === debtId)?.settledAt ?? null;
 }
 
-async function shares(client: Client) {
-	await client.execute(
-		`INSERT INTO debts(id,housemate_id,bill_id,amount_cents,created_at) VALUES('oliver-share','oliver','bill',6000,${time}),('sarah-share','sarah','bill',4000,${time}),('jay-share','jay','bill',5000,${time})`,
-	);
-	await drainLedgerEvents(client);
-}
-
-async function bankPayment(client: Client, receivedAt: number) {
-	const bank = receipt("oliver-bank", 6000, "Gas");
-	bank.attributes.createdAt = at(receivedAt).toISOString();
-	bank.attributes.settledAt = at(receivedAt).toISOString();
+async function bankPayment(
+	client: Client,
+	id: string,
+	housemateId: string,
+	amountCents: number,
+	receivedAt: number,
+	debtId: string,
+) {
+	const bank = receipt(id, amountCents, "Gas");
+	bank.attributes.createdAt = at(receivedAt);
+	bank.attributes.settledAt = at(receivedAt);
 	await ingest(client, bank);
-	await reviewBankTransaction(client, {
-		transactionId: bank.id,
-		action: "credit",
-		housemateId: "oliver",
-		reason: "",
-	});
-	const account = await getAccountPayments(client, "oliver");
-	const paid = account.bills.find((bill) => bill.id === "oliver-share");
-	if (paid?.remainingCents === 0) return;
-	await allocateReceipt(client, {
-		housemateId: "oliver",
-		receiptId: "bank:oliver-bank",
-		allocations: [{ debtId: "oliver-share", amountCents: 6000 }],
-		expectedRevision: account.revision,
-	});
-}
-
-async function ownerPayment(client: Client, receivedAt: number) {
-	await withWriteTransaction(client, async (tx) => {
-		await applySource(tx, "manual:owner", {
-			housemateId: "jay",
-			kind: "payment",
-			amountCents: -5000,
-			description: "Owner share",
-			billId: null,
-			effectiveAt: receivedAt,
-			dueAt: null,
-		});
-		await tx.execute(
-			"INSERT INTO ledger_bill_allocations(source_key,debt_id,amount_cents,origin) VALUES('manual:owner','jay-share',5000,'review')",
-		);
-	});
+	await confirm(client, id, housemateId, [{ debtId, amountCents }]);
 }
 
 test("a bill settles when money for its last non-owner share arrived, by bank or cash date", async () =>
 	fixture(async (client) => {
-		await shares(client);
+		await addShares(client, [
+			["oliver-share", "oliver", "bill", 6000],
+			["sarah-share", "sarah", "bill", 4000],
+			["jay-share", "jay", "bill", 5000],
+		]);
 		await recordCashReceipt(client, {
 			debtId: "sarah-share",
 			amountCents: 2000,
 			receivedAt: time + day,
 		});
-		await bankPayment(client, time + 2 * day);
+		await bankPayment(
+			client,
+			"oliver-bank",
+			"oliver",
+			6000,
+			time + 2 * day,
+			"oliver-share",
+		);
 		await recordCashReceipt(client, {
 			debtId: "sarah-share",
 			amountCents: 2000,
 			receivedAt: time + 4 * day,
 		});
-		await ownerPayment(client, time + 9 * day);
-		assert.equal(await billSettledAt(client, "bill"), time + 4 * day);
+		const bill = await loadBill("bill", { client });
+		assert.equal(bill?.status, "paid");
+		assert.equal(bill?.settledAt, time + 4 * day);
 		assert.equal(await shareSettledAt(client, "oliver-share"), time + 2 * day);
 		assert.equal(await shareSettledAt(client, "sarah-share"), time + 4 * day);
-		assert.equal(await shareSettledAt(client, "jay-share"), time + 9 * day);
-		assert.equal((await loadBill("bill", { client }))?.status, "paid");
-	}));
-
-test("a recorded payment confirmed by a transfer counts from the bank's received date", async () =>
-	fixture(async (client) => {
-		await client.execute(
-			`INSERT INTO debts(id,housemate_id,bill_id,amount_cents,created_at) VALUES('gas-share','oliver','bill',6000,${time})`,
-		);
-		await drainLedgerEvents(client);
-		await manual(client, {
-			amountCents: 6000,
-			key: "manual:m-gas",
-			description: "Manual gas",
-			effectiveAt: time + 90 * day,
-			debtId: "gas-share",
-		});
-		assert.equal(await billSettledAt(client, "bill"), time + 90 * day);
-		const bank = receipt("combined", 6000, "Gas");
-		await ingest(client, bank);
-		await reviewBankTransaction(client, {
-			transactionId: bank.id,
-			action: "link",
-			housemateId: "oliver",
-			manualSourceKeys: ["manual:m-gas"],
-			reason: "Same money",
-		});
-		assert.equal(await billSettledAt(client, "bill"), time);
+		assert.equal(await shareSettledAt(client, "jay-share"), null);
 	}));
 
 test("shares without allocations are unpaid and the bill has no settled date", async () =>
 	fixture(async (client) => {
-		assert.equal(await billSettledAt(client, "bill"), null);
-		await shares(client);
+		await addShares(client, [
+			["oliver-share", "oliver", "bill", 6000],
+			["sarah-share", "sarah", "bill", 4000],
+			["jay-share", "jay", "bill", 5000],
+		]);
 		const bill = await loadBill("bill", { client });
 		assert.equal(bill?.status, "pending");
 		assert.equal(bill?.settledAt, null);
@@ -150,12 +102,18 @@ test("shares without allocations are unpaid and the bill has no settled date", a
 
 test("held credit covers the oldest share and every loader agrees", async () =>
 	fixture(async (client) => {
-		await client.executeMultiple(
-			`INSERT INTO bills(id,biller_name,total_cents,due_date,created_at) VALUES('later','Water',8000,${time + 10 * day},${time});
-			INSERT INTO debts(id,housemate_id,bill_id,amount_cents,created_at) VALUES('gas-share','oliver','bill',6000,${time}),('water-share','oliver','later',4000,${time})`,
-		);
-		await drainLedgerEvents(client);
-		await manual(client, { amountCents: 7000, key: "manual:held" });
+		await addBill(client, {
+			id: "later",
+			name: "Water",
+			dueAt: time + 10 * day,
+		});
+		await client.execute("UPDATE bills SET total_cents=8000 WHERE id='later'");
+		await addShares(client, [
+			["gas-share", "oliver", "bill", 6000],
+			["water-share", "oliver", "later", 4000],
+		]);
+		await ingest(client, receipt("held", 7000));
+		await confirm(client, "held", "oliver");
 		const account = await loadAccount("oliver", { client, now: time });
 		assert.ok(account);
 		assert.deepEqual(
@@ -191,4 +149,30 @@ test("held credit covers the oldest share and every loader agrees", async () =>
 			],
 		);
 		assert.equal(await loadAccount("nobody", { client }), null);
+	}));
+
+test("receipts carry their kind and transfer; voided receipts leave the account", async () =>
+	fixture(async (client) => {
+		await addShares(client, [["gas-share", "oliver", "bill", 6000]]);
+		await bankPayment(client, "first", "oliver", 6000, time, "gas-share");
+		const [live] = (await loadAccount("oliver", { client }))?.receipts ?? [];
+		assert.deepEqual(
+			[live.kind, live.bankTransactionId, live.description, live.voidedAt],
+			["bank", "first", "Mr Oliver William Caprile · Gas", null],
+		);
+		await decideBankTransaction(client, {
+			transactionId: "first",
+			action: "exclude",
+			reason: "Sent by mistake",
+			expectedRevision: await revision(client, "first"),
+		});
+		const account = await loadAccount("oliver", { client });
+		assert.deepEqual(account?.receipts, []);
+		assert.equal(account?.shares[0].paidCents, 0);
+		assert.equal(account?.balanceCents, 6000);
+		const voided = await loadVoidedReceipts("oliver", { client });
+		assert.deepEqual(
+			voided.map((item) => [item.id, item.voidReason, item.allocations]),
+			[[live.id, "Sent by mistake", []]],
+		);
 	}));

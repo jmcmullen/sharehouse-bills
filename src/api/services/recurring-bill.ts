@@ -13,7 +13,6 @@ import { housemates } from "../db/schema/housemates";
 import { recurringBillAssignments } from "../db/schema/recurring-bill-assignments";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { createShares } from "./bills/shares";
-import { settleLedger } from "./ledger-sync.server";
 import { enqueueBillCreatedNotification } from "./whatsapp-notification-events";
 
 type RecurringBillRecord = typeof recurringBills.$inferSelect;
@@ -556,8 +555,6 @@ async function generateBillFromTemplate(
 				debtRecordCount: splits.length,
 			} satisfies GeneratedBillResult;
 		});
-		// Unallocated money pays the new shares before the created message goes out.
-		if (result.status === "generated") await settleLedger();
 
 		log?.set({
 			recurringBillGeneration: {

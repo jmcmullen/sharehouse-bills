@@ -6,4 +6,4 @@ export * from "./recurring-bills";
 export * from "./recurring-bill-assignments";
 export * from "./todo";
 export * from "./whatsapp-notifications";
-export * from "./ledger";
+export * from "./payments";

@@ -1,11 +1,8 @@
 import { formatCents } from "@/lib/money";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { AccountPayments } from "../../api/services/ledger/account-payments";
-import {
-	allocateLedgerReceipt,
-	recordLedgerReceipt,
-} from "../../functions/ledger";
+import type { AccountPayments } from "../../api/services/payments/account-payments";
+import { allocateLedgerReceipt } from "../../functions/ledger";
 import { Button } from "../ui/button";
 import {
 	Dialog,
@@ -14,14 +11,13 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "../ui/dialog";
-import { Input } from "../ui/input";
 import {
 	type Amounts,
 	BillAllocationFields,
 	allocationsFrom,
 	amountsFrom,
 } from "./allocation-fields";
-import { ledgerTime } from "./statement";
+import { ledgerTime } from "./dates";
 
 export function AllocateReceipt(props: {
 	housemateId: string;
@@ -77,18 +73,16 @@ export function AllocateReceipt(props: {
 						Payment of {formatCents(receipt.amountCents)}
 					</DialogTitle>
 					<DialogDescription>
-						{receipt.description} ·{" "}
-						{receipt.receivedDateKnown ? "Received" : "Recorded"}{" "}
-						{ledgerTime(receipt.receivedAt)}
+						{receipt.description} · Received {ledgerTime(receipt.receivedAt)}
 					</DialogDescription>
 				</DialogHeader>
 				<p className="text-sm">
-					{receipt.bankMatched
-						? "Bank matched. This receipt counts once."
-						: "Recorded manually. This money already counts as received."}{" "}
+					{receipt.kind === "bank"
+						? "Bank transfer. This receipt counts once."
+						: "Cash received. This money already counts as received."}{" "}
 					Choose which bills it covers.
 				</p>
-				{receipt.manual && (
+				{receipt.kind === "cash" && (
 					<p className="text-muted-foreground text-xs">
 						Recorded {ledgerTime(receipt.recordedAt)}
 					</p>
@@ -124,139 +118,6 @@ export function AllocateReceipt(props: {
 							Cancel
 						</Button>
 					</div>
-				</form>
-			</DialogContent>
-		</Dialog>
-	);
-}
-
-export function RecordReceipt(props: {
-	housemateId: string;
-	name: string;
-	revision: string;
-	onClose: () => void;
-	onSaved: () => Promise<void>;
-}) {
-	const [amount, setAmount] = useState("");
-	const [description, setDescription] = useState("");
-	const [date, setDate] = useState(() =>
-		new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
-			.toISOString()
-			.slice(0, 16),
-	);
-	const [busy, setBusy] = useState(false);
-	const [needsConfirmation, setNeedsConfirmation] = useState(false);
-	const [confirmedSeparate, setConfirmedSeparate] = useState(false);
-	async function save() {
-		setBusy(true);
-		try {
-			await recordLedgerReceipt({
-				data: {
-					confirmedSeparate,
-					housemateId: props.housemateId,
-					amountCents: Math.round(Number(amount) * 100),
-					description,
-					receivedAt: Math.floor(new Date(date).getTime() / 1000),
-					expectedRevision: props.revision,
-				},
-			});
-			await props.onSaved();
-			props.onClose();
-			toast.success("Money recorded. Choose its bills under Money received.");
-		} catch (error) {
-			if (
-				error instanceof Error &&
-				error.message.includes("already be recorded")
-			)
-				setNeedsConfirmation(true);
-			toast.error(
-				error instanceof Error ? error.message : "Could not record payment",
-			);
-		} finally {
-			setBusy(false);
-		}
-	}
-	return (
-		<Dialog
-			open
-			onOpenChange={(open) => {
-				if (!open && !busy) props.onClose();
-			}}
-		>
-			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>Record money from {props.name}</DialogTitle>
-					<DialogDescription>
-						Use this only for money you received that is not already listed. If
-						it is listed, choose its bills under Money received.
-					</DialogDescription>
-				</DialogHeader>
-				<form
-					className="space-y-4"
-					onSubmit={(event) => {
-						event.preventDefault();
-						void save();
-					}}
-				>
-					<label htmlFor="receipt-amount" className="block space-y-2 text-sm">
-						<span>Amount received</span>
-						<Input
-							id="receipt-amount"
-							required
-							type="number"
-							min="0.01"
-							step="0.01"
-							value={amount}
-							onChange={(event) => setAmount(event.target.value)}
-							disabled={busy}
-						/>
-					</label>
-					<label htmlFor="receipt-date" className="block space-y-2 text-sm">
-						<span>Received date and time</span>
-						<Input
-							id="receipt-date"
-							required
-							type="datetime-local"
-							value={date}
-							onChange={(event) => setDate(event.target.value)}
-							disabled={busy}
-						/>
-					</label>
-					<label
-						htmlFor="receipt-description"
-						className="block space-y-2 text-sm"
-					>
-						<span>What was it for?</span>
-						<Input
-							id="receipt-description"
-							required
-							value={description}
-							maxLength={200}
-							placeholder="Rent, cleaning, bills…"
-							onChange={(event) => setDescription(event.target.value)}
-							disabled={busy}
-						/>
-					</label>
-					{needsConfirmation && (
-						<label className="flex items-start gap-3 text-sm">
-							<input
-								type="checkbox"
-								checked={confirmedSeparate}
-								disabled={busy}
-								onChange={(event) => setConfirmedSeparate(event.target.checked)}
-							/>
-							<span>
-								I checked the existing receipts. This is additional money
-								received.
-							</span>
-						</label>
-					)}
-					<Button
-						type="submit"
-						disabled={busy || (needsConfirmation && !confirmedSeparate)}
-					>
-						{busy ? "Saving…" : "Confirm money received"}
-					</Button>
 				</form>
 			</DialogContent>
 		</Dialog>

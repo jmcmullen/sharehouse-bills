@@ -1,6 +1,6 @@
 import { formatCents } from "@/lib/money";
 import { useState } from "react";
-import { reviewHint } from "../../api/services/ledger/review-policy";
+import { reviewHint } from "../../api/services/payments/review-policy";
 import type { getPaymentReview } from "../../functions/ledger";
 import { Button } from "../ui/button";
 import {
@@ -10,14 +10,11 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "../ui/dialog";
+import { ledgerTime } from "./dates";
 import { SinglePaymentReview } from "./single-payment-review";
 import { SplitPayment } from "./split-payment";
-import { ledgerTime } from "./statement";
 
-export type Ready = Extract<
-	Awaited<ReturnType<typeof getPaymentReview>>,
-	{ available: true }
->;
+export type Ready = Awaited<ReturnType<typeof getPaymentReview>>;
 export type Payment = Ready["reviews"][number];
 
 export function paymentEligible(payment: Payment): boolean {

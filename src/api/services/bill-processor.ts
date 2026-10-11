@@ -5,7 +5,6 @@ import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
 import { createShares, splitAcrossHousemates } from "./bills/shares";
-import { settleLedger } from "./ledger-sync.server";
 import {
 	type ExtractedBillData,
 	PdfBillExtractorService,
@@ -309,7 +308,6 @@ export class BillProcessorService {
 			.returning();
 
 		await createShares(newBill.id, splits);
-		await settleLedger();
 		getRequestLogger()?.set({
 			debtCreation: { billId: newBill.id, debtRecordCount: splits.length },
 		});

@@ -5,12 +5,11 @@ import {
 	useSearch,
 } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
-import { getLedgerAccount, syncLedger } from "../../functions/ledger";
+import { getLedgerAccount } from "../../functions/ledger";
+import { StatementMonthSection } from "../public/statement-rows";
 import { Button } from "../ui/button";
-import { AllocateReceipt, RecordReceipt } from "./allocate-receipt";
+import { AllocateReceipt } from "./allocate-receipt";
 import { BillPayments, PaymentSummary } from "./bill-payments";
-import { StatementHistory } from "./statement";
 
 type Account = Awaited<ReturnType<typeof getLedgerAccount>>;
 
@@ -23,32 +22,21 @@ export function LedgerPage() {
 		source: typeof loaded;
 		accounts: Record<string, Account>;
 	}>({ source: loaded, accounts: {} });
-	const [busy, setBusy] = useState(false);
 	const [receiptId, setReceiptId] = useState<string | null>(null);
-	const [recording, setRecording] = useState(false);
 	const [showCorrections, setShowCorrections] = useState(false);
 	const patches = patch.source === loaded ? patch.accounts : {};
 	async function reload(id: string) {
 		const account = await getLedgerAccount({ data: { housemateId: id } });
 		setPatch({ source: loaded, accounts: { ...patches, [id]: account } });
 	}
-	async function sync() {
-		setBusy(true);
-		try {
-			await syncLedger();
-			await router.invalidate();
-			toast.success("Statement is up to date");
-		} catch {
-			toast.error("Could not refresh the statement");
-		} finally {
-			setBusy(false);
-		}
-	}
-	if (!loaded.available)
-		return <p>The ledger migration is not installed yet.</p>;
-	const accounts = loaded.accounts.map((item) => patches[item.id] ?? item);
+	const accounts = loaded.map((item) => patches[item.id] ?? item);
 	const account =
 		accounts.find((item) => item.id === housemateId) ?? accounts[0];
+	const timeline = account
+		? showCorrections
+			? account.corrections
+			: account.statement
+		: null;
 	return (
 		<div className="mx-auto max-w-5xl space-y-6">
 			<header className="flex flex-wrap items-start justify-between gap-4">
@@ -60,9 +48,7 @@ export function LedgerPage() {
 						See which bills are paid and the money that covered them.
 					</p>
 				</div>
-				<Button onClick={sync} disabled={busy}>
-					{busy ? "Refreshing…" : "Refresh accounts"}
-				</Button>
+				<Button onClick={() => router.invalidate()}>Refresh accounts</Button>
 			</header>
 			<div className="flex flex-wrap justify-between gap-3">
 				<select
@@ -70,7 +56,6 @@ export function LedgerPage() {
 					value={account?.id ?? ""}
 					onChange={(e) => {
 						setReceiptId(null);
-						setRecording(false);
 						void navigate({ search: { housemateId: e.target.value } });
 					}}
 					className="h-10 rounded-md border bg-background px-3"
@@ -82,17 +67,12 @@ export function LedgerPage() {
 					))}
 				</select>
 			</div>
-			{account ? (
+			{account && timeline ? (
 				<>
 					<PaymentSummary
 						balanceCents={account.balanceCents}
 						{...account.billing}
 					/>
-					<div className="flex justify-end">
-						<Button onClick={() => setRecording(true)}>
-							Record money received
-						</Button>
-					</div>
 					<BillPayments
 						key={account.id}
 						billing={account.billing}
@@ -100,30 +80,26 @@ export function LedgerPage() {
 					/>
 					<details className="rounded-lg border p-4">
 						<summary className="cursor-pointer text-sm">
-							Journal and running balance
+							Statement and running balance
 						</summary>
-						<p className="text-muted-foreground text-sm">
-							The journal retains the original records and corrections. Linked
-							manual entries appear as one receipt in Money received.
+						<p className="mt-2 text-muted-foreground text-sm">
+							Bill shares and money received on one timeline, newest first. The
+							balance after each item is everything charged less everything
+							received.
 						</p>
-						<StatementHistory
-							key={account.id}
-							entries={(showCorrections
-								? account.auditEntries
-								: account.entries
-							).map((entry) => ({
-								...entry,
-								isReversal: entry.reversesEntryId !== null,
-							}))}
-						/>
-						<label className="flex items-center gap-2 text-muted-foreground text-sm">
+						<label className="mt-3 flex items-center gap-2 text-muted-foreground text-sm">
 							<input
 								type="checkbox"
 								checked={showCorrections}
 								onChange={(event) => setShowCorrections(event.target.checked)}
 							/>
-							Include reversed entries and corrections
+							Include voided payments and corrections
 						</label>
+						<div className="mt-4 space-y-6">
+							{[...timeline.recent, ...timeline.earlier].map((month) => (
+								<StatementMonthSection key={month.key} month={month} />
+							))}
+						</div>
 					</details>
 					{receiptId && (
 						<AllocateReceipt
@@ -132,16 +108,6 @@ export function LedgerPage() {
 							receiptId={receiptId}
 							billing={account.billing}
 							onClose={() => setReceiptId(null)}
-							onSaved={() => reload(account.id)}
-						/>
-					)}
-					{recording && (
-						<RecordReceipt
-							key={account.id}
-							housemateId={account.id}
-							name={account.name}
-							revision={account.billing.revision}
-							onClose={() => setRecording(false)}
 							onSaved={() => reload(account.id)}
 						/>
 					)}

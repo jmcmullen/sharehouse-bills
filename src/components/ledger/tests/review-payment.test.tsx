@@ -2,11 +2,8 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import "../../../lib/tests/dom";
 import { createElement } from "react";
-import type { AccountPayments } from "../../../api/services/ledger/account-payments";
-import type {
-	confirmLedgerReceipt,
-	decideLedgerTransaction,
-} from "../../../functions/ledger";
+import type { AccountPayments } from "../../../api/services/payments/account-payments";
+import type { decideLedgerTransaction } from "../../../functions/ledger";
 import type {
 	Payment,
 	ReviewPayment as ReviewPaymentComponent,
@@ -14,13 +11,10 @@ import type {
 
 type Ready = Parameters<typeof ReviewPaymentComponent>[0]["data"];
 type Decision = Parameters<typeof decideLedgerTransaction>[0];
-type Confirmation = Parameters<typeof confirmLedgerReceipt>[0];
 
 const decide = mock(async (_input: Decision): Promise<void> => {});
-const confirm = mock(async (_input: Confirmation): Promise<void> => {});
 mock.module("../../../functions/ledger", () => ({
 	decideLedgerTransaction: decide,
-	confirmLedgerReceipt: confirm,
 }));
 const { cleanup, fireEvent, render, screen, waitFor } = await import(
 	"@testing-library/react"
@@ -38,35 +32,15 @@ const payment: Payment = {
 	transactionType: "Payment",
 	description: "Oliver",
 	message: "",
-	reason: "Possible existing manual payment: compare receipts",
+	reason: "Identified housemate; confirm the bills this payment covers",
 	decision: "review",
-	origin: "automatic",
+	decided: false,
 	group: "unclear",
 	suggestion: null,
 	shared: false,
-	matchCandidate: true,
 	allocations: [],
-	manualSourceKeys: [],
 	revision: 7,
 };
-const manualPayments: Ready["manualPayments"] = [
-	{
-		key: "manual:1",
-		housemateId: "oliver",
-		amountCents: -6000,
-		effectiveAt: payment.effectiveAt,
-		description: "Electricity",
-		bankTransactionId: null,
-	},
-	{
-		key: "manual:2",
-		housemateId: "oliver",
-		amountCents: -4000,
-		effectiveAt: payment.effectiveAt,
-		description: "Internet",
-		bankTransactionId: null,
-	},
-];
 const bill = (id: string, name: string, amountCents: number) => ({
 	id,
 	billId: `bill-${id}`,
@@ -96,13 +70,11 @@ const billing: AccountPayments = {
 	unallocatedCents: 0,
 	unpaidCents: 9000,
 };
-// ReviewPayment reads only accounts and manualPayments from the loader data.
+// ReviewPayment reads only accounts from the loader data.
 const data = {
 	accounts: [{ id: "oliver", name: "Oliver", billing }],
-	manualPayments,
 } as unknown as Ready;
 const suggested: Partial<Payment> = {
-	matchCandidate: false,
 	group: "suggested",
 	suggestion: {
 		allocations: [{ debtId: "gas", amountCents: 6000 }],
@@ -117,6 +89,13 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 		resolve = done;
 	});
 	return { promise, resolve };
+}
+
+// The data of the nth decision sent, as a confirmation.
+function confirmed(index: number) {
+	const data = decide.mock.calls[index][0].data;
+	if (data.action !== "confirm") throw new Error("Expected a confirmation");
+	return data;
 }
 
 const note = (): HTMLInputElement =>
@@ -143,18 +122,16 @@ function openReview(overrides: Partial<Payment> = {}) {
 beforeEach(() => {
 	decide.mockReset();
 	decide.mockImplementation(async () => {});
-	confirm.mockReset();
-	confirm.mockImplementation(async () => {});
 });
 afterEach(cleanup);
 
 test("short notes explain the requirement; a corrected note keeps the money as credit", async () => {
-	const { onSaved, onClose } = openReview();
+	const { onSaved, onClose } = openReview({ decision: "archived" });
 	const keep = button("Keep as credit");
 	fireEvent.change(note(), { target: { value: " rent " } });
 	expect(keep.disabled).toBe(false);
 	fireEvent.click(keep);
-	expect(confirm).not.toHaveBeenCalled();
+	expect(decide).not.toHaveBeenCalled();
 	expect(screen.getByRole("alert").textContent).toContain(
 		"at least 5 characters",
 	);
@@ -165,10 +142,10 @@ test("short notes explain the requirement; a corrected note keeps the money as c
 	fireEvent.click(keep);
 	await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
 	expect(onSaved).toHaveBeenCalledTimes(1);
-	expect(decide).not.toHaveBeenCalled();
-	expect(confirm).toHaveBeenCalledWith({
+	expect(decide).toHaveBeenCalledWith({
 		data: {
 			transactionId: "bank-1",
+			action: "confirm",
 			housemateId: "oliver",
 			allocations: [],
 			reason: "Separate rent payment",
@@ -186,19 +163,19 @@ test("a suggestion pre-fills the bills; edited amounts are what gets confirmed",
 	expect(screen.getByText(/Kept as credit: \$10\.00/)).toBeTruthy();
 	fireEvent.change(note(), { target: { value: "Gas and cleaning" } });
 	fireEvent.click(button("Confirm payment"));
-	await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
-	expect(confirm.mock.calls[0][0].data.allocations).toEqual([
+	await waitFor(() => expect(decide).toHaveBeenCalledTimes(1));
+	expect(confirmed(0).allocations).toEqual([
 		{ debtId: "gas", amountCents: 6000 },
 		{ debtId: "clean", amountCents: 3000 },
 	]);
-	expect(confirm.mock.calls[0][0].data.reason).toBe("Gas and cleaning");
+	expect(confirmed(0).reason).toBe("Gas and cleaning");
 });
 
 test("allocating more than the payment is refused before it reaches the server", () => {
 	openReview(suggested);
 	fireEvent.change(field(/Allocate to Gas/), { target: { value: "150" } });
 	fireEvent.click(button("Confirm payment"));
-	expect(confirm).not.toHaveBeenCalled();
+	expect(decide).not.toHaveBeenCalled();
 	expect(screen.getByRole("alert").textContent).toContain("exceed");
 });
 
@@ -208,7 +185,7 @@ test("a note alone cannot confirm an unassigned payment; the form focuses the ho
 		target: { value: "Separate payment for bills" },
 	});
 	fireEvent.click(button("Keep as credit"));
-	expect(confirm).not.toHaveBeenCalled();
+	expect(decide).not.toHaveBeenCalled();
 	expect(screen.getByRole("alert").textContent).toContain(
 		"Choose the housemate",
 	);
@@ -217,31 +194,24 @@ test("a note alone cannot confirm an unassigned payment; the form focuses the ho
 		target: { value: "oliver" },
 	});
 	fireEvent.click(button("Keep as credit"));
-	await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
-	expect(confirm.mock.calls[0][0].data.housemateId).toBe("oliver");
+	await waitFor(() => expect(decide).toHaveBeenCalledTimes(1));
+	expect(confirmed(0).housemateId).toBe("oliver");
 });
 
-test("a note cannot bypass an incomplete match; exact matches link without adding credit", async () => {
-	openReview();
-	fireEvent.click(screen.getByRole("checkbox", { name: /Electricity/ }));
-	fireEvent.change(note(), {
-		target: { value: "These bills were already recorded" },
-	});
-	fireEvent.click(button("Confirm match · no extra credit"));
+test("money sent back is recorded as a refund with a note", async () => {
+	openReview({ amountCents: -5000 });
+	fireEvent.click(button("Confirm household refund"));
 	expect(decide).not.toHaveBeenCalled();
-	expect(screen.getByRole("alert").textContent).toContain(
-		"must equal the bank payment",
-	);
-	fireEvent.click(screen.getByRole("checkbox", { name: /Internet/ }));
-	fireEvent.change(note(), { target: { value: "" } });
-	fireEvent.click(button("Confirm match · no extra credit"));
+	fireEvent.change(note(), { target: { value: "Bond returned" } });
+	fireEvent.click(button("Confirm household refund"));
 	await waitFor(() => expect(decide).toHaveBeenCalledTimes(1));
-	expect(confirm).not.toHaveBeenCalled();
-	expect(decide.mock.calls[0][0].data.action).toBe("link");
-	expect(decide.mock.calls[0][0].data.manualSourceKeys).toEqual([
-		"manual:1",
-		"manual:2",
-	]);
+	expect(decide.mock.calls[0][0].data).toEqual({
+		transactionId: "bank-1",
+		action: "refund",
+		housemateId: "oliver",
+		reason: "Bond returned",
+		expectedRevision: 7,
+	});
 });
 
 test("excluding a personal payment needs neither a housemate nor a note", async () => {
@@ -253,7 +223,7 @@ test("excluding a personal payment needs neither a housemate nor a note", async 
 
 test("server errors stay visible and permit retry", async () => {
 	const { onClose } = openReview();
-	confirm.mockRejectedValueOnce(
+	decide.mockRejectedValueOnce(
 		new Error("Payment changed. Refresh and try again."),
 	);
 	fireEvent.change(note(), { target: { value: "Separate money" } });
@@ -270,7 +240,7 @@ test("server errors stay visible and permit retry", async () => {
 test("saving disables repeat submissions until the request completes", async () => {
 	const { onClose } = openReview();
 	const pending = deferred();
-	confirm.mockImplementationOnce(() => pending.promise);
+	decide.mockImplementationOnce(() => pending.promise);
 	fireEvent.change(note(), { target: { value: "Separate money" } });
 	fireEvent.click(button("Keep as credit"));
 	const saving = button("Saving…");
@@ -279,7 +249,7 @@ test("saving disables repeat submissions until the request completes", async () 
 	const form = saving.closest("form");
 	if (!form) throw new Error("Review form not rendered");
 	fireEvent.submit(form);
-	expect(confirm).toHaveBeenCalledTimes(1);
+	expect(decide).toHaveBeenCalledTimes(1);
 	pending.resolve();
 	await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
 });

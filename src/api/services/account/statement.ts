@@ -13,6 +13,8 @@ export interface StatementBill {
 	creditCents: number;
 	status: StatementStatus;
 	payments: Array<{ label: string; at: number; amountCents: number }>;
+	// Admin statement only: the account balance after this item.
+	balanceCents?: number;
 }
 export interface StatementPayment {
 	kind: "payment";
@@ -23,6 +25,10 @@ export interface StatementPayment {
 	heldCents: number;
 	note: string;
 	bills: Array<{ name: string; at: number | null; amountCents: number }>;
+	// Admin statement only: a receipt a later decision voided, and the
+	// account balance after this item.
+	voided?: boolean;
+	balanceCents?: number;
 }
 type StatementItem = StatementBill | StatementPayment;
 export interface StatementMonth {
@@ -63,7 +69,8 @@ function shiftMonth(key: string, by: number) {
 }
 
 function receiptLabel(receipt: Receipt) {
-	return receipt.cash ? "Cash received" : "Payment received";
+	if (receipt.amountCents < 0) return "Refund sent";
+	return receipt.kind === "cash" ? "Cash received" : "Payment received";
 }
 
 function shareStatus(share: Share): StatementStatus {
@@ -73,7 +80,14 @@ function shareStatus(share: Share): StatementStatus {
 	return share.paidCents > 0 || share.coveredCents > 0 ? "part" : "due";
 }
 
-function paymentNote(bills: StatementPayment["bills"], heldCents: number) {
+function paymentNote(
+	bills: StatementPayment["bills"],
+	heldCents: number,
+	receipt: Receipt,
+	voided: boolean,
+) {
+	if (voided) return `Voided: ${receipt.voidReason ?? "corrected"}`;
+	if (receipt.amountCents < 0) return "Refunded to the housemate";
 	const covered = bills.map((bill) =>
 		bill.at === null ? bill.name : `${bill.name} ${shortDate(bill.at)}`,
 	);
@@ -109,7 +123,11 @@ function toBillItems(shares: Share[], paid: Receipt[]): StatementBill[] {
 	}));
 }
 
-function toPaymentItems(shares: Share[], paid: Receipt[]): StatementPayment[] {
+function toPaymentItems(
+	shares: Share[],
+	paid: Receipt[],
+	voided: boolean,
+): StatementPayment[] {
 	return paid.map((receipt, index) => {
 		const bills = receipt.allocations.map((allocation) => {
 			const share = shares.find((item) => item.id === allocation.debtId);
@@ -119,18 +137,44 @@ function toPaymentItems(shares: Share[], paid: Receipt[]): StatementPayment[] {
 				amountCents: allocation.amountCents,
 			};
 		});
-		const heldCents = Math.max(0, receipt.unallocatedCents);
-		return {
+		const heldCents = voided ? 0 : Math.max(0, receipt.unallocatedCents);
+		const item: StatementPayment = {
 			kind: "payment",
-			id: `payment-${receipt.receivedAt}-${index}`,
+			id: `${voided ? "voided" : "payment"}-${receipt.receivedAt}-${index}`,
 			at: receipt.receivedAt,
 			label: receiptLabel(receipt),
 			amountCents: receipt.amountCents,
 			heldCents,
-			note: paymentNote(bills, heldCents),
+			note: paymentNote(bills, heldCents, receipt, voided),
 			bills,
 		};
+		return voided ? { ...item, voided } : item;
 	});
+}
+
+// Running balance oldest first: shares add what is owed, live receipts take
+// away what was paid. Voided receipts leave it unchanged.
+function withBalances(items: StatementItem[]): StatementItem[] {
+	const ordered = [...items].sort(
+		(a, b) => a.at - b.at || a.id.localeCompare(b.id),
+	);
+	const balances = new Map(
+		ordered.map((item, index) => [
+			item.id,
+			ordered
+				.slice(0, index + 1)
+				.reduce((total, entry) => total + balanceChange(entry), 0),
+		]),
+	);
+	return items.map((item) => ({
+		...item,
+		balanceCents: balances.get(item.id) ?? 0,
+	}));
+}
+
+function balanceChange(item: StatementItem): number {
+	if (item.kind === "bill") return item.amountCents;
+	return item.voided ? 0 : -item.amountCents;
 }
 
 function groupByMonth(items: StatementItem[]): StatementMonth[] {
@@ -145,6 +189,13 @@ function groupByMonth(items: StatementItem[]): StatementMonth[] {
 	}));
 }
 
+interface StatementOptions {
+	recentMonths?: number;
+	// The admin statement: refunds, a running balance, and these voided
+	// receipts as corrections.
+	admin?: { voided: Receipt[] };
+}
+
 // The housemate's statement: bill shares and the money that paid them on one
 // timeline, grouped by Sydney month, newest first. Recent months show by
 // default; older months wait behind "Show earlier". Bills covered by credit
@@ -152,13 +203,15 @@ function groupByMonth(items: StatementItem[]): StatementMonth[] {
 export function buildStatement(
 	account: Pick<Account, "shares" | "receipts">,
 	now: number,
-	recentMonths = 3,
+	{ recentMonths = 3, admin }: StatementOptions = {},
 ): StatementTimeline {
 	const paid = account.receipts.filter((receipt) => receipt.amountCents > 0);
-	const months = groupByMonth([
+	const items = [
 		...toBillItems(account.shares, paid),
-		...toPaymentItems(account.shares, paid),
-	]);
+		...toPaymentItems(account.shares, admin ? account.receipts : paid, false),
+		...(admin ? toPaymentItems(account.shares, admin.voided, true) : []),
+	];
+	const months = groupByMonth(admin ? withBalances(items) : items);
 	const cutoff = shiftMonth(monthKey(now), 1 - recentMonths);
 	return {
 		recent: months.filter((month) => month.key >= cutoff),

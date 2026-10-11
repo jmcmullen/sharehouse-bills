@@ -4,9 +4,9 @@ import { BillPdfStorageService } from "./bill-pdf-storage";
 import {
 	getAccountPayments,
 	suggestBankReceipt,
-} from "./ledger/account-payments";
-import { paymentArrivedPayloadSchema } from "./ledger/arrival-notifications";
-import { withLedgerClient } from "./ledger/client.server";
+} from "./payments/account-payments";
+import { paymentArrivedPayloadSchema } from "./payments/arrival-notifications";
+import { withLedgerClient } from "./payments/client.server";
 
 type Executor = Pick<Client, "execute">;
 interface PaymentArrivedContext {
@@ -46,7 +46,7 @@ export async function getPaymentArrivedNotificationContext(
 		const payload = parsed.data;
 		const bank = (
 			await client.execute({
-				sql: "SELECT decision,amount_cents,effective_at,message FROM ledger_bank_transactions WHERE id=?",
+				sql: "SELECT decision,amount_cents,effective_at,message FROM bank_transactions WHERE id=?",
 				args: [payload.transactionId],
 			})
 		).rows[0];

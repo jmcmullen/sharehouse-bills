@@ -342,15 +342,15 @@ const receiptRow = (
 	allocations: Array<{ debtId: string; amountCents: number }>,
 ) => ({
 	id,
-	sourceKeys: [id],
+	kind: "bank" as const,
+	bankTransactionId: id,
 	description: "Payment received",
+	note: "",
 	amountCents,
 	receivedAt,
-	receivedDateKnown: true,
 	recordedAt: receivedAt,
-	bankMatched: true,
-	manual: false,
-	cash: false,
+	voidedAt: null,
+	voidReason: null,
 	allocations,
 });
 

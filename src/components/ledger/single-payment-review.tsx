@@ -1,12 +1,9 @@
 import { formatCents } from "@/lib/money";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { BillPaymentView } from "../../api/services/ledger/account-payments";
-import { isRentReference } from "../../api/services/ledger/model";
-import {
-	confirmLedgerReceipt,
-	decideLedgerTransaction,
-} from "../../functions/ledger";
+import type { BillPaymentView } from "../../api/services/payments/account-payments";
+import { isRentReference } from "../../api/services/payments/model";
+import { decideLedgerTransaction } from "../../functions/ledger";
 import { Button } from "../ui/button";
 import {
 	type Amounts,
@@ -14,17 +11,11 @@ import {
 	allocationsFrom,
 	amountsFrom,
 } from "./allocation-fields";
-import { ManualPaymentMatches } from "./manual-payment-matches";
-import {
-	ReviewNote,
-	manualReviewCandidates,
-	reviewNeedsNote,
-	reviewValidation,
-} from "./review-form";
+import { ReviewNote, reviewNeedsNote, reviewValidation } from "./review-form";
 import type { Payment, Ready } from "./review-payment";
 
-// The "Change" path: pick the housemate, adjust the proposed bills, or match
-// the transfer to money already recorded manually.
+// The "Change" path: pick the housemate and adjust the proposed bills, or
+// record money sent back as a household refund.
 export function SinglePaymentReview({
 	payment,
 	data,
@@ -42,7 +33,6 @@ export function SinglePaymentReview({
 }) {
 	const [housemateId, setHousemateId] = useState(payment.housemateId ?? "");
 	const [reason, setReason] = useState("");
-	const [manual, setManual] = useState<string[]>(payment.manualSourceKeys);
 	const [amounts, setAmounts] = useState<Amounts>(() =>
 		amountsFrom(payment.suggestion?.allocations ?? []),
 	);
@@ -52,24 +42,21 @@ export function SinglePaymentReview({
 	const billing = data.accounts.find(
 		(item) => item.id === housemateId,
 	)?.billing;
-	const candidates = manualReviewCandidates(payment, data, housemateId);
 	const allocations = allocationsFrom(amounts);
 	const allocatedCents = allocations.reduce(
 		(sum, item) => sum + item.amountCents,
 		0,
 	);
-	const needsNote = reviewNeedsNote(payment, manual, candidates.length > 0);
+	const needsNote = reviewNeedsNote(payment);
 	const validation = reviewValidation({
 		housemateId,
 		needsNote,
 		reason,
-		manual,
-		candidates,
 		amountCents: payment.amountCents,
 		allocatedCents,
 	});
 	const visibleError = submitted ? validation : null;
-	const allocating = eligible && payment.amountCents > 0 && manual.length === 0;
+	const allocating = eligible && payment.amountCents > 0;
 
 	async function save(action: Action) {
 		if (busy) return;
@@ -81,7 +68,6 @@ export function SinglePaymentReview({
 				payment,
 				housemateId,
 				allocations,
-				manual,
 				reason,
 			});
 			await onSaved();
@@ -112,7 +98,7 @@ export function SinglePaymentReview({
 						?.focus();
 					return;
 				}
-				void save(submitAction(manual, payment.amountCents));
+				void save(payment.amountCents < 0 ? "refund" : "confirm");
 			}}
 		>
 			{eligible && (
@@ -123,7 +109,6 @@ export function SinglePaymentReview({
 					busy={busy}
 					onChange={(id) => {
 						setHousemateId(id);
-						setManual([]);
 						setAmounts(
 							id === payment.housemateId
 								? amountsFrom(payment.suggestion?.allocations ?? [])
@@ -143,29 +128,6 @@ export function SinglePaymentReview({
 					onChange={setAmounts}
 				/>
 			)}
-			{eligible && candidates.length > 0 && (
-				<details
-					id="review-matches"
-					tabIndex={-1}
-					open={manual.length > 0 || payment.matchCandidate}
-					aria-describedby={
-						visibleError?.field === "review-matches"
-							? "review-error"
-							: undefined
-					}
-				>
-					<summary className="cursor-pointer text-sm">
-						Already recorded manually?
-					</summary>
-					<ManualPaymentMatches
-						payments={candidates}
-						selected={manual}
-						onChange={setManual}
-						bankAmountCents={payment.amountCents}
-						busy={busy}
-					/>
-				</details>
-			)}
 			<ReviewNote
 				required={eligible && needsNote}
 				invalid={visibleError?.field === "review-note"}
@@ -177,50 +139,41 @@ export function SinglePaymentReview({
 				eligible={eligible}
 				busy={busy}
 				errors={[visibleError?.message ?? null, saveError]}
-				label={reviewActionLabel(
-					busy,
-					manual.length > 0,
-					payment.amountCents,
-					allocations.length,
-				)}
+				label={reviewActionLabel(busy, payment.amountCents, allocations.length)}
 				onExclude={() => save("exclude")}
 			/>
 		</form>
 	);
 }
 
-type Action = "confirm" | "credit" | "exclude" | "link";
+type Action = "confirm" | "refund" | "exclude";
 
-async function sendDecision(
+function sendDecision(
 	action: Action,
 	input: {
 		payment: Payment;
 		housemateId: string;
 		allocations: Array<{ debtId: string; amountCents: number }>;
-		manual: string[];
 		reason: string;
 	},
-): Promise<void> {
-	if (action === "confirm") {
-		await confirmLedgerReceipt({
-			data: {
-				transactionId: input.payment.id,
-				housemateId: input.housemateId,
-				allocations: input.allocations,
-				reason: input.reason,
-				expectedRevision: input.payment.revision,
-			},
+) {
+	const base = {
+		transactionId: input.payment.id,
+		reason: input.reason,
+		expectedRevision: input.payment.revision,
+	};
+	if (action === "exclude")
+		return decideLedgerTransaction({ data: { ...base, action } });
+	if (action === "refund")
+		return decideLedgerTransaction({
+			data: { ...base, action, housemateId: input.housemateId },
 		});
-		return;
-	}
-	await decideLedgerTransaction({
+	return decideLedgerTransaction({
 		data: {
-			transactionId: input.payment.id,
+			...base,
 			action,
-			housemateId: input.housemateId || undefined,
-			manualSourceKeys: input.manual.length ? input.manual : undefined,
-			reason: input.reason,
-			expectedRevision: input.payment.revision,
+			housemateId: input.housemateId,
+			allocations: input.allocations,
 		},
 	});
 }
@@ -273,14 +226,6 @@ function FormFooter({
 			</div>
 		</>
 	);
-}
-
-function submitAction(
-	manual: string[],
-	amountCents: number,
-): "link" | "credit" | "confirm" {
-	if (manual.length) return "link";
-	return amountCents < 0 ? "credit" : "confirm";
 }
 
 function HousemateSelect({
@@ -367,21 +312,18 @@ function BillsSection({
 
 function reviewActionLabel(
 	busy: boolean,
-	linked: boolean,
 	amountCents: number,
 	allocated: number,
 ): string {
 	if (busy) return "Saving…";
-	if (linked) return "Confirm match · no extra credit";
 	if (amountCents < 0) return "Confirm household refund";
 	return allocated ? "Confirm payment" : "Keep as credit";
 }
 
 function savedMessage(action: Action, allocated: number): string {
 	if (action === "exclude") return "Marked as not a household payment";
-	if (action === "confirm")
-		return allocated
-			? "Payment confirmed and bills updated"
-			: "Payment kept as credit";
-	return "Payment decision saved";
+	if (action === "refund") return "Household refund recorded";
+	return allocated
+		? "Payment confirmed and bills updated"
+		: "Payment kept as credit";
 }

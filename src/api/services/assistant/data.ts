@@ -4,7 +4,7 @@ import type { Account, Bill, Share } from "../account/account";
 import { sum } from "../account/compute";
 import { BillPdfStorageService } from "../bill-pdf-storage";
 import { createAbsoluteDebtReceiptUrl } from "../debt-receipt-page.server";
-import { withLedgerClient } from "../ledger/client.server";
+import { withLedgerClient } from "../payments/client.server";
 
 const DAY_SECONDS = 24 * 60 * 60;
 const BILL_TYPE_VALUES = [
@@ -267,7 +267,7 @@ export function toBillCollection(
 export async function getReviewTransactions() {
 	const rows = await withLedgerClient((client) =>
 		client.execute(
-			"SELECT id,description,message,amount_cents,reason,effective_at FROM ledger_bank_transactions WHERE decision='review' ORDER BY effective_at DESC LIMIT 20",
+			"SELECT id,description,message,amount_cents,reason,effective_at FROM bank_transactions WHERE decision='review' ORDER BY effective_at DESC LIMIT 20",
 		),
 	);
 	return rows.rows.map((row) => ({

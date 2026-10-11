@@ -4,11 +4,11 @@ import type {
 	AccountPayments,
 	BillPaymentView,
 	ReceiptView,
-} from "../../api/services/ledger/account-payments";
+} from "../../api/services/payments/account-payments";
 import { Button } from "../ui/button";
-import { ledgerDate, ledgerTime } from "./statement";
+import { ledgerDate, ledgerTime } from "./dates";
 
-type VisibleReceipt = Omit<ReceiptView, "sourceKeys" | "suggestion">;
+type VisibleReceipt = Omit<ReceiptView, "suggestion">;
 type VisibleAccount = Omit<AccountPayments, "revision" | "receipts"> & {
 	receipts: VisibleReceipt[];
 };
@@ -57,8 +57,8 @@ export function BillPayments(props: {
 				)}
 			</div>
 			<p className="text-muted-foreground text-sm">
-				A payment counts once. Matching bank evidence confirms money already
-				recorded. Unallocated money stays available until assigned to a bill.
+				A payment counts once. Unallocated money stays available until assigned
+				to a bill.
 			</p>
 			{tab === "bills" ? (
 				<div className="divide-y rounded-xl border">
@@ -137,10 +137,7 @@ function BillRow(props: {
 									{formatCents(payment.amountCents)} · {receipt.description}
 								</p>
 								<p className="mt-1 text-muted-foreground text-xs">
-									{receipt.bankMatched
-										? "Bank matched"
-										: "Recorded manually · bank match pending"}{" "}
-									· {ledgerDate(receipt.receivedAt)}
+									{receiptSource(receipt)} · {ledgerDate(receipt.receivedAt)}
 								</p>
 							</div>
 							{props.onAllocate && (
@@ -178,9 +175,7 @@ function ReceiptRow(props: {
 					<p className="font-medium">{props.receipt.description}</p>
 					<p className="mt-1 text-muted-foreground text-xs">
 						{ledgerDate(props.receipt.receivedAt)} ·{" "}
-						{props.receipt.bankMatched
-							? "Bank matched"
-							: "Recorded manually · bank match pending"}
+						{receiptSource(props.receipt)}
 					</p>
 				</div>
 				<span className="whitespace-nowrap font-semibold tabular-nums">
@@ -188,17 +183,15 @@ function ReceiptRow(props: {
 				</span>
 			</summary>
 			<div className="mt-4 space-y-3 border-t pt-4 text-sm">
-				<p>
-					{props.receipt.receivedDateKnown ? "Received" : "Recorded"}{" "}
-					{ledgerTime(props.receipt.receivedAt)}
-				</p>
-				{props.receipt.manual && (
+				<p>Received {ledgerTime(props.receipt.receivedAt)}</p>
+				{props.receipt.kind === "cash" && (
 					<p className="text-muted-foreground">
-						Recorded manually {ledgerTime(props.receipt.recordedAt)}.{" "}
-						{props.receipt.bankMatched
-							? "The bank transfer confirms this same payment."
-							: "This money already counts as received."}
+						Recorded {ledgerTime(props.receipt.recordedAt)}. This money already
+						counts as received.
 					</p>
+				)}
+				{props.receipt.note && props.receipt.kind === "bank" && (
+					<p className="text-muted-foreground">{props.receipt.note}</p>
 				)}
 				{props.receipt.allocations.map((allocation) => (
 					<p key={allocation.debtId} className="flex justify-between gap-3">
@@ -224,6 +217,10 @@ function ReceiptRow(props: {
 			</div>
 		</details>
 	);
+}
+
+function receiptSource(receipt: VisibleReceipt): string {
+	return receipt.kind === "bank" ? "Bank transfer" : "Cash";
 }
 
 function Amount(props: { label: string; amount: number }) {

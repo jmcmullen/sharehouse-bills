@@ -37,12 +37,29 @@ function billDetail(bill: StatementBill) {
 		: due;
 }
 
-function Amount({ cents, paid }: { cents: number; paid?: boolean }) {
+function Amount({
+	cents,
+	paid,
+	voided,
+}: {
+	cents: number;
+	paid?: boolean;
+	voided?: boolean;
+}) {
 	return (
 		<p
-			className={`font-semibold text-[15px] tabular-nums leading-tight ${paid ? "text-success" : ""}`}
+			className={`font-semibold text-[15px] tabular-nums leading-tight ${voided ? "text-muted-foreground line-through" : paid ? "text-success" : ""}`}
 		>
 			{formatCents(cents)}
+		</p>
+	);
+}
+
+// The admin statement's running balance; the housemate's statement has none.
+function Balance({ cents }: { cents?: number }) {
+	return cents === undefined ? null : (
+		<p className="text-[12px] text-muted-foreground tabular-nums">
+			Balance {formatCents(cents)}
 		</p>
 	);
 }
@@ -142,6 +159,7 @@ function BillItem({ bill }: { bill: StatementBill }) {
 							<PublicStatusBadge tone={status.tone}>
 								{status.label}
 							</PublicStatusBadge>
+							<Balance cents={bill.balanceCents} />
 						</>
 					}
 				/>
@@ -159,7 +177,16 @@ function PaymentItem({ payment }: { payment: StatementPayment }) {
 				<RowContent
 					primary={payment.label}
 					secondary={`${day(payment.at)} · ${payment.note}`}
-					aside={<Amount cents={payment.amountCents} paid />}
+					aside={
+						<>
+							<Amount
+								cents={payment.amountCents}
+								paid={payment.amountCents > 0}
+								voided={payment.voided}
+							/>
+							<Balance cents={payment.balanceCents} />
+						</>
+					}
 				/>
 			}
 		>

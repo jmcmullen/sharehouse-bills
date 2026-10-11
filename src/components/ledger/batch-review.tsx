@@ -10,18 +10,17 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "../ui/dialog";
+import { ledgerTime } from "./dates";
 import type { Payment } from "./review-payment";
-import { ledgerTime } from "./statement";
 
 type Mode = "exclude" | "confirm";
 
 // Rows the server will accept in a bulk confirmation: an exact single-bill
-// match for an identified housemate with no sign the money is recorded already.
+// match for an identified housemate.
 function exactMatches(payments: Payment[]): Payment[] {
 	return payments.filter(
 		(payment) =>
 			payment.housemateId !== null &&
-			!payment.matchCandidate &&
 			payment.suggestion?.confidence === "exact",
 	);
 }
@@ -64,7 +63,7 @@ export function BatchReview({
 					mode === "confirm"
 						? {
 								transactionId: payment.id,
-								action: "confirm" as const,
+								action: "suggested" as const,
 								reason: "",
 								expectedRevision: payment.revision,
 							}

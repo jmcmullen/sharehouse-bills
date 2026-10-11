@@ -1,6 +1,6 @@
 import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { z } from "zod";
-import { reviewFiltersSchema } from "../api/services/ledger/payment-review-data";
+import { reviewFiltersSchema } from "../api/services/payments/review-data";
 import { PaymentReviewPage } from "../components/ledger/payment-review-page";
 import { getPaymentReview } from "../functions/ledger";
 

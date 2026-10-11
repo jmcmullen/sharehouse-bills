@@ -2,9 +2,9 @@ import { createHmac } from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
 import { EvlogError, type RequestLogger, createError } from "evlog";
 import {
-	recordLedgerBankEvent,
-	removeLedgerBankTransaction,
-} from "../api/services/ledger-sync.server";
+	recordBankEvent,
+	removeBankEvent,
+} from "../api/services/payments/bank-events.server";
 import { setApiRequestContext, setApiResponseContext } from "../lib/api-log";
 import { getRequestLogger } from "../lib/request-logger";
 
@@ -413,7 +413,7 @@ async function handleUpBankWebhook(request: Request) {
 		}
 
 		if (eventType === "TRANSACTION_DELETED") {
-			await removeLedgerBankTransaction(transactionId);
+			await removeBankEvent(transactionId);
 			return Response.json({
 				success: true,
 				ledger: "bank_transaction_removed",
@@ -422,7 +422,7 @@ async function handleUpBankWebhook(request: Request) {
 
 		const transaction = await fetchUpBankTransaction(transactionId, log);
 		logUpBankTransaction(log, transaction);
-		await recordLedgerBankEvent(transaction);
+		await recordBankEvent(transaction);
 		log?.info("Recorded Up Bank transaction in the ledger", {
 			transaction: {
 				id: transaction.id,

@@ -43,21 +43,21 @@ function receipt(
 ): ReceiptRow {
 	return {
 		id,
-		sourceKeys: [id.startsWith("bank:") ? `bank:source-${id}` : id],
+		kind: id.startsWith("cash:") ? "cash" : "bank",
+		bankTransactionId: id.startsWith("bank:") ? `tx-secret-${id}` : null,
 		description: "Payment received · SECRET BANK MESSAGE",
+		note: "",
 		amountCents,
 		receivedAt: at,
-		receivedDateKnown: true,
 		recordedAt: at,
-		bankMatched: id.startsWith("bank:"),
-		manual: id.startsWith("manual:"),
-		cash: id.startsWith("manual:cash-"),
+		voidedAt: null,
+		voidReason: null,
 		allocations,
 	};
 }
 
 const bank = "bank:tx-secret-1";
-const cash = "manual:cash-abc";
+const cash = "cash:abc";
 const held = "bank:tx-secret-2";
 const split = "bank:tx-secret-3";
 const bills = [
@@ -85,7 +85,7 @@ const receipts = [
 	receipt("bank:tx-july", sydney("2026-07-16", "10:00"), 5000, [
 		{ debtId: "water", amountCents: 5000 },
 	]),
-	receipt("manual:ledger-refund", sydney("2026-09-21"), -500, []),
+	receipt("cash:refund", sydney("2026-09-21"), -500, []),
 ];
 
 // The receipts leave $72.50 unallocated: $50 held, $27.50 from the split
@@ -98,12 +98,7 @@ function build(creditCents = 0) {
 		receipts: [
 			...receipts,
 			receipt(held, sydney("2026-09-20", "08:00"), 5000, []),
-			receipt(
-				"manual:ledger-adjust",
-				sydney("2026-05-01"),
-				creditCents - 7250,
-				[],
-			),
+			receipt("cash:adjust", sydney("2026-05-01"), creditCents - 7250, []),
 		],
 		now,
 	});
@@ -222,10 +217,54 @@ test("the timeline exposes no admin or bank data", () => {
 		"tx-secret",
 		"SECRET BANK MESSAGE",
 		"admin suggestion",
-		"manual:",
+		"cash:",
 		"bank:",
-		"sourceKey",
 		"housemateId",
+		"balanceCents",
 	])
 		assert.ok(!serialized.includes(secret), secret);
+});
+
+test("the admin statement adds refunds, voided corrections and a running balance", () => {
+	const account = buildAccount({
+		housemate: { id: "sarah", name: "Sarah", isOwner: false },
+		shares: [bill("gas", "Gas", "2026-09-10", 2141)],
+		receipts: [
+			receipt(bank, sydney("2026-09-12"), 2141, [
+				{ debtId: "gas", amountCents: 2141 },
+			]),
+			receipt("cash:refund", sydney("2026-09-14"), -500, []),
+		],
+		now,
+	});
+	const voided = {
+		...receipt("bank:mistake", sydney("2026-09-11"), 9000, []),
+		voidedAt: sydney("2026-09-13"),
+		voidReason: "Sent by mistake",
+		rentOnly: false,
+		unallocatedCents: 9000,
+	};
+	const plain = buildStatement(account, now, { admin: { voided: [] } });
+	const items = plain.recent.flatMap((month) => month.items);
+	assert.deepEqual(
+		items.map((item) => [item.kind, item.amountCents, item.balanceCents]),
+		[
+			["payment", -500, 500],
+			["payment", 2141, 0],
+			["bill", 2141, 2141],
+		],
+	);
+	assert.equal(
+		(items[0] as StatementPayment).note,
+		"Refunded to the housemate",
+	);
+	const corrections = buildStatement(account, now, {
+		admin: { voided: [voided] },
+	})
+		.recent.flatMap((month) => month.items)
+		.filter((item): item is StatementPayment => item.kind === "payment");
+	const mistake = corrections.find((item) => item.voided);
+	assert.equal(mistake?.note, "Voided: Sent by mistake");
+	assert.equal(mistake?.balanceCents, 2141);
+	assert.equal(mistake?.heldCents, 0);
 });

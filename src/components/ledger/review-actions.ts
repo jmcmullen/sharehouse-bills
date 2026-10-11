@@ -1,8 +1,5 @@
 import { toast } from "sonner";
-import {
-	confirmLedgerReceipt,
-	decideLedgerTransaction,
-} from "../../functions/ledger";
+import { decideLedgerTransaction } from "../../functions/ledger";
 import type { Payment } from "./review-payment";
 
 // One-tap row decisions. Each reports its own outcome and resolves to whether
@@ -13,9 +10,10 @@ export async function confirmRow(
 ): Promise<boolean> {
 	if (!payment.housemateId) return false;
 	try {
-		await confirmLedgerReceipt({
+		await decideLedgerTransaction({
 			data: {
 				transactionId: payment.id,
+				action: "confirm",
 				housemateId: payment.housemateId,
 				allocations,
 				expectedRevision: payment.revision,

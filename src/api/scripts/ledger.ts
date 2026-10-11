@@ -2,17 +2,9 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createClient } from "@libsql/client";
 import { z } from "zod";
 import { loadAccounts } from "../services/account/account.server";
-import { ingestBankTransaction } from "../services/ledger/bank-ingest";
-import { drainLedgerEvents } from "../services/ledger/events";
-import {
-	reviewBankTransaction,
-	reviewDecisionSchema,
-} from "../services/ledger/review-decisions";
-import {
-	getAccountStatement,
-	withWriteTransaction,
-} from "../services/ledger/sources";
-import { importUpHistory } from "../services/ledger/up-import";
+import { ingestBankTransaction } from "../services/payments/bank-ingest";
+import { withWriteTransaction } from "../services/payments/transaction";
+import { importUpHistory } from "../services/payments/up-import";
 
 const client = createClient({
 	url: process.env.DATABASE_URL ?? "",
@@ -26,41 +18,25 @@ const option = (name: string): string | undefined => {
 
 async function main(): Promise<void> {
 	if (
-		!args.includes("--sync") &&
 		!args.includes("--import-up") &&
-		!args.includes("--decisions") &&
 		!args.includes("--report") &&
 		!args.includes("--bank-file")
 	) {
 		throw new Error(
-			"Usage: bun run ledger --sync | --import-up [--since ISO] | --bank-file file.json | --decisions file.json | --report file.json",
+			"Usage: bun run ledger --import-up [--since ISO] | --bank-file file.json | --report file.json",
 		);
 	}
-	if (args.includes("--sync") || args.includes("--import-up"))
-		console.log(
-			JSON.stringify({ eventsProcessed: await drainLedgerEvents(client) }),
-		);
-	if (args.includes("--import-up")) {
+	if (args.includes("--import-up"))
 		await importUpHistory(client, process.env.UP_BANK_API_TOKEN ?? "", {
 			since: option("--since"),
 			onProgress: (progress) => console.log(JSON.stringify(progress)),
 		});
-		await drainLedgerEvents(client);
-	}
 	const bankPath = option("--bank-file");
 	if (bankPath) await importBankFile(bankPath);
-	const decisionsPath = option("--decisions");
-	if (decisionsPath) {
-		const decisions = z
-			.array(reviewDecisionSchema)
-			.parse(JSON.parse(await readFile(decisionsPath, "utf8")));
-		for (const decision of decisions)
-			await reviewBankTransaction(client, decision);
-		console.log(JSON.stringify({ decisionsApplied: decisions.length }));
-	}
 	const reportPath = option("--report");
 	if (reportPath) await writeReport(reportPath);
 }
+
 async function importBankFile(bankPath: string): Promise<void> {
 	const snapshot = z
 		.object({ complete: z.literal(true), transactions: z.array(z.unknown()) })
@@ -92,51 +68,30 @@ async function importBankFile(bankPath: string): Promise<void> {
 }
 
 async function writeReport(reportPath: string): Promise<void> {
-	const housemates = (await loadAccounts({ client })).filter(
-		(account) => !account.housemate.isOwner,
-	);
-	// The journal's balance against the account module's, which derives it
-	// from shares and receipts.
-	const accounts = await Promise.all(
-		housemates.map(async (account) => {
-			const statement = await getAccountStatement(client, account.housemate.id);
-			return {
-				housemateId: account.housemate.id,
-				name: account.housemate.name,
-				accountBalanceCents: account.balanceCents,
-				ledgerBalanceCents: statement.balanceCents,
-				differenceCents: statement.balanceCents - account.balanceCents,
-				entries: statement.entries.length,
-			};
-		}),
-	);
+	const accounts = (await loadAccounts({ client }))
+		.filter((account) => !account.housemate.isOwner)
+		.map((account) => ({
+			housemateId: account.housemate.id,
+			name: account.housemate.name,
+			balanceCents: account.balanceCents,
+			creditCents: account.creditCents,
+			owesCents: account.owesCents,
+			receipts: account.receipts.length,
+		}));
 	const reviews = (
 		await client.execute(
-			"SELECT id,description,message,amount_cents,housemate_id,reason,effective_at FROM ledger_bank_transactions WHERE decision='review' ORDER BY effective_at",
+			"SELECT id,description,message,amount_cents,housemate_id,reason,effective_at FROM bank_transactions WHERE decision='review' ORDER BY effective_at",
 		)
 	).rows;
 	const bankCounts = (
 		await client.execute(
-			"SELECT decision,count(*) AS count FROM ledger_bank_transactions GROUP BY decision",
+			"SELECT decision,count(*) AS count FROM bank_transactions GROUP BY decision",
 		)
 	).rows;
-	const pendingEvents = Number(
-		(
-			await client.execute(
-				"SELECT count(*) AS count FROM ledger_events WHERE processed_at IS NULL",
-			)
-		).rows[0].count,
-	);
 	await writeFile(
 		reportPath,
 		JSON.stringify(
-			{
-				generatedAt: new Date().toISOString(),
-				pendingEvents,
-				accounts,
-				bankCounts,
-				reviews,
-			},
+			{ generatedAt: new Date().toISOString(), accounts, bankCounts, reviews },
 			null,
 			2,
 		),
@@ -144,7 +99,6 @@ async function writeReport(reportPath: string): Promise<void> {
 	console.log(
 		JSON.stringify({
 			reportPath,
-			pendingEvents,
 			accounts,
 			bankCounts,
 			reviewCount: reviews.length,

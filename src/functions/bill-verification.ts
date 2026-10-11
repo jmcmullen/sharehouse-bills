@@ -1,8 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { approveBill } from "../api/services/ledger/bill-reviews";
-import { loadBillVerification } from "../api/services/ledger/bill-verification";
-import { createLedgerClient } from "../api/services/ledger/client.server";
+import { createLedgerClient } from "../api/services/payments/client.server";
+import {
+	approveBill,
+	loadBillVerification,
+} from "../api/services/payments/verification";
 import { authMiddleware } from "../lib/auth-middleware";
 
 export const getBillVerification = createServerFn({ method: "GET" })

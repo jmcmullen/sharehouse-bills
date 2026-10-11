@@ -1,15 +1,16 @@
-import type { Client } from "@libsql/client";
-import { withLedgerClient } from "../ledger/client.server";
-import { type LedgerSource, sourceSchema } from "../ledger/model";
+import type { Client, Row } from "@libsql/client";
+import { withLedgerClient } from "../payments/client.server";
 import {
 	type Account,
 	type Bill,
 	type BillRow,
 	type Housemate,
+	type Receipt,
 	type ReceiptRow,
 	type ShareRow,
 	buildAccount,
 	buildBill,
+	toReceipt,
 } from "./account";
 
 type Executor = Pick<Client, "execute">;
@@ -17,14 +18,10 @@ interface LoadOptions {
 	client?: Executor;
 	now?: number;
 }
-interface Source extends LedgerSource {
-	key: string;
-	recordedAt: number;
-}
-interface Evidence {
-	id: string;
-	receivedAt: number;
-	message: string;
+interface AllocationRow {
+	receiptId: string;
+	debtId: string;
+	amountCents: number;
 }
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
@@ -98,127 +95,70 @@ async function loadShares(
 	}));
 }
 
-// Receipts are the live payment, refund and adjustment sources in the journal.
-// A bank transfer split across sources is one receipt.
+const RECEIPT_COLUMNS =
+	"r.id,r.housemate_id,r.kind,r.bank_transaction_id,r.note,r.amount_cents,r.received_at,r.recorded_at,r.voided_at,r.void_reason,b.description AS bank_description,b.message AS bank_message";
+
+// A bank receipt reads as the transfer's description and reference; cash reads
+// as the admin's note.
+function receiptDescription(row: Row): string {
+	const parts =
+		row.kind === "cash"
+			? ["Cash received", row.note]
+			: [row.bank_description ?? "Bank transfer", row.bank_message];
+	return parts
+		.map((part) => (part === null || part === undefined ? "" : String(part)))
+		.filter(Boolean)
+		.join(" · ");
+}
+
+function toReceiptRow(row: Row, allocations: AllocationRow[]): ReceiptRow {
+	const id = String(row.id);
+	return {
+		id,
+		kind: row.kind === "cash" ? "cash" : "bank",
+		bankTransactionId: nullableText(row.bank_transaction_id),
+		description: receiptDescription(row),
+		note: String(row.note),
+		amountCents: Number(row.amount_cents),
+		receivedAt: Number(row.received_at),
+		recordedAt: Number(row.recorded_at),
+		voidedAt: nullableNumber(row.voided_at),
+		voidReason: nullableText(row.void_reason),
+		allocations: allocations
+			.filter((allocation) => allocation.receiptId === id)
+			.map(({ debtId, amountCents }) => ({ debtId, amountCents })),
+	};
+}
+
+// Live receipts and their allocations. Voided receipts never count.
 async function loadReceipts(
 	client: Executor,
 	ids: string[],
-	now: number,
 ): Promise<Map<string, ReceiptRow[]>> {
 	const housemates = `(${placeholders(ids)})`;
-	const [sourceRows, allocationRows, evidenceRows] = await Promise.all([
+	const [receiptRows, allocationRows] = await Promise.all([
 		client.execute({
-			sql: `SELECT s.source_key,s.snapshot,e.recorded_at FROM ledger_sources s JOIN ledger_entries e ON e.id=s.entry_id WHERE e.kind!='charge' AND e.housemate_id IN ${housemates} AND e.effective_at<=? ORDER BY e.effective_at,s.source_key`,
-			args: [...ids, now],
-		}),
-		client.execute({
-			sql: `SELECT a.source_key,a.debt_id,a.amount_cents FROM ledger_bill_allocations a JOIN ledger_sources s ON s.source_key=a.source_key WHERE s.entry_id IS NOT NULL AND json_extract(s.snapshot,'$.housemateId') IN ${housemates}`,
+			sql: `SELECT ${RECEIPT_COLUMNS} FROM receipts r LEFT JOIN bank_transactions b ON b.id=r.bank_transaction_id WHERE r.voided_at IS NULL AND r.housemate_id IN ${housemates} ORDER BY r.received_at,r.id`,
 			args: ids,
 		}),
 		client.execute({
-			sql: `SELECT e.source_key,e.transaction_id,b.effective_at,b.message FROM ledger_payment_evidence e JOIN ledger_bank_transactions b ON b.id=e.transaction_id JOIN ledger_sources s ON s.source_key=e.source_key WHERE b.decision='linked' AND json_extract(s.snapshot,'$.housemateId') IN ${housemates}`,
+			sql: `SELECT a.receipt_id,a.debt_id,a.amount_cents FROM allocations a JOIN receipts r ON r.id=a.receipt_id WHERE r.voided_at IS NULL AND r.housemate_id IN ${housemates}`,
 			args: ids,
 		}),
 	]);
-	const sources: Source[] = sourceRows.rows.map((row) => ({
-		key: String(row.source_key),
-		recordedAt: Number(row.recorded_at),
-		...sourceSchema.parse(JSON.parse(String(row.snapshot))),
-	}));
-	const evidence = new Map<string, Evidence>(
-		evidenceRows.rows.map((row) => [
-			String(row.source_key),
-			{
-				id: String(row.transaction_id),
-				receivedAt: Number(row.effective_at),
-				message: String(row.message),
-			},
-		]),
-	);
 	const allocations = allocationRows.rows.map((row) => ({
-		key: String(row.source_key),
+		receiptId: String(row.receipt_id),
 		debtId: String(row.debt_id),
 		amountCents: Number(row.amount_cents),
 	}));
 	return new Map(
 		ids.map((id) => [
 			id,
-			buildReceipts(
-				sources.filter((source) => source.housemateId === id),
-				evidence,
-				allocations,
-			),
+			receiptRows.rows
+				.filter((row) => String(row.housemate_id) === id)
+				.map((row) => toReceiptRow(row, allocations)),
 		]),
 	);
-}
-
-function groupSources(
-	sources: Source[],
-	evidence: Map<string, Evidence>,
-): Map<string, Source[]> {
-	return sources.reduce((groups, source) => {
-		const match = evidence.get(source.key);
-		const id = match ? `bank:${match.id}` : source.key;
-		return new Map(groups).set(id, [...(groups.get(id) ?? []), source]);
-	}, new Map<string, Source[]>());
-}
-
-function receiptAllocations(
-	keys: string[],
-	allocations: Array<{ key: string; debtId: string; amountCents: number }>,
-) {
-	const grouped = allocations
-		.filter((item) => keys.includes(item.key))
-		.reduce(
-			(totals, item) =>
-				new Map(totals).set(
-					item.debtId,
-					(totals.get(item.debtId) ?? 0) + item.amountCents,
-				),
-			new Map<string, number>(),
-		);
-	return [...grouped].map(([debtId, amountCents]) => ({
-		debtId,
-		amountCents,
-	}));
-}
-
-function buildReceipts(
-	sources: Source[],
-	evidence: Map<string, Evidence>,
-	allocations: Array<{ key: string; debtId: string; amountCents: number }>,
-): ReceiptRow[] {
-	return [...groupSources(sources, evidence)].map(([id, parts]) => {
-		const first = parts[0];
-		const match = evidence.get(first.key);
-		const sourceKeys = parts.map((part) => part.key);
-		const manual = first.key.startsWith("manual:");
-		return {
-			id,
-			sourceKeys,
-			description: match
-				? `Payment received${match.message ? ` · ${match.message}` : ""}`
-				: first.description,
-			// Journal payments are negative; a receipt is money in.
-			amountCents: -parts.reduce((total, part) => total + part.amountCents, 0),
-			receivedAt: match?.receivedAt ?? first.effectiveAt,
-			receivedDateKnown:
-				Boolean(match) || !manual || first.key.startsWith("manual:ledger-"),
-			recordedAt: manual
-				? Math.min(
-						...parts.map((part) =>
-							part.key.startsWith("manual:ledger-")
-								? part.recordedAt
-								: part.effectiveAt,
-						),
-					)
-				: first.recordedAt,
-			bankMatched: Boolean(match) || first.key.startsWith("bank:"),
-			manual,
-			cash: sourceKeys.some((key) => key.startsWith("manual:cash-")),
-			allocations: receiptAllocations(sourceKeys, allocations),
-		};
-	});
 }
 
 async function loadAccountsFor(
@@ -231,7 +171,7 @@ async function loadAccountsFor(
 	const housemateIds = housemates.map((housemate) => housemate.id);
 	const [shares, receipts] = await Promise.all([
 		loadShares(client, housemateIds),
-		loadReceipts(client, housemateIds, now),
+		loadReceipts(client, housemateIds),
 	]);
 	return housemates.map((housemate) =>
 		buildAccount({
@@ -314,5 +254,20 @@ export function loadBills(options: LoadOptions = {}): Promise<Bill[]> {
 			loadAccountsFor(client, null, now),
 		]);
 		return rows.map((row) => buildBill(row, accounts));
+	});
+}
+
+// Receipts voided by a later decision, newest first. Only the admin statement
+// shows them, as corrections.
+export function loadVoidedReceipts(
+	housemateId: string,
+	options: LoadOptions = {},
+): Promise<Receipt[]> {
+	return run(options, async (client) => {
+		const rows = await client.execute({
+			sql: `SELECT ${RECEIPT_COLUMNS} FROM receipts r LEFT JOIN bank_transactions b ON b.id=r.bank_transaction_id WHERE r.voided_at IS NOT NULL AND r.housemate_id=? ORDER BY r.voided_at DESC,r.id`,
+			args: [housemateId],
+		});
+		return rows.rows.map((row) => toReceipt(toReceiptRow(row, [])));
 	});
 }

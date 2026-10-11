@@ -1,8 +1,8 @@
 import { formatCents } from "@/lib/money";
-import { reviewHint } from "../../api/services/ledger/review-policy";
+import { reviewHint } from "../../api/services/payments/review-policy";
 import { Button } from "../ui/button";
+import { ledgerTime } from "./dates";
 import { type Payment, paymentEligible } from "./review-payment";
-import { ledgerTime } from "./statement";
 
 export function ReviewRow({
 	payment,
@@ -52,7 +52,7 @@ export function ReviewRow({
 				<p className="font-medium">
 					{name ?? sharedLabel(payment)}{" "}
 					<span className="ml-2 font-normal text-muted-foreground text-sm">
-						{payment.origin === "review" ? "Reviewed" : ""}
+						{payment.decided ? "Reviewed" : ""}
 					</span>
 				</p>
 				<p className="mt-1 break-words text-sm">
@@ -89,8 +89,6 @@ export function ReviewRow({
 	);
 }
 
-// Confirm and keep-as-credit are one tap only when nothing suggests the money
-// is already recorded; a possible duplicate goes through the dialog.
 function RowActions({
 	payment,
 	busy,
@@ -106,10 +104,9 @@ function RowActions({
 	) => void;
 	onExclude: () => void;
 }) {
-	const quick = !payment.matchCandidate;
 	return (
 		<div className="flex flex-wrap gap-2">
-			{quick && payment.suggestion && (
+			{payment.suggestion && (
 				<Button
 					disabled={busy}
 					onClick={() => onConfirm(payment.suggestion?.allocations ?? [])}
@@ -120,11 +117,9 @@ function RowActions({
 			<Button variant="outline" disabled={busy} onClick={onOpen}>
 				Change
 			</Button>
-			{quick && (
-				<Button variant="ghost" disabled={busy} onClick={() => onConfirm([])}>
-					Keep as credit
-				</Button>
-			)}
+			<Button variant="ghost" disabled={busy} onClick={() => onConfirm([])}>
+				Keep as credit
+			</Button>
 			<Button variant="ghost" disabled={busy} onClick={onExclude}>
 				Not a bill
 			</Button>

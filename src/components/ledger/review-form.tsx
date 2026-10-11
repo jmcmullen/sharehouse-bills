@@ -1,6 +1,5 @@
 import { Input } from "../ui/input";
-import type { Payment, Ready } from "./review-payment";
-import { ledgerDate } from "./statement";
+import type { Payment } from "./review-payment";
 
 interface ReviewError {
 	field: string;
@@ -11,8 +10,6 @@ export function reviewValidation(input: {
 	housemateId: string;
 	needsNote: boolean;
 	reason: string;
-	manual: string[];
-	candidates: Array<{ key: string; amountCents: number }>;
 	amountCents: number;
 	allocatedCents: number;
 }): ReviewError | null {
@@ -22,24 +19,7 @@ export function reviewValidation(input: {
 			message:
 				"Choose the housemate whose account should receive this payment.",
 		};
-	const selected = input.candidates.filter((item) =>
-		input.manual.includes(item.key),
-	);
-	const selectedTotal = selected.reduce(
-		(sum, item) => sum - item.amountCents,
-		0,
-	);
-	if (
-		input.manual.length > 0 &&
-		(selected.length !== input.manual.length ||
-			selectedTotal !== input.amountCents)
-	)
-		return {
-			field: "review-matches",
-			message:
-				"The selected records must equal the bank payment. Select the remaining records, or uncheck them all and add a note if this is separate money.",
-		};
-	if (input.allocatedCents > input.amountCents)
+	if (input.amountCents > 0 && input.allocatedCents > input.amountCents)
 		return {
 			field: "review-bills",
 			message: "Bill allocations exceed the payment received.",
@@ -48,59 +28,14 @@ export function reviewValidation(input: {
 		return {
 			field: "review-note",
 			message:
-				"Add a note of at least 5 characters explaining what this payment covers or why it is separate money.",
+				"Add a note of at least 5 characters explaining what this payment covers.",
 		};
 	return null;
 }
 
-export function manualReviewCandidates(
-	payment: Payment,
-	data: Ready,
-	housemateId: string,
-) {
-	return data.manualPayments
-		.filter(
-			(item) =>
-				item.housemateId === housemateId &&
-				item.amountCents < 0 &&
-				-item.amountCents <= payment.amountCents &&
-				(!item.bankTransactionId || item.bankTransactionId === payment.id),
-		)
-		.sort(
-			(a, b) =>
-				Math.abs(a.effectiveAt - payment.effectiveAt) -
-				Math.abs(b.effectiveAt - payment.effectiveAt),
-		)
-		.map((item) => {
-			const billing = data.accounts.find(
-				(account) => account.id === item.housemateId,
-			)?.billing;
-			const receipt = billing?.receipts.find((receipt) =>
-				receipt.sourceKeys.includes(item.key),
-			);
-			const bills =
-				receipt?.allocations
-					.map((allocation) => {
-						const bill = billing?.bills.find(
-							(bill) => bill.id === allocation.debtId,
-						);
-						return bill
-							? `${bill.name} · ${bill.dueAt ? ledgerDate(bill.dueAt) : "No due date"}`
-							: "Removed bill";
-					})
-					.join(", ") ?? "";
-			return { ...item, bills };
-		});
-}
-
-export function reviewNeedsNote(
-	payment: Payment,
-	manual: string[],
-	hasCandidates: boolean,
-): boolean {
-	if (payment.amountCents < 0 || payment.decision === "archive") return true;
-	if (manual.length > 0) return false;
-	return hasCandidates || payment.matchCandidate;
+// Refunds and payments from before the bill history need the admin's words.
+export function reviewNeedsNote(payment: Payment): boolean {
+	return payment.amountCents < 0 || payment.decision === "archived";
 }
 
 export function ReviewNote({
@@ -124,7 +59,7 @@ export function ReviewNote({
 			<Input
 				placeholder={
 					required
-						? "Explain the refund, historical payment or separate receipt"
+						? "Explain the refund or historical payment"
 						: "Add context if useful"
 				}
 				id="review-note"

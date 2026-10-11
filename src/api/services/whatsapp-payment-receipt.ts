@@ -1,11 +1,11 @@
 import type { Client } from "@libsql/client";
 import { loadAccount } from "./account/account.server";
 import { creditCents } from "./account/compute";
-import { withLedgerClient } from "./ledger/client.server";
+import { withLedgerClient } from "./payments/client.server";
 import {
 	type PaymentReceiptPayload,
 	paymentReceiptPayloadSchema,
-} from "./ledger/receipt-notifications";
+} from "./payments/receipt-notifications";
 
 type Executor = Pick<Client, "execute">;
 interface ReceiptLine {

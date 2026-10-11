@@ -10,18 +10,20 @@ import {
 	createShares,
 	splitAcrossHousemates,
 } from "../api/services/bills/shares";
-import { settleLedger } from "../api/services/ledger-sync.server";
 import {
 	cashReceiptSchema,
 	recordCashReceipt,
-} from "../api/services/ledger/cash-receipt";
+} from "../api/services/payments/cash";
 import {
 	createLedgerClient,
 	withLedgerClient,
-} from "../api/services/ledger/client.server";
-import { removeBill } from "../api/services/ledger/remove-bill";
+} from "../api/services/payments/client.server";
+import { removeBill } from "../api/services/payments/remove-bill";
 import { generateWeeklyRentBill } from "../api/services/recurring-bill";
-import { enqueueBillCreatedNotification } from "../api/services/whatsapp-notification-events";
+import {
+	enqueueBillCreatedNotification,
+	startPendingPaidNotifications,
+} from "../api/services/whatsapp-notification-events";
 import { authMiddleware } from "../lib/auth-middleware";
 import { entityIdSchema } from "../lib/id";
 import { getRequestLogger } from "../lib/request-logger";
@@ -107,7 +109,6 @@ export const createBill = createServerFn({ method: "POST" })
 			})
 			.returning();
 		await createShares(newBill.id, splits);
-		await settleLedger();
 		log?.set({
 			bill: {
 				id: newBill.id,
@@ -135,7 +136,6 @@ export const deleteBill = createServerFn({ method: "POST" })
 			},
 		});
 		await withLedgerClient((client) => removeBill(client, data.billId));
-		await settleLedger();
 		log?.set({
 			bill: {
 				id: data.billId,
@@ -146,8 +146,8 @@ export const deleteBill = createServerFn({ method: "POST" })
 		return { success: true };
 	});
 
-// Cash handed to the admin: recorded and allocated in one ledger transaction,
-// then settled so paid state and the housemate's receipt follow.
+// Cash handed to the admin: recorded and allocated in one transaction, then
+// the housemate's receipt and any bill-paid message are sent.
 export const recordCashReceived = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
 	.inputValidator(cashReceiptSchema)
@@ -165,7 +165,7 @@ export const recordCashReceived = createServerFn({ method: "POST" })
 		} finally {
 			client.close();
 		}
-		await settleLedger();
+		await startPendingPaidNotifications();
 		return { success: true };
 	});
 // Generate weekly rent bill

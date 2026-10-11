@@ -12,8 +12,8 @@ import type {
 	BillVerificationSummary,
 	ShareReceipt,
 	VerifiedBill,
-} from "../../api/services/ledger/bill-verification";
-import { ledgerDate } from "../ledger/statement";
+} from "../../api/services/payments/verification";
+import { ledgerDate } from "../ledger/dates";
 
 const statusLabel: Record<BillVerificationStatus, string> = {
 	paid: "Paid",
@@ -35,16 +35,6 @@ type Filter = "look" | "all";
 
 export function BillVerificationSection({ data }: { data: BillVerification }) {
 	const [filter, setFilter] = useState<Filter>("look");
-	if (!data.available)
-		return (
-			<section className="space-y-2" aria-label="Payment verification">
-				<h2 className="font-semibold text-xl">Payment verification</h2>
-				<p className="rounded-xl border p-4 text-muted-foreground text-sm">
-					The housemate ledger is not installed yet, so payments cannot be
-					verified against bills.
-				</p>
-			</section>
-		);
 	const bills = data.bills.filter((bill) => filter === "all" || bill.needsLook);
 	return (
 		<section className="space-y-4" aria-label="Payment verification">
@@ -229,13 +219,9 @@ function ReceiptLine({ receipt }: { receipt: ShareReceipt }) {
 				<span className="text-muted-foreground">· {receipt.description}</span>
 			</span>
 			<span className="flex items-center gap-2 text-muted-foreground text-xs">
-				<span className="tabular-nums">
-					{receipt.receivedDateKnown
-						? ledgerDate(receipt.receivedAt)
-						: "Date unknown"}
-				</span>
-				<Badge variant={receipt.bankMatched ? "secondary" : "outline"}>
-					{receipt.bankMatched ? "Bank matched" : "Manual · bank match pending"}
+				<span className="tabular-nums">{ledgerDate(receipt.receivedAt)}</span>
+				<Badge variant={receipt.kind === "bank" ? "secondary" : "outline"}>
+					{receipt.kind === "bank" ? "Bank transfer" : "Cash"}
 				</Badge>
 			</span>
 		</li>

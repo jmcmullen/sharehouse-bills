@@ -1,13 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createClient } from "@libsql/client";
-import { legacyTables } from "../../services/ledger/tests/legacy-tables";
-
-const read = (name: string) =>
-	readFile(new URL(`../migrations/${name}.sql`, import.meta.url), "utf8");
+import { legacyTables, readMigration as read } from "./legacy-tables";
 
 test("0021 drops the legacy payment tables and their ledger triggers", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "migration-0021-"));

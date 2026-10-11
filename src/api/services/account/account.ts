@@ -1,4 +1,4 @@
-import { isRentReference } from "../ledger/model";
+import { isRentReference } from "../payments/model";
 import {
 	type BillStatus,
 	type ShareCover,
@@ -44,18 +44,20 @@ interface Allocation {
 	debtId: string;
 	amountCents: number;
 }
-// Money received from a housemate, with the shares it was allocated to.
+// Money received from a housemate (negative when refunded), with the shares
+// it was allocated to. The description is the bank's reference for a transfer
+// and the admin's note for cash.
 export interface ReceiptRow {
 	id: string;
-	sourceKeys: string[];
+	kind: "bank" | "cash";
+	bankTransactionId: string | null;
 	description: string;
+	note: string;
 	amountCents: number;
 	receivedAt: number;
-	receivedDateKnown: boolean;
 	recordedAt: number;
-	bankMatched: boolean;
-	manual: boolean;
-	cash: boolean;
+	voidedAt: number | null;
+	voidReason: string | null;
 	allocations: Allocation[];
 }
 export interface Share extends ShareRow, ShareCover {
@@ -135,7 +137,7 @@ function toShare(
 	};
 }
 
-function toReceipt(row: ReceiptRow): Receipt {
+export function toReceipt(row: ReceiptRow): Receipt {
 	return {
 		...row,
 		rentOnly: isRentReference(row.description),

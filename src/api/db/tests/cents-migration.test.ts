@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createClient } from "@libsql/client";
-import { loadAccount } from "../../services/account/account.server";
-import { legacyTables } from "../../services/ledger/tests/legacy-tables";
-
-const read = (name: string) =>
-	readFile(new URL(`../migrations/${name}.sql`, import.meta.url), "utf8");
+import {
+	ledgerMigrations,
+	legacyTables,
+	readMigration as read,
+} from "./legacy-tables";
 
 test("0022 converts money to cents, drops cached paid state and rebuilds the debts triggers", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "migration-0022-"));
@@ -19,15 +19,7 @@ test("0022 converts money to cents, drops cached paid state and rebuilds the deb
 			INSERT INTO bills(id,biller_name,total_amount,due_date,created_at,status) VALUES('gas','Gas',100.1,100,50,'paid');
 			INSERT INTO recurringBills(id,templateName,billerName,totalAmount) VALUES('rent','Rent','Agent',1865.75);
 			INSERT INTO recurringBillAssignments(id,customAmount) VALUES('a',372.15),('b',NULL);`);
-		for (const name of [
-			"0009_housemate_ledger",
-			"0011_payment_review_simplification",
-			"0013_payment_bill_allocations",
-			"0014_allocation_review_decisions",
-			"0015_review_group",
-			"0017_freeze_history",
-			"0021_drop_legacy_payments",
-		])
+		for (const name of ledgerMigrations.slice(0, -1))
 			await client.executeMultiple(await read(name));
 		await client.execute(
 			"INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,is_paid,paid_at,created_at,updated_at) VALUES('d','oliver','gas',33.37,0,0,NULL,60,60),('paid','oliver','gas',50,50,1,80,60,85)",
@@ -72,31 +64,20 @@ test("0022 converts money to cents, drops cached paid state and rebuilds the deb
 
 		// A share paid before the ledger keeps its paid state as a migrated cash
 		// receipt; a share with nothing paid is left alone.
-		const account = await loadAccount("oliver", { client, now: 1000 });
-		const paid = account?.shares.find((share) => share.id === "paid");
-		assert.equal(paid?.remainingCents, 0);
-		assert.equal(paid?.settledAt, 80);
-		const unpaid = account?.shares.find((share) => share.id === "d");
-		assert.equal(unpaid?.paidCents, 0);
 		assert.deepEqual(
-			account?.receipts.map((receipt) => [
-				receipt.id,
-				receipt.amountCents,
-				receipt.receivedAt,
-				receipt.cash,
-				receipt.allocations,
+			(
+				await client.execute(
+					"SELECT s.source_key,e.amount_cents,e.effective_at,a.debt_id,a.amount_cents AS allocated FROM ledger_sources s JOIN ledger_entries e ON e.id=s.entry_id JOIN ledger_bill_allocations a ON a.source_key=s.source_key",
+				)
+			).rows.map((row) => [
+				row.source_key,
+				Number(row.amount_cents),
+				Number(row.effective_at),
+				row.debt_id,
+				Number(row.allocated),
 			]),
-			[
-				[
-					"manual:cash-migrated-paid",
-					5000,
-					80,
-					true,
-					[{ debtId: "paid", amountCents: 5000 }],
-				],
-			],
+			[["manual:cash-migrated-paid", -5000, 80, "paid", 5000]],
 		);
-		assert.equal(account?.creditCents, 0);
 		assert.deepEqual(
 			(
 				await client.execute(

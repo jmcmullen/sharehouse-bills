@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { z } from "zod";
-import type { reviewFiltersSchema } from "../../api/services/ledger/payment-review-data";
-import { reviewGroups } from "../../api/services/ledger/review-policy";
+import type { reviewFiltersSchema } from "../../api/services/payments/review-data";
+import { reviewGroups } from "../../api/services/payments/review-policy";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 
@@ -10,10 +10,9 @@ export type ReviewFilters = z.infer<typeof reviewFiltersSchema>;
 
 const statusTabs = [
 	["review", "Needs attention"],
-	["credit", "Recorded"],
-	["linked", "Linked"],
-	["exclude", "Ignored"],
-	["archive", "History"],
+	["confirmed", "Recorded"],
+	["excluded", "Ignored"],
+	["archived", "History"],
 ] as const;
 const scopes: ReviewFilters["scope"][] = ["all", "known", "unidentified"];
 
@@ -41,7 +40,7 @@ export function ReviewFilterBar({
 							onChange({
 								status,
 								group: "all",
-								recentOnly: status !== "archive",
+								recentOnly: status !== "archived",
 								scope: "all",
 								housemateId: undefined,
 							})
