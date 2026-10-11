@@ -115,3 +115,21 @@ const utilityPattern =
 export function isRentReference(text: string): boolean {
 	return /\brent\b/i.test(text) && !utilityPattern.test(text);
 }
+
+const householdPattern = /\b(bills?|rent)\b/i;
+
+// A short reference that names the household's bills or rent, with at most a
+// date or qualifier around it ("Bills", "Rent 12 Sep", "rent + bills",
+// "Bills - Oli"). Only transfers with such a reference confirm themselves.
+export function isHouseholdReference(text: string): boolean {
+	const reference = text.trim();
+	return reference.length <= 40 && householdPattern.test(reference);
+}
+
+// The housemate's reference for a transfer, or the bank's description when
+// they left none.
+export function bankReference(transaction: BankTransaction): string {
+	return (
+		transaction.attributes.message?.trim() || transaction.attributes.description
+	);
+}

@@ -1,19 +1,15 @@
 import type { Client, Row } from "@libsql/client";
 import { z } from "zod";
 import { getAccountPayments, suggestBankReceipt } from "./account-payments";
+import { billAllocationsSchema, insertReceipt, voidReceipts } from "./allocate";
 import {
-	billAllocationsSchema,
-	insertReceipt,
-	voidReceipts,
-	writeAllocations,
-} from "./allocate";
-import { isSettledExternalAud, receivedAt, setDecision } from "./bank-ingest";
+	confirmTransaction,
+	isSettledExternalAud,
+	receivedAt,
+	setDecision,
+} from "./bank-decision";
 import { loadHousemates, requireHousemate } from "./housemates";
 import { type BankTransaction, bankTransactionSchema } from "./model";
-import {
-	enqueuePaymentReceipt,
-	paymentReceiptKind,
-} from "./receipt-notifications";
 import { ignoredBankReason } from "./review-policy";
 import { type Executor, withWriteTransaction } from "./transaction";
 
@@ -115,84 +111,16 @@ async function applyDecision(tx: Executor, input: Decision): Promise<void> {
 	return confirm(tx, bank, input);
 }
 
-// One receipt for the housemate, its bills allocated in the same transaction.
-// Empty allocations keep the money as credit on purpose. Re-confirming the same
-// money for the same housemate keeps its receipt, so the housemate hears a
-// correction rather than a second receipt.
-async function confirm(
+function confirm(
 	tx: Executor,
 	bank: BankRow,
 	input: z.infer<typeof confirmSchema>,
 ): Promise<void> {
-	const amountCents = bank.transaction.attributes.amount.valueInBaseUnits;
-	if (amountCents <= 0)
-		throw new Error("Only money received can be confirmed against bills");
-	const housemateId = await requireHousemate(tx, input.housemateId);
-	const receiptId =
-		(await keptReceipt(tx, bank, housemateId, input.reason)) ??
-		(await replaceReceipts(tx, bank, housemateId, input.reason));
-	await writeAllocations(
-		tx,
-		await getAccountPayments(tx, housemateId),
-		receiptId,
-		input.allocations,
-	);
-	await decide(tx, bank, {
-		decision: "confirmed",
-		housemateId,
+	return confirmTransaction(tx, bank.transaction, {
+		housemateId: input.housemateId,
+		allocations: input.allocations,
+		note: input.reason,
 		reason: input.reason || "Household payment confirmed by administrator",
-	});
-	await enqueuePaymentReceipt(
-		tx,
-		housemateId,
-		receiptId,
-		await paymentReceiptKind(tx, receiptId),
-	);
-}
-
-// The transfer's single live receipt when it already credits this housemate
-// with this amount, its note updated to the new decision.
-async function keptReceipt(
-	tx: Executor,
-	bank: BankRow,
-	housemateId: string,
-	note: string,
-): Promise<string | null> {
-	const live = (
-		await tx.execute({
-			sql: "SELECT id,housemate_id,amount_cents FROM receipts WHERE bank_transaction_id=? AND voided_at IS NULL",
-			args: [bank.transaction.id],
-		})
-	).rows;
-	const [receipt] = live;
-	if (
-		live.length !== 1 ||
-		String(receipt.housemate_id) !== housemateId ||
-		Number(receipt.amount_cents) !==
-			bank.transaction.attributes.amount.valueInBaseUnits
-	)
-		return null;
-	await tx.execute({
-		sql: "UPDATE receipts SET note=? WHERE id=?",
-		args: [note, receipt.id],
-	});
-	return String(receipt.id);
-}
-
-async function replaceReceipts(
-	tx: Executor,
-	bank: BankRow,
-	housemateId: string,
-	note: string,
-): Promise<string> {
-	await voidReceipts(tx, bank.transaction.id, "Replaced by a new decision");
-	return insertReceipt(tx, {
-		housemateId,
-		amountCents: bank.transaction.attributes.amount.valueInBaseUnits,
-		receivedAt: receivedAt(bank.transaction),
-		kind: "bank",
-		bankTransactionId: bank.transaction.id,
-		note,
 	});
 }
 

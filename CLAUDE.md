@@ -50,8 +50,12 @@ runs `fallow`, `check` and `typecheck`. Use bun, never npm or yarn.
 - Only `src/api/services/account/` derives paid, remaining, credit, owed,
   overdue or balance. Everything else reads `loadAccount`, `loadAccounts`,
   `loadBill` or `loadBills` and never sums amounts itself.
-- Nothing credits or allocates money automatically. Receipts come from an admin
-  decision on a bank transaction or from recording cash.
+- Money is credited automatically in one case only: a settled AUD transfer from
+  one identified housemate, with a household reference (`bill`, `bills` or
+  `rent`, see `isHouseholdReference`), whose amount exactly equals one open
+  share (rent references only match rent shares) confirms itself on ingest.
+  Every other receipt comes from an admin decision on a bank transaction or
+  from recording cash.
 
 ## Code style
 

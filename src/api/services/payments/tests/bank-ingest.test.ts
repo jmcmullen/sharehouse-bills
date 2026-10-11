@@ -29,7 +29,7 @@ const balance = async (client: Client, id = "oliver") =>
 const remove = (client: Client, id: string) =>
 	withWriteTransaction(client, (tx) => deleteBankTransaction(tx, id));
 
-test("an identified housemate receipt is always reviewed, never credited, whatever the reference says", async () =>
+test("an identified housemate receipt with no exact open share is reviewed, never credited, whatever the reference says", async () =>
 	fixture(async (client) => {
 		for (const [index, message] of ["Gas", "RENT", "", "Dinner"].entries())
 			await ingest(client, receipt(`ref-${index}`, 3000, message));

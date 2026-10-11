@@ -1,70 +1,45 @@
 import type { Row } from "@libsql/client";
+import { exactBankShare, getAccountPayments } from "./account-payments";
 import { voidReceipts } from "./allocate";
+import { enqueuePaymentArrived } from "./arrival-notifications";
+import {
+	type Classification,
+	confirmTransaction,
+	isSettledExternalAud,
+	receivedAt,
+	setDecision,
+} from "./bank-decision";
 import { loadHousemates } from "./housemates";
 import {
 	type BankTransaction,
+	bankReference,
 	bankTransactionSchema,
 	identifyHousemate,
+	isHouseholdReference,
 	namedBeneficiaries,
 } from "./model";
-import { ignoredBankReason, reviewGroupFor } from "./review-policy";
+import { ignoredBankReason } from "./review-policy";
 import { type Executor, nowSeconds } from "./transaction";
 
-type Decision = "review" | "confirmed" | "excluded" | "archived";
-interface Classification {
-	decision: Decision;
-	housemateId: string | null;
-	reason: string;
-}
-
-export function receivedAt(transaction: BankTransaction): number {
-	return Math.floor(
-		Date.parse(
-			transaction.attributes.settledAt ?? transaction.attributes.createdAt,
-		) / 1000,
-	);
-}
-
-export function isSettledExternalAud(transaction: BankTransaction): boolean {
-	return (
-		transaction.attributes.status === "SETTLED" &&
-		transaction.attributes.amount.currencyCode === "AUD" &&
-		!transaction.relationships?.transferAccount?.data
-	);
-}
-
-// Records an admin decision (decided_at set) or an automatic classification
-// (decided_at null), with the review group the queue sorts by.
-export async function setDecision(
-	tx: Executor,
-	transaction: { id: string; amountCents: number },
-	input: Classification & { decided: boolean },
-): Promise<void> {
-	await tx.execute({
-		sql: "UPDATE bank_transactions SET decision=?,housemate_id=?,reason=?,review_group=?,decided_at=?,updated_at=max(updated_at+1,?) WHERE id=?",
-		args: [
-			input.decision,
-			input.housemateId,
-			input.reason,
-			reviewGroupFor({
-				amountCents: transaction.amountCents,
-				housemateId: input.housemateId,
-			}),
-			input.decided ? nowSeconds() : null,
-			nowSeconds(),
-			transaction.id,
-		],
-	});
-}
-
-// Upserts the bank's view of a transaction. An automatic classification is
-// redone every time; an admin decision survives unless the money it rests on
-// changed, in which case its receipts are voided and it goes back to review
-// for the same housemate.
-export async function ingestBankTransaction(
+// The webhook's ingest: a transfer left in review tells the owner money has
+// arrived. The history import ingests without telling anyone.
+export async function receiveBankTransaction(
 	tx: Executor,
 	input: unknown,
 ): Promise<void> {
+	const id = await ingestBankTransaction(tx, input);
+	await enqueuePaymentArrived(tx, id);
+}
+
+// Upserts the bank's view of a transaction and returns its id. An automatic
+// classification is redone every time, and a household transfer that exactly
+// pays one open share confirms itself. A decision (admin or automatic)
+// survives unless the money it rests on changed, in which case its receipts
+// are voided and it goes back to review for the same housemate.
+export async function ingestBankTransaction(
+	tx: Executor,
+	input: unknown,
+): Promise<string> {
 	const transaction = bankTransactionSchema.parse(input);
 	const existing = (
 		await tx.execute({
@@ -85,13 +60,48 @@ export async function ingestBankTransaction(
 				existing,
 				"Bank transaction changed; review it again",
 			);
-		return;
+		return transaction.id;
 	}
-	await setDecision(
-		tx,
-		{ id: transaction.id, amountCents },
-		{ ...(await classify(tx, transaction)), decided: false },
+	const classification = await classify(tx, transaction);
+	if (!(await confirmAutomatically(tx, transaction, classification)))
+		await setDecision(
+			tx,
+			{ id: transaction.id, amountCents },
+			{ ...classification, decided: false },
+		);
+	return transaction.id;
+}
+
+// Confirms a settled AUD transfer from one identified housemate whose
+// household reference exactly pays one open share. Anything less is left for
+// review. Returns true when it confirmed.
+async function confirmAutomatically(
+	tx: Executor,
+	transaction: BankTransaction,
+	classification: Classification,
+): Promise<boolean> {
+	const amountCents = transaction.attributes.amount.valueInBaseUnits;
+	const reference = bankReference(transaction);
+	if (
+		classification.decision !== "review" ||
+		!classification.housemateId ||
+		amountCents <= 0 ||
+		!isSettledExternalAud(transaction) ||
+		!isHouseholdReference(reference)
+	)
+		return false;
+	const match = exactBankShare(
+		await getAccountPayments(tx, classification.housemateId),
+		{ amountCents, receivedAt: receivedAt(transaction), message: reference },
 	);
+	if (!match) return false;
+	await confirmTransaction(tx, transaction, {
+		housemateId: classification.housemateId,
+		allocations: [match.allocation],
+		note: "",
+		reason: `Confirmed automatically: exact match for ${match.label}`,
+	});
+	return true;
 }
 
 // The bank removed the transaction. Money confirmed from it no longer exists.
@@ -171,8 +181,8 @@ async function upsertBankColumns(
 	});
 }
 
-// Automation never credits: an identified housemate's money always waits for
-// an explicit decision, and everything else is set aside.
+// Sorts a transfer for review or sets it aside. An identified housemate's
+// money lands in review; ingest may then confirm it automatically.
 async function classify(
 	tx: Executor,
 	transaction: BankTransaction,

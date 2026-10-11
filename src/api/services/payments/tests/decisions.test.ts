@@ -358,7 +358,7 @@ test("batch decisions are atomic, reject stale or repeated rows and accept only 
 		);
 	}));
 
-test("a rent reference confirms onto a template-generated rent bill with no bill type", async () =>
+test("a rent reference confirms itself onto a template-generated rent bill with no bill type", async () =>
 	fixture(async (client) => {
 		await client.execute(
 			`INSERT INTO recurringBills(id,templateName,billerName,totalCents,frequency,startDate,createdAt,updatedAt) VALUES('weekly','Weekly Rent','Agent',0,'weekly',${time},${time},${time})`,
@@ -371,9 +371,7 @@ test("a rent reference confirms onto a template-generated rent bill with no bill
 		});
 		await addShares(client, [["rent-share", "oliver", "rent", 42000]]);
 		await ingest(client, receipt("rent", 42000, "Rent"));
-		await confirm(client, "rent", "oliver", [
-			{ debtId: "rent-share", amountCents: 42000 },
-		]);
+		assert.equal((await bankRow(client, "rent")).decision, "confirmed");
 		const bill = (await getAccountPayments(client, "oliver")).bills.find(
 			(item) => item.id === "rent-share",
 		);

@@ -15,20 +15,26 @@ type PaymentArrivedPayload = z.infer<typeof paymentArrivedPayloadSchema>;
 const paymentArrivedEventKey = (transactionId: string): string =>
 	`payment-arrived:${transactionId}`;
 
-// Tells the owner that money needing a decision has arrived. One row per bank
-// transaction, written inside the ingest transaction; the event key keeps
-// re-ingests and settlement updates silent. Returns true when a row was added.
+// Tells the owner that settled money needing a decision has arrived. A held
+// transfer waits for settlement, when it may confirm itself instead. One row
+// per bank transaction, written inside the ingest transaction; the event key
+// keeps re-ingests silent. Returns true when a row was added.
 export async function enqueuePaymentArrived(
 	tx: Executor,
 	transactionId: string,
 ): Promise<boolean> {
 	const row = (
 		await tx.execute({
-			sql: "SELECT decision,housemate_id,amount_cents,raw_data FROM bank_transactions WHERE id=?",
+			sql: "SELECT decision,bank_status,housemate_id,amount_cents,raw_data FROM bank_transactions WHERE id=?",
 			args: [transactionId],
 		})
 	).rows[0];
-	if (!row || row.decision !== "review" || Number(row.amount_cents) <= 0)
+	if (
+		!row ||
+		row.decision !== "review" ||
+		row.bank_status !== "SETTLED" ||
+		Number(row.amount_cents) <= 0
+	)
 		return false;
 	const housemates = await loadHousemates(tx);
 	const owner = housemates.find((housemate) => housemate.isOwner);

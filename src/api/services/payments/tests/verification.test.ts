@@ -70,7 +70,7 @@ test("pivots housemate payments into bills with shares, receipts, status and sum
 		assert.equal(oliverShare.receipts[0].kind, "bank");
 		assert.equal(
 			oliverShare.receipts[0].description,
-			"Mr Oliver William Caprile · Bills",
+			"Mr Oliver William Caprile · Transfer",
 		);
 
 		assert.equal(sarahShare.housemateName, "Sarah O Dwyer");

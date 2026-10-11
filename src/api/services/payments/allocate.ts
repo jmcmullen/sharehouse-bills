@@ -17,7 +17,7 @@ export const billAllocationsSchema = z
 		}),
 	)
 	.max(100);
-type BillAllocations = z.infer<typeof billAllocationsSchema>;
+export type BillAllocations = z.infer<typeof billAllocationsSchema>;
 
 export const allocateReceiptSchema = z.object({
 	housemateId: z.string().min(1),

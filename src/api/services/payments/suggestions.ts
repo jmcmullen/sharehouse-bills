@@ -17,8 +17,8 @@ interface SuggestionInput {
 	shares: OpenShare[];
 }
 
-// Suggests which open bill shares a payment covers. Suggestions are advisory:
-// the admin confirms every allocation, so nothing here writes state.
+// Suggests which open bill shares a payment covers. Nothing here writes state;
+// only an exact match on a household reference is confirmed without the admin.
 export function suggestAllocations(input: SuggestionInput): Suggestion | null {
 	const open = input.shares
 		.filter(
@@ -37,7 +37,7 @@ export function suggestAllocations(input: SuggestionInput): Suggestion | null {
 				{ debtId: exact.debtId, amountCents: exact.remainingCents },
 			],
 			confidence: "exact",
-			reason: `Exactly matches ${label(exact)}`,
+			reason: `Exactly matches ${shareLabel(exact)}`,
 		};
 	const combination = exactCombination(open, input.amountCents);
 	if (combination)
@@ -47,7 +47,7 @@ export function suggestAllocations(input: SuggestionInput): Suggestion | null {
 				amountCents: share.remainingCents,
 			})),
 			confidence: "combination",
-			reason: `Exactly covers ${combination.map(label).join(" + ")}`,
+			reason: `Exactly covers ${combination.map(shareLabel).join(" + ")}`,
 		};
 	return partial(open, input.amountCents);
 }
@@ -127,15 +127,15 @@ function partial(shares: OpenShare[], amount: number): Suggestion {
 		.slice(0, -1)
 		.map((item) => shares.find((share) => share.debtId === item.debtId))
 		.filter((share): share is OpenShare => share !== undefined)
-		.map(label);
+		.map(shareLabel);
 	const reason =
 		amount > allocated
-			? `Covers ${[...names, lastShare ? label(lastShare) : ""].join(" + ")}, ${money(amount - allocated)} left unallocated`
-			: `${names.length ? `Covers ${names.join(" + ")}, part-pays` : "Part-pays"} ${lastShare ? label(lastShare) : ""}`;
+			? `Covers ${[...names, lastShare ? shareLabel(lastShare) : ""].join(" + ")}, ${money(amount - allocated)} left unallocated`
+			: `${names.length ? `Covers ${names.join(" + ")}, part-pays` : "Part-pays"} ${lastShare ? shareLabel(lastShare) : ""}`;
 	return { allocations, confidence: "partial", reason };
 }
 
-function label(share: OpenShare): string {
+export function shareLabel(share: OpenShare): string {
 	return share.dueAt === null
 		? share.billName
 		: `${share.billName} · ${new Intl.DateTimeFormat("en-AU", {

@@ -6,7 +6,7 @@ import { pushSQLiteSchema } from "drizzle-kit/api";
 import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "../../../db/schema";
 import { getAccountPayments } from "../account-payments";
-import { ingestBankTransaction } from "../bank-ingest";
+import { ingestBankTransaction, receiveBankTransaction } from "../bank-ingest";
 import { recordCashReceipt } from "../cash";
 import { decideBankTransaction } from "../decisions";
 import { type BankTransaction, bankTransactionSchema } from "../model";
@@ -33,7 +33,7 @@ const template = (async () => {
 export const receipt = (
 	id = "bank-1",
 	amount = 19900,
-	message = "Bills",
+	message = "Transfer",
 ): BankTransaction =>
 	bankTransactionSchema.parse({
 		id,
@@ -112,6 +112,14 @@ export async function addShares(
 
 export async function ingest(client: Client, bank = receipt()): Promise<void> {
 	await withWriteTransaction(client, (tx) => ingestBankTransaction(tx, bank));
+}
+
+// Ingests the transfer the way the Up webhook does, owner message included.
+export async function receive(
+	client: Client,
+	bank: BankTransaction,
+): Promise<void> {
+	await withWriteTransaction(client, (tx) => receiveBankTransaction(tx, bank));
 }
 
 export async function revision(client: Client, id: string): Promise<number> {

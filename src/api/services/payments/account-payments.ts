@@ -10,6 +10,7 @@ import { isRentReference } from "./model";
 import {
 	type OpenShare,
 	type Suggestion,
+	shareLabel,
 	suggestAllocations,
 } from "./suggestions";
 import type { Executor } from "./transaction";
@@ -97,4 +98,22 @@ export function suggestBankReceipt(
 		rentOnly: isRentReference(bank.message),
 		shares: toOpenShares({ shares: account.bills }),
 	});
+}
+
+// The one open share a bank transfer pays exactly, under the same rent-only
+// rule as its suggestion; null for a combination, a partial or no match.
+export function exactBankShare(
+	account: Pick<AccountPayments, "bills">,
+	bank: { amountCents: number; receivedAt: number; message: string },
+): {
+	allocation: { debtId: string; amountCents: number };
+	label: string;
+} | null {
+	const suggestion = suggestBankReceipt(account, bank);
+	if (suggestion?.confidence !== "exact") return null;
+	const [allocation] = suggestion.allocations;
+	const share = toOpenShares({ shares: account.bills }).find(
+		(item) => item.debtId === allocation.debtId,
+	);
+	return share ? { allocation, label: shareLabel(share) } : null;
 }

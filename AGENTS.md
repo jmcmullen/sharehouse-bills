@@ -19,7 +19,7 @@ Use Bun for everything; never npm or yarn.
 ## Coding Style & Naming Conventions
 TypeScript, functional style, no classes. Biome formats with tabs and double quotes. React components in PascalCase, hooks as `use-*.ts`, directories and service/schema files in kebab-case. Do not edit `src/routeTree.gen.ts`.
 
-All money is integer cents with no tolerances. Only `src/api/services/account` derives paid, remaining, credit, owed, overdue or balance; other code reads the account loaders. Nothing credits or allocates money automatically: receipts come from an admin decision or recorded cash.
+All money is integer cents with no tolerances. Only `src/api/services/account` derives paid, remaining, credit, owed, overdue or balance; other code reads the account loaders. The only automatic credit is a settled AUD transfer from one identified housemate with a household reference (`bill`, `bills` or `rent`) whose amount exactly equals one open share; every other receipt comes from an admin decision or recorded cash.
 
 ## Testing Guidelines
 Tests sit in a `tests/` folder beside the code as `*.test.ts` or `*.test.tsx` and run with `bun test`. Payments and account tests use `src/api/services/payments/tests/fixture.ts`, which pushes the current schema to a temporary SQLite file. Every change keeps `bun test`, `bun typecheck` and `bun check` green; the pre-commit hook runs `fallow`, `check` and `typecheck`.

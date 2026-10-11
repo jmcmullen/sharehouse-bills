@@ -83,8 +83,14 @@ reminders.
 
 ### Up Bank payments and housemate accounts
 
-Nothing is credited or allocated automatically. Every receipt is an admin
-decision. The full model is in [docs/payments.md](./docs/payments.md).
+Money is credited automatically in one case only: a settled AUD transfer from
+one identified housemate whose reference is `bill`, `bills` or `rent` (with at
+most a date or short qualifier, e.g. "Rent 12 Sep" or "Bills - Oli") and whose
+amount exactly equals one open bill share. It confirms itself on arrival,
+allocated to that share, and the housemate gets their receipt. A rent
+reference only matches a rent share. Everything else (combinations, partial
+amounts, other references, held or shared transfers) is an admin decision. The
+full model is in [docs/payments.md](./docs/payments.md).
 
 - **One model.** A bill share is what a housemate owes; a receipt is money in
   from them; an allocation says which receipt paid which share. Paid,
@@ -94,8 +100,9 @@ decision. The full model is in [docs/payments.md](./docs/payments.md).
   the full transaction, and records `TRANSACTION_CREATED` and
   `TRANSACTION_SETTLED` events. Own-account transfers, interest, merchant
   refunds and unrecognised senders are set aside. Activity from an identified
-  housemate, or naming several housemates, waits in the Payment review queue,
-  and the owner gets a WhatsApp message when it is money in.
+  housemate, or naming several housemates, waits in the Payment review queue
+  unless it confirms itself, and the owner gets a WhatsApp message once it is
+  settled money in still waiting for a decision.
 - **Payment review.** For each transfer the admin confirms the suggested bills,
   changes them, keeps the money as credit, splits a shared transfer between
   housemates, records a household refund, or marks it as not a bill.

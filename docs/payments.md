@@ -10,9 +10,10 @@ allocation says which receipt paid which share. Everything else (paid,
 remaining, credit, owed, overdue, balance, statement, bill status, settled date)
 is derived by one module. Nothing is stored twice and nothing is synced.
 
-Nothing is credited or allocated automatically. Automation classifies bank
-activity and suggests which bills a payment covers; every receipt is an admin
-decision.
+Automation classifies bank activity and suggests which bills a payment covers.
+It credits money in one case only: a household transfer that exactly pays one
+open share confirms itself on ingest (see the lifecycle below). Every other
+receipt is an admin decision.
 
 ## Schema
 
@@ -36,8 +37,9 @@ bank_transactions  id, account_id, amount_cents, currency, bank_status,
                    housemate_id, decision, reason, review_group, decided_at,
                    imported_at, updated_at
                    decision: 'review' | 'confirmed' | 'excluded' | 'archived'
-                   decided_at: null = automatic classification; set = admin
-                   decision that re-ingest preserves.
+                   decided_at: null = automatic classification; set = a
+                   decision (an admin's, or an automatic confirmation) that
+                   re-ingest preserves.
                    review_group: 'unclear' | 'shared' | 'outgoing' (the queue
                    derives 'suggested' at read time).
                    updated_at doubles as the revision a decision must match.
@@ -118,12 +120,34 @@ Code: `src/api/services/payments/`. Server functions:
    - own-account transfer, bank interest, merchant refund: `excluded`
    - before the first recorded bill: `archived`
    - several housemates named in the message: `review`, group `shared`
-   - one identified housemate: `review`
+   - one identified housemate: `review`, unless it confirms itself
    - anything else: `excluded`
 
-   After a webhook ingest, a `review` row with money in and an identified
-   housemate (or several named) queues the owner's `payment_arrived` message,
-   once per transaction. The history import does not send it.
+   **Automatic confirmation.** A transfer confirms itself when all of these
+   hold: it is settled, external, AUD and money in; exactly one non-owner
+   housemate is identified (not several named, not before bill history, not an
+   ignored movement); its reference (`message`, falling back to the
+   description) is a household reference (`isHouseholdReference` in
+   `model.ts`: the whole word `bill`, `bills` or `rent`, case-insensitive, in
+   a reference of at most 40 characters, so "Rent 12 Sep" and "Bills - Oli"
+   count and "billing" does not); and the housemate's live suggestion
+   (`suggestBankReceipt`) is `exact`, one open share whose remaining equals the
+   amount. A rent-only reference only matches a rent share. In the same ingest
+   transaction it goes through the admin's confirm path
+   (`confirmTransaction` in `bank-decision.ts`): a bank receipt with an empty
+   note, the allocation to that share, decision `confirmed` with `decided_at`
+   set and reason `Confirmed automatically: exact match for <bill>`, and the
+   housemate's `payment_receipt`. Combinations and partial matches stay in
+   review. Because `decided_at` is then set, a later ingest treats it like any
+   decision (step 3). The history import ingests the same way, so re-importing
+   can confirm old rows still undecided, never rows with `decided_at` set.
+
+   After a webhook ingest, a `review` row that is settled money in with an
+   identified housemate (or several named) queues the owner's
+   `payment_arrived` message, once per transaction. A held transfer never
+   does; when its settled event arrives the row is reclassified and either
+   confirms itself or queues the message then. The history import does not
+   send it.
 2. **Decide** (`decisions.ts`). Each action is one write transaction, checks
    the row's revision, and sets `decided_at`. Only settled external AUD
    transactions can be posted; archived rows need a note.
@@ -147,14 +171,15 @@ Code: `src/api/services/payments/`. Server functions:
    - **batch**: up to ten rows at once, either exclude or confirm a row whose
      server-side suggestion is an exact single-bill match.
 
-   Suggestions (`suggestions.ts`) are advisory: oldest open share first, exact
-   amount, then an exact combination, then a partial. Rent-only references only
-   ever suggest rent bills.
+   Suggestions (`suggestions.ts`) are oldest open share first, exact amount,
+   then an exact combination, then a partial. Rent-only references only ever
+   suggest rent bills. Only an exact suggestion on a household reference is
+   acted on without the admin (step 1).
 3. **Re-ingest.** If a confirmed row's amount, currency or bank status changes,
    or the bank deletes it, its receipts are voided with the reason and the row
-   goes back to `review` for the same housemate. `decided_at` stays set, so a
-   later ingest never reclassifies a row the admin assigned by hand. Otherwise
-   only the bank columns update.
+   goes back to `review` for the same housemate. This holds for automatic
+   confirmations too. `decided_at` stays set, so a later ingest never
+   reclassifies a decided row. Otherwise only the bank columns update.
 4. **Reallocate.** The Accounts page replaces a receipt's allocations
    (`allocateReceipt`). The form's revision hashes the stored shares, receipts
    and allocations only, so a form open across Sydney midnight still saves. The first allocation message is a receipt; later
