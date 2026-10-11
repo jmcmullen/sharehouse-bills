@@ -121,8 +121,13 @@ test("migration 0017 releases auto allocations, freezes legacy ones and pre-tick
 			"SELECT count(*) AS n FROM ledger_events WHERE processed_at IS NULL AND kind='paid_state'";
 		assert.equal(Number((await rows(client, pendingPaidState))[0].n), 1);
 
-		// 0022 drops the cached paid columns and retires the paid_state event:
-		// paid state now comes from allocations alone.
+		// Live, that paid_state event ran long before 0022 and rewrote the cached
+		// columns of every allocated share from its allocations, which reset
+		// water to unpaid. Only shares never allocated keep a cached paid amount,
+		// and 0022 turns that into a migrated cash receipt.
+		await client.execute(
+			"UPDATE debts SET amount_paid=0,is_paid=0,paid_at=NULL WHERE id='water-o'",
+		);
 		await apply(client, "0022_cents");
 		assert.equal(Number((await rows(client, pendingPaidState))[0].n), 0);
 		await drainLedgerEvents(client);

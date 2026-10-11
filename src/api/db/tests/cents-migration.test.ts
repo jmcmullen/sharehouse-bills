@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createClient } from "@libsql/client";
+import { loadAccount } from "../../services/account/account.server";
 import { legacyTables } from "../../services/ledger/tests/legacy-tables";
 
 const read = (name: string) =>
@@ -29,7 +30,7 @@ test("0022 converts money to cents, drops cached paid state and rebuilds the deb
 		])
 			await client.executeMultiple(await read(name));
 		await client.execute(
-			"INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,is_paid,paid_at,created_at) VALUES('d','oliver','gas',33.37,33.37,1,90,60)",
+			"INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,is_paid,paid_at,created_at,updated_at) VALUES('d','oliver','gas',33.37,0,0,NULL,60,60),('paid','oliver','gas',50,50,1,80,60,85)",
 		);
 		await client.executeMultiple(await read("0022_cents"));
 
@@ -69,6 +70,57 @@ test("0022 converts money to cents, drops cached paid state and rebuilds the deb
 			[37215, null],
 		);
 
+		// A share paid before the ledger keeps its paid state as a migrated cash
+		// receipt; a share with nothing paid is left alone.
+		const account = await loadAccount("oliver", { client, now: 1000 });
+		const paid = account?.shares.find((share) => share.id === "paid");
+		assert.equal(paid?.remainingCents, 0);
+		assert.equal(paid?.settledAt, 80);
+		const unpaid = account?.shares.find((share) => share.id === "d");
+		assert.equal(unpaid?.paidCents, 0);
+		assert.deepEqual(
+			account?.receipts.map((receipt) => [
+				receipt.id,
+				receipt.amountCents,
+				receipt.receivedAt,
+				receipt.cash,
+				receipt.allocations,
+			]),
+			[
+				[
+					"manual:cash-migrated-paid",
+					5000,
+					80,
+					true,
+					[{ debtId: "paid", amountCents: 5000 }],
+				],
+			],
+		);
+		assert.equal(account?.creditCents, 0);
+		assert.deepEqual(
+			(
+				await client.execute(
+					"SELECT source_key,debt_id,amount_cents,origin FROM ledger_allocation_history",
+				)
+			).rows.map((row) => [
+				row.source_key,
+				row.debt_id,
+				Number(row.amount_cents),
+				row.origin,
+			]),
+			[["manual:cash-migrated-paid", "paid", 5000, "review"]],
+		);
+		assert.equal(
+			Number(
+				(
+					await client.execute(
+						"SELECT count(*) AS n FROM ledger_allocation_reviews WHERE source_key='manual:cash-migrated-paid'",
+					)
+				).rows[0].n,
+			),
+			1,
+		);
+
 		const pending = async () =>
 			(
 				await client.execute(
@@ -78,11 +130,20 @@ test("0022 converts money to cents, drops cached paid state and rebuilds the deb
 		const queued = await pending();
 		assert.deepEqual(
 			queued.map(([kind]) => kind),
-			["charge"],
-			"paid_state is retired, the queued charge stays",
+			["charge", "charge"],
+			"paid_state is retired, the queued charges stay",
 		);
-		assert.equal(queued[0][1].amountCents, 3337);
-		assert.equal(queued[0][1].amount, undefined);
+		assert.deepEqual(
+			queued.map(([, payload]) => [
+				payload.id,
+				payload.amountCents,
+				payload.amount,
+			]),
+			[
+				["d", 3337, undefined],
+				["paid", 5000, undefined],
+			],
+		);
 
 		await client.execute("UPDATE ledger_events SET processed_at=1");
 		await client.executeMultiple(`
@@ -100,6 +161,7 @@ test("0022 converts money to cents, drops cached paid state and rebuilds the deb
 				["e", 2500, "Gas"],
 				["e", 2600, "Gas"],
 				["d", 3337, "Gas bill"],
+				["paid", 5000, "Gas bill"],
 				["e", 2600, "Gas bill"],
 				["e", 0, "Gas bill"],
 			],
