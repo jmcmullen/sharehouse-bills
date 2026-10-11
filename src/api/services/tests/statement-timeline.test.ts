@@ -57,7 +57,6 @@ function receipt(
 		rentOnly: false,
 		allocations,
 		unallocatedCents: amountCents - allocated,
-		allocationIssue: "admin review note",
 		suggestion: {
 			allocations: [],
 			reason: "admin suggestion reason",
@@ -236,7 +235,6 @@ test("the timeline exposes no admin or bank data", () => {
 	for (const secret of [
 		"tx-secret",
 		"SECRET BANK MESSAGE",
-		"admin review note",
 		"admin suggestion",
 		"manual:",
 		"bank:",

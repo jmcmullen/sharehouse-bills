@@ -19,20 +19,6 @@ const chargeEventSchema = z.object({
 	dueAt: z.number().nullable(),
 	description: z.string(),
 });
-const paymentEventSchema = z.object({
-	id: z.string(),
-	transactionId: z.string(),
-	housemateId: z.string().nullable(),
-	amount: z.number(),
-	status: z.string(),
-	source: z.string(),
-	description: z.string(),
-	rawData: z.string().nullable(),
-	effectiveAt: z.number(),
-	createdAt: z.number(),
-	debtIds: z.string().nullable(),
-	deleted: z.number(),
-});
 
 async function processEvent(
 	tx: Executor,
@@ -49,13 +35,6 @@ async function processEvent(
 	}
 	if (kind === "charge") {
 		await processChargeEvent(tx, chargeEventSchema.parse(JSON.parse(payload)));
-		return;
-	}
-	if (kind === "payment") {
-		await processPaymentEvent(
-			tx,
-			paymentEventSchema.parse(JSON.parse(payload)),
-		);
 		return;
 	}
 	throw new Error(`Unknown ledger event kind: ${kind}`);
@@ -88,42 +67,6 @@ async function processChargeEvent(
 					dueAt: event.dueAt,
 				},
 	);
-}
-
-async function processPaymentEvent(
-	tx: Executor,
-	event: z.infer<typeof paymentEventSchema>,
-): Promise<void> {
-	if (event.source === "manual_admin") {
-		await applySource(
-			tx,
-			`manual:${event.transactionId}`,
-			event.deleted || event.status !== "matched" || !event.housemateId
-				? null
-				: {
-						housemateId: event.housemateId,
-						amountCents: -toCents(event.amount),
-						kind: event.amount >= 0 ? "payment" : "adjustment",
-						description: event.description,
-						billId: null,
-						effectiveAt: event.effectiveAt,
-						dueAt: null,
-					},
-		);
-		await tx.execute({
-			sql: "INSERT INTO ledger_events(kind,source_id,payload) SELECT 'bank',id,raw_data FROM ledger_bank_transactions WHERE (decision_origin='automatic' AND housemate_id=?) OR id IN (SELECT transaction_id FROM ledger_payment_evidence WHERE source_key=?)",
-			args: [event.housemateId, `manual:${event.transactionId}`],
-		});
-		return;
-	}
-	if (event.rawData) {
-		await ingestBankTransaction(tx, JSON.parse(event.rawData));
-		return;
-	}
-	if (event.status === "matched" && event.housemateId)
-		throw new Error(
-			`Bank receipt ${event.transactionId} has no bank payload; import its Up transaction before processing this event`,
-		);
 }
 
 export async function drainLedgerEvents(client: Client): Promise<number> {

@@ -1,5 +1,4 @@
 import {
-	Link,
 	useLoaderData,
 	useNavigate,
 	useRouter,
@@ -65,18 +64,6 @@ export function LedgerPage() {
 					{busy ? "Refreshing…" : "Refresh accounts"}
 				</Button>
 			</header>
-			<div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/40 p-4 text-sm">
-				<p>
-					Payment history is under review. Existing reminders still use the
-					previous balances.
-				</p>
-				<Link
-					to="/payment-review"
-					className="font-medium underline underline-offset-4"
-				>
-					Review payments
-				</Link>
-			</div>
 			<div className="flex flex-wrap justify-between gap-3">
 				<select
 					aria-label="Housemate statement"

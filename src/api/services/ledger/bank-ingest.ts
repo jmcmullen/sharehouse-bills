@@ -97,13 +97,7 @@ export async function ingestBankTransaction(
 		await clearBankPosting(tx, transaction.id);
 		return;
 	}
-	const legacy = (
-		await tx.execute({
-			sql: "SELECT housemate_id,status,source FROM payment_transactions WHERE transaction_id=?",
-			args: [transaction.id],
-		})
-	).rows[0];
-	await classifyBankTransaction(tx, transaction, legacy, effectiveAt);
+	await classifyBankTransaction(tx, transaction, effectiveAt);
 }
 
 // Automation never credits: an identified housemate receipt always waits for
@@ -111,17 +105,10 @@ export async function ingestBankTransaction(
 async function classifyBankTransaction(
 	tx: Executor,
 	transaction: BankTransaction,
-	legacy: Row | undefined,
 	effectiveAt: number,
 ): Promise<void> {
 	const attributes = transaction.attributes;
-	const housemates = await loadHousemates(tx);
-	const housemate =
-		legacy?.status === "matched" && legacy.housemate_id
-			? (housemates.find(
-					(item) => item.id === legacy.housemate_id && !item.isOwner,
-				) ?? null)
-			: identifyHousemate(transaction, housemates);
+	const housemate = identifyHousemate(transaction, await loadHousemates(tx));
 	const duplicate = housemate
 		? await possibleManualDuplicate(
 				tx,

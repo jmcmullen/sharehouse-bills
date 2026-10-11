@@ -142,9 +142,3 @@ export const ledgerBillReviews = sqliteTable("ledger_bill_reviews", {
 	billId: text("bill_id").primaryKey(),
 	reviewedAt: integer("reviewed_at").notNull(),
 });
-
-export const ledgerAllocationIssues = sqliteTable("ledger_allocation_issues", {
-	sourceKey: text("source_key").primaryKey(),
-	reason: text("reason").notNull(),
-	recordedAt: integer("recorded_at").notNull().default(sql`(unixepoch())`),
-});

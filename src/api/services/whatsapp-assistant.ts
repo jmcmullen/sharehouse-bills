@@ -7,12 +7,12 @@ import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { debts } from "../db/schema/debts";
 import { housemates } from "../db/schema/housemates";
-import { paymentTransactions } from "../db/schema/payment-transactions";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
 import { createAbsoluteDebtReceiptUrl } from "./debt-receipt-page.server";
 import { getPublicHousematePayPageData } from "./housemate-pay-page.server";
-import { createLedgerClient } from "./ledger/client.server";
+import { getAccountPayments } from "./ledger/account-payments";
+import { createLedgerClient, withLedgerClient } from "./ledger/client.server";
 import {
 	getUnallocatedCredit,
 	getUnallocatedCredits,
@@ -66,12 +66,11 @@ type WhatsappAssistantResult = {
 };
 
 type RecentPayment = {
-	transactionId: string;
+	receiptId: string;
 	amount: number;
 	description: string;
-	matchType: string;
 	paidAt: Date;
-	matchedDebtIds: string[];
+	billCount: number;
 };
 
 type HousemateBillRecord = {
@@ -104,12 +103,9 @@ type HousewideUnpaidItem = {
 };
 
 type HousewideRecentPayment = {
-	transactionId: string;
 	housemateId: string;
 	housemateName: string;
 	amount: number;
-	description: string;
-	matchType: string;
 	paidAt: Date;
 };
 
@@ -438,43 +434,22 @@ async function getAssistantPayPageData(input: {
 	};
 }
 
-async function getRecentHousematePayments(input: {
-	housemateId: string;
-	limit?: number;
-}) {
-	const rows = await db
-		.select({
-			transactionId: paymentTransactions.transactionId,
-			amount: paymentTransactions.amount,
-			description: paymentTransactions.description,
-			matchType: paymentTransactions.matchType,
-			settledAt: paymentTransactions.settledAt,
-			upCreatedAt: paymentTransactions.upCreatedAt,
-			createdAt: paymentTransactions.createdAt,
-			matchedDebtIds: paymentTransactions.matchedDebtIds,
-		})
-		.from(paymentTransactions)
-		.where(
-			and(
-				eq(paymentTransactions.housemateId, input.housemateId),
-				eq(paymentTransactions.status, "matched"),
-			),
-		)
-		.orderBy(
-			desc(paymentTransactions.settledAt),
-			desc(paymentTransactions.upCreatedAt),
-			desc(paymentTransactions.createdAt),
-		)
-		.limit(input.limit ?? RECENT_PAYMENT_LIMIT);
-
-	return rows.map((row) => ({
-		transactionId: row.transactionId,
-		amount: row.amount,
-		description: row.description,
-		matchType: row.matchType,
-		paidAt: row.settledAt ?? row.upCreatedAt ?? row.createdAt,
-		matchedDebtIds: row.matchedDebtIds ?? [],
-	})) satisfies RecentPayment[];
+// Money the housemate has sent, newest first, from their ledger receipts.
+async function getHousematePayments(
+	housemateId: string,
+): Promise<RecentPayment[]> {
+	const account = await withLedgerClient((client) =>
+		getAccountPayments(client, housemateId),
+	);
+	return account.receipts
+		.filter((receipt) => receipt.amountCents > 0)
+		.map((receipt) => ({
+			receiptId: receipt.id,
+			amount: receipt.amountCents / 100,
+			description: receipt.description,
+			paidAt: new Date(receipt.receivedAt * 1000),
+			billCount: receipt.allocations.length,
+		}));
 }
 
 async function getHousemateBillRecords(input: {
@@ -642,44 +617,24 @@ async function getHousewideRecentPayments(input?: { days?: number }) {
 	const days = clampWindowDays(input?.days ?? DUE_SOON_WINDOW_DAYS);
 	const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 	const rows = await db
-		.select({
-			transactionId: paymentTransactions.transactionId,
-			housemateId: housemates.id,
-			housemateName: housemates.name,
-			amount: paymentTransactions.amount,
-			description: paymentTransactions.description,
-			matchType: paymentTransactions.matchType,
-			settledAt: paymentTransactions.settledAt,
-			upCreatedAt: paymentTransactions.upCreatedAt,
-			createdAt: paymentTransactions.createdAt,
-		})
-		.from(paymentTransactions)
-		.innerJoin(housemates, eq(housemates.id, paymentTransactions.housemateId))
-		.where(
-			and(
-				eq(paymentTransactions.status, "matched"),
-				eq(housemates.isOwner, false),
-				eq(housemates.isActive, true),
-			),
-		)
-		.orderBy(
-			desc(paymentTransactions.settledAt),
-			desc(paymentTransactions.upCreatedAt),
-			desc(paymentTransactions.createdAt),
-		)
-		.limit(25);
-
-	return rows
-		.map((row) => ({
-			transactionId: row.transactionId,
-			housemateId: row.housemateId,
-			housemateName: row.housemateName,
-			amount: row.amount,
-			description: row.description,
-			matchType: row.matchType,
-			paidAt: row.settledAt ?? row.upCreatedAt ?? row.createdAt,
-		}))
-		.filter((row) => row.paidAt >= since) satisfies HousewideRecentPayment[];
+		.select({ housemateId: housemates.id, housemateName: housemates.name })
+		.from(housemates)
+		.where(and(eq(housemates.isOwner, false), eq(housemates.isActive, true)));
+	const payments = await Promise.all(
+		rows.map(async (row) =>
+			(await getHousematePayments(row.housemateId)).map((payment) => ({
+				...row,
+				amount: payment.amount,
+				paidAt: payment.paidAt,
+			})),
+		),
+	);
+	return payments
+		.flat()
+		.filter((payment) => payment.paidAt >= since)
+		.sort(
+			(left, right) => right.paidAt.getTime() - left.paidAt.getTime(),
+		) satisfies HousewideRecentPayment[];
 }
 
 async function getUnreconciledTransactionRows() {
@@ -1131,13 +1086,7 @@ function createAssistantTools(context: AssistantToolContext) {
 		previewDate: context.previewDate,
 	});
 	const creditBalancePromise = getUnallocatedCredit(context.housemate.id);
-	const recentPaymentsPromise = getRecentHousematePayments({
-		housemateId: context.housemate.id,
-	});
-	const recentPayments30DayPromise = getRecentHousematePayments({
-		housemateId: context.housemate.id,
-		limit: 50,
-	});
+	const paymentsPromise = getHousematePayments(context.housemate.id);
 	const latestReceiptPromise = getLatestHousemateReceipt({
 		housemateId: context.housemate.id,
 		previewDate: context.previewDate,
@@ -1487,7 +1436,7 @@ function createAssistantTools(context: AssistantToolContext) {
 			execute: async ({ days }: { days: number }) => {
 				const windowDays = clampWindowDays(days);
 				const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
-				const recentPayments = await recentPayments30DayPromise;
+				const recentPayments = await paymentsPromise;
 				const paymentsInWindow = recentPayments.filter(
 					(payment) => payment.paidAt >= since,
 				);
@@ -1511,19 +1460,20 @@ function createAssistantTools(context: AssistantToolContext) {
 		}),
 		get_recent_payment_summary: tool({
 			description:
-				"Get the sender's recent matched payments, up to the last 3 payments.",
+				"Get the sender's recent payments received, up to the last 3 payments.",
 			parameters: EMPTY_TOOL_PARAMETERS,
 			execute: async () => {
-				const recentPayments = await recentPaymentsPromise;
+				const recentPayments = await paymentsPromise;
 				return {
 					housemateName: context.housemate.name,
-					payments: recentPayments.map((payment) => ({
-						amount: payment.amount,
-						description: payment.description,
-						paidAt: formatDate(payment.paidAt),
-						matchType: payment.matchType,
-						receiptCount: payment.matchedDebtIds.length,
-					})),
+					payments: recentPayments
+						.slice(0, RECENT_PAYMENT_LIMIT)
+						.map((payment) => ({
+							amount: payment.amount,
+							description: payment.description,
+							paidAt: formatDate(payment.paidAt),
+							billCount: payment.billCount,
+						})),
 				};
 			},
 		}),
@@ -1764,7 +1714,7 @@ function createAssistantTools(context: AssistantToolContext) {
 			}),
 			get_housewide_recent_payment_summary: tool({
 				description:
-					"Get recent matched payments across the house within a chosen number of days.",
+					"Get recent payments received across the house within a chosen number of days.",
 				parameters: DAY_WINDOW_TOOL_PARAMETERS,
 				execute: async ({ days }: { days: number }) => {
 					const windowDays = clampWindowDays(days);
@@ -1786,7 +1736,6 @@ function createAssistantTools(context: AssistantToolContext) {
 							.map((payment) => ({
 								housemateName: payment.housemateName,
 								amount: payment.amount,
-								description: payment.description,
 								paidAt: formatDate(payment.paidAt),
 							})),
 					};

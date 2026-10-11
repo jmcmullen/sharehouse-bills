@@ -20,7 +20,6 @@ import {
 	allocationsFrom,
 	amountsFrom,
 } from "./allocation-fields";
-import { AllocationIssue } from "./bill-payments";
 import { ledgerMoney, ledgerTime } from "./statement";
 
 export function AllocateReceipt(props: {
@@ -93,7 +92,6 @@ export function AllocateReceipt(props: {
 						Recorded {ledgerTime(receipt.recordedAt)}
 					</p>
 				)}
-				<AllocationIssue reason={receipt.allocationIssue} />
 				<form
 					className="space-y-4"
 					onSubmit={(event) => {

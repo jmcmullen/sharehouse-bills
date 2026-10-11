@@ -309,7 +309,7 @@ test("keeping money as credit records an explicit empty review and a receipt say
 
 test("a possible manual duplicate needs a note before it is confirmed as separate money", async () =>
 	fixture(async (client) => {
-		await manual(client, 60);
+		await manual(client, { amountCents: 6000 });
 		await openShares(client);
 		await ingest(client, receipt("dup", 6000, ""));
 		const review = await loadPaymentReview(client, {});

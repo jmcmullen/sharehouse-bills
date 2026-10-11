@@ -13,6 +13,8 @@ import {
 	getUnallocatedCredits,
 } from "../api/services/ledger/credit.server";
 import { createPayPath } from "../api/services/pay-token.server";
+import { getCoveredShares } from "../api/services/unpaid-shares.server";
+import { overdueCents } from "../api/services/unpaid-totals";
 import { normalizeWhatsappNumber } from "../api/services/whatsapp-phone";
 import { authMiddleware } from "../lib/auth-middleware";
 import { entityIdSchema } from "../lib/id";
@@ -94,7 +96,7 @@ export const getHousemateOutstandingBalances = createServerFn({ method: "GET" })
 		});
 	});
 
-// Get overdue debt totals for each housemate
+// Overdue totals per housemate, after held credit covers the oldest shares.
 export const getHousemateOverdueBalances = createServerFn({ method: "GET" })
 	.middleware([authMiddleware])
 	.handler(async () => {
@@ -104,32 +106,14 @@ export const getHousemateOverdueBalances = createServerFn({ method: "GET" })
 				id: housemates.id,
 				name: housemates.name,
 				isActive: housemates.isActive,
-				debt: debts,
-				billDueDate: bills.dueDate,
 			})
 			.from(housemates)
-			.leftJoin(debts, eq(debts.housemateId, housemates.id))
-			.leftJoin(bills, eq(debts.billId, bills.id))
 			.orderBy(housemates.name);
-
-		const balances = Array.from(
-			rows
-				.reduce((map, row) => {
-					const existing = map.get(row.id) ?? {
-						id: row.id,
-						name: row.name,
-						isActive: row.isActive,
-						amount: 0,
-					};
-
-					if (row.debt && row.billDueDate && row.billDueDate < now) {
-						existing.amount += getRemainingDebtAmount(row.debt);
-					}
-
-					map.set(row.id, existing);
-					return map;
-				}, new Map<string, HousemateBalanceRow>())
-				.values(),
+		const balances: HousemateBalanceRow[] = await Promise.all(
+			rows.map(async (row) => {
+				const { shares } = await getCoveredShares(row.id);
+				return { ...row, amount: overdueCents(shares, now) / 100 };
+			}),
 		);
 
 		return balances.sort((left, right) => {

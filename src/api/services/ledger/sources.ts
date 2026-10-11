@@ -1,7 +1,6 @@
 import type { Client, Transaction } from "@libsql/client";
 import {
 	releaseBillAllocations,
-	restoreLegacyAllocations,
 	syncSourceAllocations,
 } from "./bill-allocations";
 import {
@@ -37,8 +36,6 @@ export async function applySource(
 	if (key.startsWith("charge:") && chargeMoved(old, source))
 		await releaseBillAllocations(tx, key.slice(7), "debt");
 	await journalSource(tx, key, old, source, previous?.entry_id, snapshot);
-	if (source?.kind === "payment" || source?.kind === "adjustment")
-		await restoreLegacyAllocations(tx, key);
 }
 
 function chargeMoved(

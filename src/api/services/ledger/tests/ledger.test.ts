@@ -5,7 +5,6 @@ import type { Client } from "@libsql/client";
 import { getAccountPayments, upcomingUnpaidCents } from "../account-payments";
 import { allocateReceipt, recordReceipt } from "../allocation-actions";
 import { deleteBankTransaction } from "../bank-ingest";
-import { restoreLegacyAllocations } from "../bill-allocations";
 import { drainLedgerEvents } from "../events";
 import {
 	calculateStatement,
@@ -204,45 +203,6 @@ test("a manual entry arriving after a bank receipt offers a match; linking count
 		assert.equal(
 			(await getAccountStatement(client, "oliver")).balanceCents,
 			-19900,
-		);
-		await client.execute(
-			"UPDATE payment_transactions SET amount=150 WHERE id='manual'",
-		);
-		await drainLedgerEvents(client);
-		assert.equal(
-			(await client.execute("SELECT decision FROM ledger_bank_transactions"))
-				.rows[0].decision,
-			"review",
-		);
-	}));
-
-test("legacy matched payments identify the housemate but still wait for review", async () =>
-	fixture(async (client) => {
-		const bank = receipt("bank-1", 19900, "IOU");
-		await client.execute({
-			sql: "INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,raw_data,settled_at,created_at) VALUES ('p','bank-1','sarah',199,'matched','up_bank','Gas',?,?,?)",
-			args: [JSON.stringify(bank), time, time],
-		});
-		await drainLedgerEvents(client);
-		await ingest(client, bank);
-		const row = async () => {
-			const found = (
-				await client.execute(
-					"SELECT housemate_id,decision FROM ledger_bank_transactions WHERE id='bank-1'",
-				)
-			).rows[0];
-			return [found.housemate_id, found.decision];
-		};
-		assert.deepEqual(await row(), ["sarah", "review"]);
-		assert.equal((await getAccountStatement(client, "sarah")).balanceCents, 0);
-		await client.execute(
-			"UPDATE payment_transactions SET housemate_id='oliver' WHERE id='p'",
-		);
-		await drainLedgerEvents(client);
-		assert.deepEqual(await row(), ["oliver", "review"]);
-		assert.equal(
-			(await client.execute("SELECT count(*) n FROM ledger_entries")).rows[0].n,
-			0,
 		);
 	}));
 
@@ -740,49 +700,23 @@ test("batch review is atomic, rejects stale or duplicate inputs and accepts opti
 		);
 	}));
 
-test("a legacy match cannot bypass the manual-payment duplicate check", async () =>
-	fixture(async (client) => {
-		await manual(client);
-		const bank = receipt("legacy-duplicate");
-		await client.execute({
-			sql: "INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,raw_data,settled_at,created_at) VALUES('legacy-duplicate','legacy-duplicate','oliver',199,'matched','up_bank','Bills',?,?,?)",
-			args: [JSON.stringify(bank), time, time],
-		});
-		await drainLedgerEvents(client);
-		assert.equal(
-			(
-				await client.execute(
-					"SELECT decision FROM ledger_bank_transactions WHERE id='legacy-duplicate'",
-				)
-			).rows[0].decision,
-			"review",
-		);
-		assert.equal(
-			(await getAccountStatement(client, "oliver")).balanceCents,
-			-19900,
-		);
-		await assert.rejects(
-			reviewBankTransaction(client, {
-				transactionId: "legacy-duplicate",
-				action: "split",
-				reason: "",
-				allocations: [
-					{ housemateId: "oliver", amountCents: 10000 },
-					{ housemateId: "sarah", amountCents: 9900 },
-				],
-			}),
-			/Match the recorded/,
-		);
-	}));
-
 async function recordedBillPayments(client: Client): Promise<void> {
 	await client.executeMultiple(`
 		INSERT INTO bills(id,biller_name,due_date,created_at,bill_type) VALUES('cleaning','Cleaners',${time},${time - 1000},'cleaning');
 		INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,60,${time}),('clean-share','oliver','cleaning',30,30,${time});
-		INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,created_at,matched_debt_ids)
-		VALUES('m-gas','m-gas','oliver',60,'matched','manual_admin','Manual gas',${time + 90 * 86400},'["gas-share"]'),('m-clean','m-clean','oliver',30,'matched','manual_admin','Manual cleaning',${time + 90 * 86400},'["clean-share"]');
 	`);
 	await drainLedgerEvents(client);
+	for (const [key, debtId, amountCents, description] of [
+		["manual:m-gas", "gas-share", 6000, "Manual gas"],
+		["manual:m-clean", "clean-share", 3000, "Manual cleaning"],
+	] as const)
+		await manual(client, {
+			key,
+			debtId,
+			amountCents,
+			description,
+			effectiveAt: time + 90 * 86400,
+		});
 }
 
 test("one bank transfer confirms several late-recorded bill payments without extra credit", async () =>
@@ -825,7 +759,7 @@ test("one bank transfer confirms several late-recorded bill payments without ext
 		assert.equal((await getAccountPayments(client, "oliver")).unpaidCents, 0);
 	}));
 
-test("a recorded payment cannot verify two transfers and a changed manual payment releases its bank match", async () =>
+test("a recorded payment cannot verify two transfers", async () =>
 	fixture(async (client) => {
 		await recordedBillPayments(client);
 		await ingest(client, receipt("one", 9000));
@@ -848,23 +782,6 @@ test("a recorded payment cannot verify two transfers and a changed manual paymen
 				manualSourceKeys: ["manual:m-clean"],
 			}),
 			/must equal/,
-		);
-		await client.execute(
-			"UPDATE payment_transactions SET amount=50 WHERE id='m-gas'",
-		);
-		await drainLedgerEvents(client);
-		assert.equal(
-			(
-				await client.execute(
-					"SELECT decision FROM ledger_bank_transactions WHERE id='one'",
-				)
-			).rows[0].decision,
-			"review",
-		);
-		assert.equal(
-			(await client.execute("SELECT count(*) n FROM ledger_payment_evidence"))
-				.rows[0].n,
-			0,
 		);
 	}));
 
@@ -913,7 +830,6 @@ test("allocations conserve money, reject stale edits and other housemates, and l
 			allocations: [],
 			expectedRevision: after.revision,
 		});
-		await withWriteTransaction(client, (tx) => restoreLegacyAllocations(tx));
 		assert.equal(
 			(await getAccountPayments(client, "oliver")).unallocatedCents,
 			9000,
@@ -928,23 +844,9 @@ test("allocations conserve money, reject stale edits and other housemates, and l
 		);
 	}));
 
-test("manual paid marks migrate idempotently and rent cannot silently pay utilities", async () =>
+test("rent cannot silently pay utilities", async () =>
 	fixture(async (client) => {
 		await recordedBillPayments(client);
-		const before = await getAccountStatement(client, "oliver");
-		await withWriteTransaction(client, (tx) => restoreLegacyAllocations(tx));
-		await withWriteTransaction(client, (tx) => restoreLegacyAllocations(tx));
-		assert.deepEqual(await getAccountStatement(client, "oliver"), before);
-		assert.equal(
-			(await client.execute("SELECT count(*) n FROM ledger_bill_allocations"))
-				.rows[0].n,
-			2,
-		);
-		assert.equal(
-			(await client.execute("SELECT count(*) n FROM ledger_allocation_history"))
-				.rows[0].n,
-			2,
-		);
 		await ingest(client, receipt("rent", 12000, "Rent"));
 		await credit(client, "rent");
 		const account = await getAccountPayments(client, "oliver");
@@ -1022,59 +924,6 @@ test("review flags possible duplicates of recorded payments and honours confirme
 		);
 	}));
 
-test("legacy allocation restores a multi-bill payment after single-bill partial payments and retains excess credit", async () =>
-	fixture(async (client) => {
-		await client.executeMultiple(
-			`INSERT INTO bills(id,biller_name,due_date,created_at) VALUES('second','Water',${time},${time - 1000}); INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('first','oliver','bill',100,100,${time}),('second','oliver','second',50,50,${time});`,
-		);
-		const multi = receipt("multi-legacy", 10000);
-		const single = receipt("single-legacy", 5000);
-		for (const [bank, id, debtIds] of [
-			[multi, "a", ["first", "second"]],
-			[single, "z", ["first"]],
-		] as const) {
-			await client.execute({
-				sql: "INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,raw_data,created_at,matched_debt_ids) VALUES (?,?, 'oliver',?,'matched','up_bank','Bills',?,?,?)",
-				args: [
-					id,
-					bank.id,
-					bank.attributes.amount.valueInBaseUnits / 100,
-					JSON.stringify(bank),
-					time,
-					JSON.stringify(debtIds),
-				],
-			});
-		}
-		await drainLedgerEvents(client);
-		await credit(client, "multi-legacy");
-		await credit(client, "single-legacy");
-		await withWriteTransaction(client, (tx) => restoreLegacyAllocations(tx));
-		const account = await getAccountPayments(client, "oliver");
-		assert.equal(account.unpaidCents, 0);
-		assert.equal(account.unallocatedCents, 0);
-		assert.equal(
-			account.receipts.find((r) => r.id === "bank:multi-legacy")?.allocations
-				.length,
-			2,
-		);
-		await client.execute(
-			"UPDATE payment_transactions SET credit_amount=10 WHERE transaction_id='single-legacy'",
-		);
-		// A retained credit is only applied when first restoring the historical allocation.
-		await withWriteTransaction(client, async (tx) => {
-			await tx.execute(
-				"DELETE FROM ledger_bill_allocations WHERE source_key='bank:single-legacy'",
-			);
-			await restoreLegacyAllocations(tx, "bank:single-legacy");
-		});
-		assert.equal(
-			(await getAccountPayments(client, "oliver")).receipts.find(
-				(r) => r.id === "bank:single-legacy",
-			)?.unallocatedCents,
-			1000,
-		);
-	}));
-
 test("recording money rejects likely repeats, requires explicit confirmation for additional money and is retry-safe", async () =>
 	fixture(async (client) => {
 		await ingest(client, receipt("bank-existing", 12000));
@@ -1102,72 +951,6 @@ test("recording money rejects likely repeats, requires explicit confirmation for
 		assert.equal((await loadPaymentReview(client, {})).reviewCount, 0);
 	}));
 
-test("an explicit removal of a legacy bill allocation survives later backfills", async () =>
-	fixture(async (client) => {
-		await recordedBillPayments(client);
-		const account = await getAccountPayments(client, "oliver");
-		await allocateReceipt(client, {
-			housemateId: "oliver",
-			receiptId: "manual:m-gas",
-			allocations: [],
-			expectedRevision: account.revision,
-		});
-		await withWriteTransaction(client, (tx) => restoreLegacyAllocations(tx));
-		const after = await getAccountPayments(client, "oliver");
-		assert.equal(
-			after.receipts.find((receipt) => receipt.id === "manual:m-gas")
-				?.allocations.length,
-			0,
-		);
-		assert.equal(after.unallocatedCents, 6000);
-		assert.equal((await getAccountStatement(client, "oliver")).balanceCents, 0);
-	}));
-
-test("legacy backfill records why a payment stayed unallocated and clears the note once the admin allocates", async () =>
-	fixture(async (client) => {
-		await client.executeMultiple(`
-			INSERT INTO bills(id,biller_name,due_date,created_at,bill_type) VALUES('water','Water',${time},${time - 1000},'water');
-			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,60,${time}),('water-share','oliver','water',40,40,${time}),('sarah-gas','sarah','bill',60,60,${time});
-			INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,created_at,matched_debt_ids)
-			VALUES('m-short','m-short','oliver',80,'matched','manual_admin','Manual gas and water',${time + 86400},'["gas-share","water-share"]'),
-			('m-other','m-other','oliver',60,'matched','manual_admin','Manual gas',${time + 86400},'["sarah-gas"]');
-		`);
-		await drainLedgerEvents(client);
-		await withWriteTransaction(client, (tx) => restoreLegacyAllocations(tx));
-		const before = await getAccountPayments(client, "oliver");
-		const short = before.receipts.find((item) => item.id === "manual:m-short");
-		assert.equal(short?.allocations.length, 0);
-		assert.equal(
-			short?.allocationIssue,
-			"Recorded bills need $100.00 but $80.00 was received",
-		);
-		assert.equal(
-			before.receipts.find((item) => item.id === "manual:m-other")
-				?.allocationIssue,
-			"A bill share this payment was recorded against belongs to another housemate",
-		);
-		await allocateReceipt(client, {
-			housemateId: "oliver",
-			receiptId: "manual:m-short",
-			allocations: [
-				{ debtId: "gas-share", amountCents: 6000 },
-				{ debtId: "water-share", amountCents: 2000 },
-			],
-			expectedRevision: before.revision,
-		});
-		const after = await getAccountPayments(client, "oliver");
-		assert.equal(
-			after.receipts.find((item) => item.id === "manual:m-short")
-				?.allocationIssue,
-			null,
-		);
-		assert.equal(
-			(await client.execute("SELECT count(*) n FROM ledger_allocation_issues"))
-				.rows[0].n,
-			1,
-		);
-	}));
-
 const debtState = async (client: Client, id: string) =>
 	(
 		await client.execute({
@@ -1182,17 +965,6 @@ const billStatus = async (client: Client, id: string) =>
 			args: [id],
 		})
 	).rows[0].status;
-const allocations = async (client: Client) =>
-	(
-		await client.execute(
-			"SELECT source_key,debt_id,amount_cents,origin FROM ledger_bill_allocations ORDER BY debt_id,source_key",
-		)
-	).rows.map((row) => [
-		String(row.source_key),
-		String(row.debt_id),
-		Number(row.amount_cents),
-		String(row.origin),
-	]);
 
 test("allocations write the legacy paid state through and releasing them reverts it", async () =>
 	fixture(async (client) => {
@@ -1267,26 +1039,6 @@ test("allocations write the legacy paid state through and releasing them reverts
 		assert.equal(reverted.is_paid, 0);
 		assert.equal(reverted.paid_at, null);
 		assert.equal(await billStatus(client, "bill"), "partially_paid");
-	}));
-
-test("a manual paid mark recorded as an admin payment settles the debt through the ledger", async () =>
-	fixture(async (client) => {
-		await client.execute(
-			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,0,${time})`,
-		);
-		await drainLedgerEvents(client);
-		await client.execute({
-			sql: "INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,created_at,matched_debt_ids) VALUES ('m','manual-admin-1','oliver',60,'matched','manual_admin','Manual payment for Gas',?,'[\"gas-share\"]')",
-			args: [time],
-		});
-		await drainLedgerEvents(client);
-		const paid = await debtState(client, "gas-share");
-		assert.equal(paid.amount_paid, 60);
-		assert.equal(paid.is_paid, 1);
-		assert.equal(await billStatus(client, "bill"), "paid");
-		assert.deepEqual(await allocations(client), [
-			["manual:manual-admin-1", "gas-share", 6000, "legacy"],
-		]);
 	}));
 
 test("confirming allocations enqueues one housemate receipt and a numbered correction only when the bills change", async () =>

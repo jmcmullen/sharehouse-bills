@@ -3,13 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Client, createClient } from "@libsql/client";
 import { ingestBankTransaction } from "../bank-ingest";
+import { writeBillAllocation } from "../bill-allocations";
 import { drainLedgerEvents } from "../events";
 import {
 	type BankTransaction,
 	type LedgerSource,
 	bankTransactionSchema,
 } from "../model";
-import { withWriteTransaction } from "../sources";
+import { applySource, withWriteTransaction } from "../sources";
 import { legacyTables } from "./legacy-tables";
 
 const migration = await readFile(
@@ -85,7 +86,11 @@ export async function fixture(
 				"utf8",
 			),
 		);
-		for (const name of ["0015_review_group", "0017_freeze_history"])
+		for (const name of [
+			"0015_review_group",
+			"0017_freeze_history",
+			"0021_drop_legacy_payments",
+		])
 			await client.executeMultiple(
 				await readFile(
 					new URL(`../../../db/migrations/${name}.sql`, import.meta.url),
@@ -104,10 +109,31 @@ export async function ingest(client: Client, bank = receipt()): Promise<void> {
 	await withWriteTransaction(client, (tx) => ingestBankTransaction(tx, bank));
 }
 
-export async function manual(client: Client, amount = 199): Promise<void> {
-	await client.execute({
-		sql: "INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,created_at) VALUES ('manual','manual-1','oliver',?,'matched','manual_admin','Manual payment',?)",
-		args: [amount, time],
+// A payment recorded by hand before bank review existed, optionally already
+// allocated to the bill share it was recorded against.
+export async function manual(
+	client: Client,
+	options: {
+		amountCents?: number;
+		key?: string;
+		description?: string;
+		effectiveAt?: number;
+		debtId?: string;
+	} = {},
+): Promise<void> {
+	const amountCents = options.amountCents ?? 19900;
+	const key = options.key ?? "manual:manual-1";
+	await withWriteTransaction(client, async (tx) => {
+		await applySource(tx, key, {
+			housemateId: "oliver",
+			kind: "payment",
+			amountCents: -amountCents,
+			description: options.description ?? "Manual payment",
+			billId: null,
+			effectiveAt: options.effectiveAt ?? time,
+			dueAt: null,
+		});
+		if (options.debtId)
+			await writeBillAllocation(tx, key, options.debtId, amountCents, "legacy");
 	});
-	await drainLedgerEvents(client);
 }

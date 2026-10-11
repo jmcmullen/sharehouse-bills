@@ -8,7 +8,7 @@ import { drainLedgerEvents } from "../events";
 import { reviewBankTransaction } from "../review-decisions";
 import { getBillSettledAt, getDebtSettledAt } from "../settled-at.server";
 import { applySource, withWriteTransaction } from "../sources";
-import { fixture, ingest, receipt, time } from "./fixture";
+import { fixture, ingest, manual, receipt, time } from "./fixture";
 
 const day = 86_400;
 
@@ -94,12 +94,17 @@ test("a bill settles when money for its last non-owner share arrived, by bank or
 
 test("a recorded payment confirmed by a transfer counts from the bank's received date", async () =>
 	fixture(async (client) => {
-		await client.executeMultiple(`
-			INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,60,${time});
-			INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,created_at,matched_debt_ids)
-			VALUES('m-gas','m-gas','oliver',60,'matched','manual_admin','Manual gas',${time + 90 * day},'["gas-share"]');
-		`);
+		await client.execute(
+			`INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-share','oliver','bill',60,60,${time})`,
+		);
 		await drainLedgerEvents(client);
+		await manual(client, {
+			amountCents: 6000,
+			key: "manual:m-gas",
+			description: "Manual gas",
+			effectiveAt: time + 90 * day,
+			debtId: "gas-share",
+		});
 		assert.deepEqual(
 			await getBillSettledAt(client, "bill"),
 			at(time + 90 * day),

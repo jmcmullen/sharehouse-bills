@@ -13,8 +13,12 @@ import {
 	cashReceiptSchema,
 	recordCashReceipt,
 } from "../api/services/ledger/cash-receipt";
-import { createLedgerClient } from "../api/services/ledger/client.server";
+import {
+	createLedgerClient,
+	withLedgerClient,
+} from "../api/services/ledger/client.server";
 import { getUnallocatedCredit } from "../api/services/ledger/credit.server";
+import { removeBill } from "../api/services/ledger/remove-bill";
 import { createPayPath } from "../api/services/pay-token.server";
 import { generateWeeklyRentBill } from "../api/services/recurring-bill";
 import { enqueueBillCreatedNotification } from "../api/services/whatsapp-notification-events";
@@ -282,11 +286,8 @@ export const deleteBill = createServerFn({ method: "POST" })
 				id: data.billId,
 			},
 		});
-		// First delete all associated debts
-		await db.delete(debts).where(eq(debts.billId, data.billId));
-
-		// Then delete the bill
-		await db.delete(bills).where(eq(bills.id, data.billId));
+		await withLedgerClient((client) => removeBill(client, data.billId));
+		await settleLedger();
 		log?.set({
 			bill: {
 				id: data.billId,

@@ -60,11 +60,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 				icon: IconReceiptDollar,
 			},
 			{
-				title: "Legacy payments",
-				url: "/payments",
-				icon: IconReceiptDollar,
-			},
-			{
 				title: "Recurring Bills",
 				url: "/recurring-bills",
 				icon: IconRepeat,

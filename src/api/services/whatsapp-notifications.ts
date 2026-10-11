@@ -12,6 +12,8 @@ import { housemates } from "../db/schema/housemates";
 import { recurringBills } from "../db/schema/recurring-bills";
 import { whatsappNotifications } from "../db/schema/whatsapp-notifications";
 import { createAbsolutePayUrl } from "./pay-token.server";
+import { getCoveredShares } from "./unpaid-shares.server";
+import { summarizeUnpaidBills, toPayCents } from "./unpaid-totals";
 import { getWhatsappAdminChatId } from "./waha";
 import { resolveWhatsappChatIdToNumber } from "./waha";
 import {
@@ -51,14 +53,6 @@ type DeliveryReservationResult =
 			outcome: "already_sent" | "indeterminate";
 			delivery: WhatsappNotificationDeliveryPayload;
 	  };
-
-type CurrentUnpaidBillSummary = {
-	billId: string;
-	billerName: string;
-	remainingAmount: number;
-	billCount: number;
-	sortDate: Date;
-};
 
 type HousematePayLinkTarget = {
 	housemateId: string;
@@ -627,142 +621,17 @@ export async function getRandomBillPaidPreviewContext() {
 	return await getBillSummaryContextByBillId(randomBill.id, null);
 }
 
-function getRemainingAmount(amountOwed: number, amountPaid: number | null) {
-	return Math.max(0, amountOwed - (amountPaid ?? 0));
-}
-
+// Bills still unpaid across the house, after each housemate's held credit
+// covers their oldest shares.
 export async function getCurrentUnpaidBillSummaries() {
 	const rows = await db
-		.select({
-			billId: bills.id,
-			billerName: bills.billerName,
-			billType: bills.billType,
-			dueDate: bills.dueDate,
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-		})
-		.from(bills)
-		.leftJoin(debts, eq(debts.billId, bills.id))
-		.orderBy(asc(bills.dueDate), asc(bills.id), asc(debts.id));
-
-	const billsWithBalances = getBillsWithOutstandingBalances(rows);
-	return {
-		bills: groupCurrentUnpaidBillSummaries(billsWithBalances),
-		totalOutstanding: billsWithBalances.reduce(
-			(total, summary) => total + summary.remainingAmount,
-			0,
-		),
-	};
-}
-
-function getBillsWithOutstandingBalances(
-	rows: Array<{
-		billId: string;
-		billerName: string;
-		billType: typeof bills.$inferSelect.billType;
-		dueDate: Date;
-		amountOwed: number | null;
-		amountPaid: number | null;
-	}>,
-) {
-	const billSummaries = new Map<
-		string,
-		CurrentUnpaidBillSummary & {
-			billType: typeof bills.$inferSelect.billType;
-		}
-	>();
-
-	for (const row of rows) {
-		const existingSummary = billSummaries.get(row.billId);
-		if (existingSummary) {
-			if (row.amountOwed !== null) {
-				existingSummary.remainingAmount += getRemainingAmount(
-					row.amountOwed,
-					row.amountPaid,
-				);
-			}
-			continue;
-		}
-
-		billSummaries.set(row.billId, {
-			billId: row.billId,
-			billerName: row.billerName,
-			billType: row.billType,
-			remainingAmount:
-				row.amountOwed !== null
-					? getRemainingAmount(row.amountOwed, row.amountPaid)
-					: 0,
-			billCount: 1,
-			sortDate: row.dueDate,
-		});
-	}
-
-	return [...billSummaries.values()].filter(
-		(summary) => summary.remainingAmount > 0.009,
+		.selectDistinct({ housemateId: debts.housemateId })
+		.from(debts)
+		.where(eq(debts.isPaid, false));
+	const covered = await Promise.all(
+		rows.map((row) => getCoveredShares(row.housemateId)),
 	);
-}
-
-function getCurrentBillGrouping(
-	summary: CurrentUnpaidBillSummary & {
-		billType: typeof bills.$inferSelect.billType;
-	},
-) {
-	if (summary.billType === "electricity") {
-		return {
-			key: "utility:electricity",
-			label: "Electricity",
-		};
-	}
-
-	if (summary.billType === "gas") {
-		return {
-			key: "utility:gas",
-			label: "Gas",
-		};
-	}
-
-	return {
-		key: `bill:${summary.billId}`,
-		label: summary.billerName,
-	};
-}
-
-function groupCurrentUnpaidBillSummaries(
-	billsWithBalances: Array<
-		CurrentUnpaidBillSummary & {
-			billType: typeof bills.$inferSelect.billType;
-		}
-	>,
-) {
-	const groupedSummaries = new Map<string, CurrentUnpaidBillSummary>();
-
-	for (const summary of billsWithBalances) {
-		const grouping = getCurrentBillGrouping(summary);
-		const existingSummary = groupedSummaries.get(grouping.key);
-
-		if (existingSummary) {
-			existingSummary.remainingAmount += summary.remainingAmount;
-			existingSummary.billCount += 1;
-			if (summary.sortDate < existingSummary.sortDate) {
-				existingSummary.sortDate = summary.sortDate;
-			}
-			continue;
-		}
-
-		groupedSummaries.set(grouping.key, {
-			billId: summary.billId,
-			billerName: grouping.label,
-			remainingAmount: summary.remainingAmount,
-			billCount: 1,
-			sortDate: summary.sortDate,
-		});
-	}
-
-	const groupedBills = [...groupedSummaries.values()].sort(
-		(left, right) => left.sortDate.getTime() - right.sortDate.getTime(),
-	);
-
-	return groupedBills;
+	return summarizeUnpaidBills(covered.flatMap((entry) => entry.shares));
 }
 
 export async function getActiveHousematePaymentNames() {
@@ -783,46 +652,25 @@ export async function getHousematePayLinkBatch(previewDate?: string | null) {
 			housemateId: housemates.id,
 			housemateName: housemates.name,
 			whatsappNumber: housemates.whatsappNumber,
-			amountOwed: debts.amountOwed,
-			amountPaid: debts.amountPaid,
-			isPaid: debts.isPaid,
 		})
 		.from(housemates)
-		.leftJoin(debts, eq(debts.housemateId, housemates.id))
 		.where(and(eq(housemates.isActive, true), eq(housemates.isOwner, false)))
-		.orderBy(asc(housemates.name), asc(debts.id));
-
-	const targets = new Map<string, HousematePayLinkTarget>();
-
-	for (const row of rows) {
-		const existingTarget = targets.get(row.housemateId);
-		const target =
-			existingTarget ??
-			({
-				housemateId: row.housemateId,
-				housemateName: row.housemateName,
-				whatsappNumber: row.whatsappNumber,
+		.orderBy(asc(housemates.name));
+	const targets = await Promise.all(
+		rows.map(async (row) => {
+			const { shares } = await getCoveredShares(row.housemateId);
+			return {
+				...row,
 				chatId: whatsappNumberToChatId(row.whatsappNumber),
 				payUrl: createAbsolutePayUrl(
 					{ housemateId: row.housemateId },
 					previewDate,
 				),
-				remainingAmount: 0,
-			} satisfies HousematePayLinkTarget);
-
-		if (row.amountOwed !== null && !row.isPaid) {
-			target.remainingAmount += getRemainingAmount(
-				row.amountOwed,
-				row.amountPaid,
-			);
-		}
-
-		targets.set(row.housemateId, target);
-	}
-
-	const unpaidTargets = [...targets.values()].filter(
-		(target) => target.remainingAmount > 0.009,
+				remainingAmount: toPayCents(shares) / 100,
+			} satisfies HousematePayLinkTarget;
+		}),
 	);
+	const unpaidTargets = targets.filter((target) => target.remainingAmount > 0);
 
 	return unpaidTargets.reduce<HousematePayLinkBatch>(
 		(result, target) => {

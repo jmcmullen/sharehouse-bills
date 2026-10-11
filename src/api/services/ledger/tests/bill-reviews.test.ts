@@ -4,13 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { type Client, createClient } from "@libsql/client";
-import { getAccountPayments } from "../account-payments";
-import { allocateReceipt } from "../allocation-actions";
-import { restoreLegacyAllocations } from "../bill-allocations";
 import { approveBill } from "../bill-reviews";
 import { loadBillVerification } from "../bill-verification";
 import { drainLedgerEvents } from "../events";
-import { withWriteTransaction } from "../sources";
 import { legacyTables } from "./legacy-tables";
 
 const time = 1780000000;
@@ -40,13 +36,17 @@ async function fixture(run: (client: Client) => Promise<void>): Promise<void> {
 		await client.executeMultiple(`${legacyTables}
 		INSERT INTO housemates VALUES('oliver','Oliver Caprile','OLIVER WILLIAM CAPRIL',0),('sarah','Sarah O Dwyer',NULL,0),('jay','Jay McMullen',NULL,1);
 		INSERT INTO bills(id,biller_name,due_date,created_at,bill_type) VALUES('gas','Gas',${time - 10},${time - 1000},'gas'),('water','Water',${time},${time - 1000},'water'),('power','Power',${time + 10},${time - 1000},'power');
-		INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-o','oliver','gas',60,60,${time}),('water-o','oliver','water',40,0,${time}),('water-s','sarah','water',40,0,${time}),('power-o','oliver','power',25,0,${time});
-		INSERT INTO payment_transactions(id,transaction_id,housemate_id,amount,status,source,description,created_at,matched_debt_ids) VALUES('m-gas','m-gas','oliver',60,'matched','manual_admin','Manual gas',${time + 100},'["gas-o"]');`);
+		INSERT INTO debts(id,housemate_id,bill_id,amount_owed,amount_paid,created_at) VALUES('gas-o','oliver','gas',60,60,${time}),('water-o','oliver','water',40,0,${time}),('water-s','sarah','water',40,0,${time}),('power-o','oliver','power',25,0,${time});`);
 		for (const name of before) await apply(client, name);
 		await client.execute(
 			"UPDATE ledger_events SET processed_at=unixepoch() WHERE kind='allocations'",
 		);
 		await drainLedgerEvents(client);
+		await client.executeMultiple(`
+			INSERT INTO ledger_sources(source_key,entry_id,snapshot) VALUES('manual:m-gas','e-gas','{"housemateId":"oliver","amountCents":-6000,"kind":"payment","description":"Manual gas","billId":null,"effectiveAt":${time + 100},"dueAt":null}');
+			INSERT INTO ledger_entries(id,housemate_id,source_key,kind,amount_cents,description,bill_id,effective_at,due_at,recorded_at) VALUES('e-gas','oliver','manual:m-gas','payment',-6000,'Manual gas',NULL,${time + 100},NULL,${time + 100});
+			INSERT INTO ledger_bill_allocations(source_key,debt_id,amount_cents,origin) VALUES('manual:m-gas','gas-o',6000,'legacy');
+			INSERT INTO ledger_allocation_history(source_key,debt_id,amount_cents,origin) VALUES('manual:m-gas','gas-o',6000,'legacy');`);
 		await run(client);
 	} finally {
 		client.close();
@@ -145,22 +145,6 @@ test("migration 0017 releases auto allocations, freezes legacy ones and pre-tick
 			(await rows(client, "SELECT is_paid FROM debts WHERE id='gas-o'"))[0]
 				.is_paid,
 			1,
-		);
-
-		const oliver = await getAccountPayments(client, "oliver");
-		await allocateReceipt(client, {
-			housemateId: "oliver",
-			receiptId: "manual:m-gas",
-			allocations: [],
-			expectedRevision: oliver.revision,
-		});
-		await withWriteTransaction(client, (tx) => restoreLegacyAllocations(tx));
-		assert.deepEqual(
-			await rows(
-				client,
-				"SELECT source_key FROM ledger_bill_allocations WHERE source_key='manual:m-gas'",
-			),
-			[],
 		);
 	}));
 

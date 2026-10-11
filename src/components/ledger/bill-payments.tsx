@@ -141,7 +141,6 @@ function BillRow(props: {
 										: "Recorded manually · bank match pending"}{" "}
 									· {ledgerDate(receipt.receivedAt)}
 								</p>
-								<AllocationIssue reason={receipt.allocationIssue} />
 							</div>
 							{props.onAllocate && (
 								<Button
@@ -182,7 +181,6 @@ function ReceiptRow(props: {
 							? "Bank matched"
 							: "Recorded manually · bank match pending"}
 					</p>
-					<AllocationIssue reason={props.receipt.allocationIssue} />
 				</div>
 				<span className="whitespace-nowrap font-semibold tabular-nums">
 					{ledgerMoney(props.receipt.amountCents)}
@@ -224,15 +222,6 @@ function ReceiptRow(props: {
 				)}
 			</div>
 		</details>
-	);
-}
-
-export function AllocationIssue(props: { reason: string | null }) {
-	if (!props.reason) return null;
-	return (
-		<p className="mt-1 text-amber-700 text-xs dark:text-amber-300">
-			Check allocation · {props.reason}
-		</p>
 	);
 }
 

@@ -36,7 +36,6 @@ export interface ReceiptView {
 	rentOnly: boolean;
 	allocations: Array<{ debtId: string; amountCents: number }>;
 	unallocatedCents: number;
-	allocationIssue: string | null;
 	suggestion: Suggestion | null;
 }
 export interface AccountPayments {
@@ -73,10 +72,6 @@ export async function getAccountPayments(
 			sql: "SELECT e.source_key,e.transaction_id,b.effective_at,b.message FROM ledger_payment_evidence e JOIN ledger_bank_transactions b ON b.id=e.transaction_id JOIN ledger_sources s ON s.source_key=e.source_key WHERE b.decision='linked' AND json_extract(s.snapshot,'$.housemateId')=?",
 			args: [housemateId],
 		}),
-		client.execute({
-			sql: "SELECT i.source_key,i.reason FROM ledger_allocation_issues i JOIN ledger_sources s ON s.source_key=i.source_key WHERE json_extract(s.snapshot,'$.housemateId')=?",
-			args: [housemateId],
-		}),
 	]);
 	const sources: CurrentSource[] = results[0].rows.map((row) => ({
 		key: String(row.source_key),
@@ -98,10 +93,7 @@ export async function getAccountPayments(
 		debtId: String(row.debt_id),
 		amountCents: Number(row.amount_cents),
 	}));
-	const issues = new Map(
-		results[4].rows.map((row) => [String(row.source_key), String(row.reason)]),
-	);
-	const drafts = buildReceipts(sources, evidence, allocationRows, issues);
+	const drafts = buildReceipts(sources, evidence, allocationRows);
 	const bills = sources
 		.filter((source) => source.kind === "charge")
 		.map((source) => {
@@ -190,7 +182,6 @@ function buildReceipts(
 	sources: CurrentSource[],
 	evidence: Map<string, { id: string; receivedAt: number; message: string }>,
 	allocations: Array<{ key: string; debtId: string; amountCents: number }>,
-	issues: Map<string, string>,
 ): Array<Omit<ReceiptView, "suggestion">> {
 	const groups = new Map<string, CurrentSource[]>();
 	for (const source of sources.filter((item) => item.kind !== "charge")) {
@@ -247,8 +238,6 @@ function buildReceipts(
 				unallocatedCents:
 					amountCents -
 					billAllocations.reduce((sum, item) => sum + item.amountCents, 0),
-				allocationIssue:
-					sourceKeys.map((key) => issues.get(key)).find(Boolean) ?? null,
 			};
 		})
 		.sort((a, b) => b.receivedAt - a.receivedAt || a.id.localeCompare(b.id));

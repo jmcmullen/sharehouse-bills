@@ -26,7 +26,6 @@ const REQUIRED_EXISTING_TABLES = [
 	"housemates",
 	"recurringBills",
 	"recurringBillAssignments",
-	"unreconciled_transactions",
 	"todo",
 ] as const;
 

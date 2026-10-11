@@ -2,7 +2,6 @@ import type { Client } from "@libsql/client";
 import { z } from "zod";
 import { type AccountPayments, getAccountPayments } from "./account-payments";
 import {
-	clearAllocationIssue,
 	releaseBillAllocations,
 	writeBillAllocation,
 } from "./bill-allocations";
@@ -78,7 +77,6 @@ export async function writeAllocations(
 	}));
 	for (const source of sources) {
 		await releaseBillAllocations(tx, source.key, "source");
-		await clearAllocationIssue(tx, source.key);
 		await tx.execute({
 			sql: "INSERT INTO ledger_allocation_reviews(source_key,reviewed_at) VALUES (?,unixepoch()) ON CONFLICT(source_key) DO UPDATE SET reviewed_at=excluded.reviewed_at",
 			args: [source.key],
