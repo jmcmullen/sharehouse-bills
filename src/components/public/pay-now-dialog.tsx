@@ -97,7 +97,7 @@ export function PayNowDialog(input: PayNowDialogProps) {
 			label: `${input.payId ? "3" : "2"}. Paste this as the description`,
 			displayValue: input.descriptionValue,
 			copyValue: input.descriptionValue,
-			helperText: "Paste exactly, or it won't match.",
+			helperText: "Paste exactly so we know it's for bills.",
 		},
 	] as const;
 

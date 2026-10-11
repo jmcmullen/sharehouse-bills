@@ -1,8 +1,9 @@
 # Sharehouse Bills
 
 Sharehouse Bills is a full-stack household billing app. It turns emailed,
-uploaded, and recurring bills into per-housemate debts, reconciles matching Up
-Bank transfers, and keeps the house updated through WhatsApp.
+uploaded, and recurring bills into per-housemate shares, queues incoming Up
+Bank transfers for an admin to confirm, and keeps the house updated through
+WhatsApp.
 
 ## WhatsApp integration
 
@@ -28,10 +29,16 @@ The WAHA-powered integration:
 
 - posts a bill card to the configured group when a bill is created
 - posts a settled card when a shared bill is paid in full
-- sends private reminders, pay links, and payment receipts to housemates
+- sends each housemate at most two kinds of private message: one overdue
+  digest a day while anything is overdue, and one receipt per confirmed
+  payment (or a correction when an admin changes what it covered)
+- tells the owner privately when a housemate's payment arrives and needs a
+  decision
 - answers private natural-language questions about balances, bill breakdowns,
   overdue and upcoming bills, payment history, receipts, and pay links
-- responds to group commands such as `due` while ignoring ordinary group chat
+- responds to group commands such as `due` while ignoring ordinary group chat;
+  admin commands include `/paylinks` (send every housemate their pay link) and
+  `/reminder` (preview today's overdue digests without sending them)
 - generates custom Open Graph cards for bill, pay, and receipt links
 - verifies inbound webhook HMACs and runs delivery through tracked, retryable
   workflows
@@ -50,50 +57,78 @@ Inbound WhatsApp events are handled at `POST /api/hooks/whatsapp`.
 - Store source PDFs in Vercel Blob and avoid duplicate bill imports.
 - Split bills across selected housemates using equal or custom amounts.
 - Track pending, partially paid, and paid bills, including each housemate's
-  outstanding balance and payment history.
+  outstanding share and the payments that covered it.
+- Tick bills off on the Bills page once their payments look right.
 - Manage housemates, bank aliases, WhatsApp numbers, and active status.
 
-### Recurring bills and reminders
+### Recurring bills and the overdue digest
 
 - Create reusable weekly, fortnightly, monthly, or yearly bill templates.
 - Use equal or custom splits and choose the participating housemates.
 - Pause, resume, edit, delete, preview, or manually generate templates.
 - Generate due templates automatically through the authenticated cron route.
-- Configure individual or stacked WhatsApp reminders before and after a due
-  date.
-- Allocate money a housemate has already sent to new bill shares automatically.
 
-The cron route, `GET /api/cron`, generates due recurring bills and queues due
-reminders. It requires `CRON_SECRET` as a bearer token or `secret` query
-parameter.
+The cron route, `GET /api/cron`, runs daily at 00:00 UTC (`vercel.json`). It
+generates due recurring bills and queues the overdue digest. It requires
+`CRON_SECRET` as a bearer token or `secret` query parameter.
 
-### Up Bank payments and the housemate ledger
+The overdue digest is one private WhatsApp message per housemate per Sydney
+day, only when something is overdue after their held credit is applied. It
+lists each overdue bill oldest first (at most eight, then `+N more`), says how
+much credit is already applied, and links to the housemate's pay page. The
+event key `overdue-digest:<housemateId>:<YYYY-MM-DD>` makes a rerun of the cron
+the same day send nothing new, and the workflow recomputes the digest before
+sending so a payment confirmed in between cancels it. There are no per-bill
+reminders.
 
-Incoming transfers are handled at `POST /api/hooks/up`. The route verifies Up's
-request signature, fetches the complete transaction, and records
-`TRANSACTION_CREATED` and `TRANSACTION_SETTLED` events in the housemate ledger;
-`TRANSACTION_DELETED` removes the bank transaction again.
+### Up Bank payments and housemate accounts
 
-The ledger is the single source of truth for what has been paid:
+Nothing is credited or allocated automatically. Every receipt is an admin
+decision. The full model is in [docs/payments.md](./docs/payments.md).
 
-- settled transfers are credited to a housemate automatically when the sender
-  or note identifies exactly one housemate and the note references household
-  bills; anything unclear waits in the payment review queue
-- credited money is allocated to that housemate's open bill shares oldest
-  first, and money that arrives before a bill is allocated when the bill is
-  created; rent-only transfers only ever pay rent
-- an admin can re-allocate any receipt by hand, and hand-allocated receipts are
-  never touched automatically again
-- every allocation change writes the debt's paid amount and the bill's status
-  back to the bills views, and a share or bill becoming fully paid queues the
-  WhatsApp receipt and paid-in-full notifications
+- **One model.** A bill share is what a housemate owes; a receipt is money in
+  from them; an allocation says which receipt paid which share. Paid,
+  remaining, credit, owed, overdue, balance and bill status are all derived
+  from those three tables by one module. All money is integer cents.
+- **Bank transactions.** `POST /api/hooks/up` verifies Up's signature, fetches
+  the full transaction, and records `TRANSACTION_CREATED` and
+  `TRANSACTION_SETTLED` events. Own-account transfers, interest, merchant
+  refunds and unrecognised senders are set aside. Activity from an identified
+  housemate, or naming several housemates, waits in the Payment review queue,
+  and the owner gets a WhatsApp message when it is money in.
+- **Payment review.** For each transfer the admin confirms the suggested bills,
+  changes them, keeps the money as credit, splits a shared transfer between
+  housemates, records a household refund, or marks it as not a bill.
+  Suggestions are advisory: the oldest open share the amount exactly matches,
+  then an exact combination. Rent-only references only pay rent bills.
+- **Held credit.** Money that is not allocated to a bill is held as credit.
+  Every figure for what a housemate owes or has overdue (pay page, statement,
+  overdue digest, pay links, assistant, Housemates page) applies it to open
+  shares oldest due first, so they all agree.
+- **Accounts.** The Accounts page shows each housemate's shares, receipts and
+  statement with a running balance. The admin can reallocate any receipt; the
+  housemate gets a receipt the first time and a correction when a later change
+  differs.
+- **Cash.** Recording cash on the Bills page is the only manual payment. It
+  creates a cash receipt allocated to one share and sends the housemate a
+  receipt.
+- **Corrections.** Receipts are never deleted, only voided with a reason. If
+  the bank changes or deletes a confirmed transaction, its receipts are voided
+  and it goes back to review; a new decision on a transaction voids the
+  receipts it replaces. Deleting a bill releases its allocations back to
+  credit.
+- **Notifications.** A housemate's receipt is queued in the same transaction as
+  the decision, and the group's paid-in-full card is queued in the allocation
+  that pays a bill's last housemate share.
 
 ### Public payment views
 
 - Public bill pages show the total, per-person split, due date, and payment
   progress.
-- Signed housemate pay links group outstanding bills and show what remains.
-- Signed receipt links confirm a settled debt and link back to any remaining
+- Signed housemate pay links group outstanding bills, show what held credit
+  already covers, and show what remains.
+- Each pay link has a statement of bill shares and payments received.
+- Signed receipt links confirm a settled share and link back to any remaining
   balance.
 - Dedicated Open Graph image routes produce the WhatsApp cards shown above.
 
@@ -156,8 +191,10 @@ webhook setup with Cloudflare Tunnel, see
 | `bun dev` | Start Vite on port 4000 |
 | `bun run build` | Create a production build |
 | `bun serve` | Preview the production build |
+| `bun test` | Run the test suite (Bun's built-in runner) |
 | `bun typecheck` | Run TypeScript without emitting files |
 | `bun check` | Run Biome formatting, linting, and import organization |
+| `bun fallow` | Find dead code and duplication |
 | `bun tunnel` | Run the configured Cloudflare tunnel |
 | `bun db:push` | Push the current Drizzle schema |
 | `bun db:generate` | Generate Drizzle migrations |
@@ -165,6 +202,7 @@ webhook setup with Cloudflare Tunnel, see
 | `bun db:studio` | Open Drizzle Studio |
 | `bun db:seed` | Seed local development data |
 | `bun db:repair-recurring` | Repair recurring-bill generation dates |
+| `bun ledger` | Import Up history (`--import-up [--since ISO]`, `--bank-file file.json`) or write an account report (`--report file.json`) |
 
 ## Project structure
 
@@ -173,13 +211,16 @@ sharehouse-bills/
 ├── src/
 │   ├── api/
 │   │   ├── db/                 # Drizzle connection, schema, and migrations
+│   │   ├── scripts/            # Migration, seed, and ledger CLI scripts
 │   │   └── services/           # Domain logic and external integrations
+│   │       ├── account/        # Every money derivation (paid, credit, owed)
+│   │       └── payments/       # Bank ingest, decisions, allocations, cash
 │   ├── components/             # Feature components and UI primitives
 │   ├── functions/              # Authenticated TanStack server functions
 │   ├── lib/                    # Shared application utilities
 │   └── routes/                 # App pages, public views, and API handlers
 ├── workflows/                  # Retryable WhatsApp delivery workflows
-├── docs/                       # Screenshots and local webhook notes
+├── docs/                       # Payments model, screenshots, webhook notes
 ├── public/                     # Static assets
 ├── drizzle.config.ts
 ├── vite.config.ts
@@ -194,6 +235,7 @@ manually.
 Before opening a pull request, run:
 
 ```bash
+bun test
 bun check
 bun typecheck
 bun run build
