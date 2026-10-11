@@ -9,94 +9,49 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ReceiptTokenRouteImport } from './routes/receipt.$token'
-import { Route as PayTokenRouteImport } from './routes/pay.$token'
-import { Route as BillPdfSha256RouteImport } from './routes/bill.$pdfSha256'
-import { Route as ApiCronRouteImport } from './routes/api.cron'
-import { Route as ApiAiRouteImport } from './routes/api.ai'
-import { Route as ApiSplatRouteImport } from './routes/api.$'
-import { Route as AppRecurringBillsRouteImport } from './routes/_app.recurring-bills'
-import { Route as AppPaymentReviewRouteImport } from './routes/_app.payment-review'
-import { Route as AppLedgerRouteImport } from './routes/_app.ledger'
-import { Route as AppHousematesRouteImport } from './routes/_app.housemates'
-import { Route as AppBillsRouteImport } from './routes/_app.bills'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppAiRouteImport } from './routes/_app.ai'
-import { Route as PayTokenStatementRouteImport } from './routes/pay.$token_.statement'
-import { Route as ApiPdfsPdfSha256RouteImport } from './routes/api.pdfs.$pdfSha256'
-import { Route as ApiHooksWhatsappRouteImport } from './routes/api.hooks.whatsapp'
-import { Route as ApiHooksUpRouteImport } from './routes/api.hooks.up'
-import { Route as ApiHooksEmailRouteImport } from './routes/api.hooks.email'
-import { Route as ApiCardsPdfSha256RouteImport } from './routes/api.cards.$pdfSha256'
+import { Route as AppBillsRouteImport } from './routes/_app.bills'
+import { Route as AppHousematesRouteImport } from './routes/_app.housemates'
+import { Route as AppLedgerRouteImport } from './routes/_app.ledger'
+import { Route as AppPaymentReviewRouteImport } from './routes/_app.payment-review'
+import { Route as AppRecurringBillsRouteImport } from './routes/_app.recurring-bills'
+import { Route as ApiSplatRouteImport } from './routes/api.$'
+import { Route as ApiAiRouteImport } from './routes/api.ai'
+import { Route as ApiCronRouteImport } from './routes/api.cron'
+import { Route as BillPdfSha256RouteImport } from './routes/bill.$pdfSha256'
+import { Route as PayTokenRouteImport } from './routes/pay.$token'
+import { Route as ReceiptTokenRouteImport } from './routes/receipt.$token'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
-import { Route as ApiCardsReceiptTokenRouteImport } from './routes/api.cards.receipt.$token'
+import { Route as ApiCardsPdfSha256RouteImport } from './routes/api.cards.$pdfSha256'
+import { Route as ApiHooksEmailRouteImport } from './routes/api.hooks.email'
+import { Route as ApiHooksUpRouteImport } from './routes/api.hooks.up'
+import { Route as ApiHooksWhatsappRouteImport } from './routes/api.hooks.whatsapp'
+import { Route as ApiPdfsPdfSha256RouteImport } from './routes/api.pdfs.$pdfSha256'
+import { Route as PayTokenStatementRouteImport } from './routes/pay.$token_.statement'
 import { Route as ApiCardsPayTokenRouteImport } from './routes/api.cards.pay.$token'
+import { Route as ApiCardsReceiptTokenRouteImport } from './routes/api.cards.receipt.$token'
 import { Route as ApiCardsPayTokenStatementRouteImport } from './routes/api.cards.pay.$token_.statement'
 
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ReceiptTokenRoute = ReceiptTokenRouteImport.update({
-  id: '/receipt/$token',
-  path: '/receipt/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PayTokenRoute = PayTokenRouteImport.update({
-  id: '/pay/$token',
-  path: '/pay/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BillPdfSha256Route = BillPdfSha256RouteImport.update({
-  id: '/bill/$pdfSha256',
-  path: '/bill/$pdfSha256',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiCronRoute = ApiCronRouteImport.update({
-  id: '/api/cron',
-  path: '/api/cron',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAiRoute = ApiAiRouteImport.update({
-  id: '/api/ai',
-  path: '/api/ai',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSplatRoute = ApiSplatRouteImport.update({
-  id: '/api/$',
-  path: '/api/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AppRecurringBillsRoute = AppRecurringBillsRouteImport.update({
-  id: '/recurring-bills',
-  path: '/recurring-bills',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPaymentReviewRoute = AppPaymentReviewRouteImport.update({
-  id: '/payment-review',
-  path: '/payment-review',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppLedgerRoute = AppLedgerRouteImport.update({
-  id: '/ledger',
-  path: '/ledger',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppHousematesRoute = AppHousematesRouteImport.update({
-  id: '/housemates',
-  path: '/housemates',
+const AppAiRoute = AppAiRouteImport.update({
+  id: '/ai',
+  path: '/ai',
   getParentRoute: () => AppRoute,
 } as any)
 const AppBillsRoute = AppBillsRouteImport.update({
@@ -104,39 +59,54 @@ const AppBillsRoute = AppBillsRouteImport.update({
   path: '/bills',
   getParentRoute: () => AppRoute,
 } as any)
-const AppAiRoute = AppAiRouteImport.update({
-  id: '/ai',
-  path: '/ai',
+const AppHousematesRoute = AppHousematesRouteImport.update({
+  id: '/housemates',
+  path: '/housemates',
   getParentRoute: () => AppRoute,
 } as any)
-const PayTokenStatementRoute = PayTokenStatementRouteImport.update({
-  id: '/pay/$token_/statement',
-  path: '/pay/$token/statement',
+const AppLedgerRoute = AppLedgerRouteImport.update({
+  id: '/ledger',
+  path: '/ledger',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPaymentReviewRoute = AppPaymentReviewRouteImport.update({
+  id: '/payment-review',
+  path: '/payment-review',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRecurringBillsRoute = AppRecurringBillsRouteImport.update({
+  id: '/recurring-bills',
+  path: '/recurring-bills',
+  getParentRoute: () => AppRoute,
+} as any)
+const ApiSplatRoute = ApiSplatRouteImport.update({
+  id: '/api/$',
+  path: '/api/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPdfsPdfSha256Route = ApiPdfsPdfSha256RouteImport.update({
-  id: '/api/pdfs/$pdfSha256',
-  path: '/api/pdfs/$pdfSha256',
+const ApiAiRoute = ApiAiRouteImport.update({
+  id: '/api/ai',
+  path: '/api/ai',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiHooksWhatsappRoute = ApiHooksWhatsappRouteImport.update({
-  id: '/api/hooks/whatsapp',
-  path: '/api/hooks/whatsapp',
+const ApiCronRoute = ApiCronRouteImport.update({
+  id: '/api/cron',
+  path: '/api/cron',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiHooksUpRoute = ApiHooksUpRouteImport.update({
-  id: '/api/hooks/up',
-  path: '/api/hooks/up',
+const BillPdfSha256Route = BillPdfSha256RouteImport.update({
+  id: '/bill/$pdfSha256',
+  path: '/bill/$pdfSha256',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiHooksEmailRoute = ApiHooksEmailRouteImport.update({
-  id: '/api/hooks/email',
-  path: '/api/hooks/email',
+const PayTokenRoute = PayTokenRouteImport.update({
+  id: '/pay/$token',
+  path: '/pay/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCardsPdfSha256Route = ApiCardsPdfSha256RouteImport.update({
-  id: '/api/cards/$pdfSha256',
-  path: '/api/cards/$pdfSha256',
+const ReceiptTokenRoute = ReceiptTokenRouteImport.update({
+  id: '/receipt/$token',
+  path: '/receipt/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -144,14 +114,44 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCardsReceiptTokenRoute = ApiCardsReceiptTokenRouteImport.update({
-  id: '/api/cards/receipt/$token',
-  path: '/api/cards/receipt/$token',
+const ApiCardsPdfSha256Route = ApiCardsPdfSha256RouteImport.update({
+  id: '/api/cards/$pdfSha256',
+  path: '/api/cards/$pdfSha256',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHooksEmailRoute = ApiHooksEmailRouteImport.update({
+  id: '/api/hooks/email',
+  path: '/api/hooks/email',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHooksUpRoute = ApiHooksUpRouteImport.update({
+  id: '/api/hooks/up',
+  path: '/api/hooks/up',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHooksWhatsappRoute = ApiHooksWhatsappRouteImport.update({
+  id: '/api/hooks/whatsapp',
+  path: '/api/hooks/whatsapp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPdfsPdfSha256Route = ApiPdfsPdfSha256RouteImport.update({
+  id: '/api/pdfs/$pdfSha256',
+  path: '/api/pdfs/$pdfSha256',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PayTokenStatementRoute = PayTokenStatementRouteImport.update({
+  id: '/pay/$token_/statement',
+  path: '/pay/$token/statement',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiCardsPayTokenRoute = ApiCardsPayTokenRouteImport.update({
   id: '/api/cards/pay/$token',
   path: '/api/cards/pay/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCardsReceiptTokenRoute = ApiCardsReceiptTokenRouteImport.update({
+  id: '/api/cards/receipt/$token',
+  path: '/api/cards/receipt/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiCardsPayTokenStatementRoute =
@@ -347,11 +347,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app': {
@@ -361,81 +361,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/receipt/$token': {
-      id: '/receipt/$token'
-      path: '/receipt/$token'
-      fullPath: '/receipt/$token'
-      preLoaderRoute: typeof ReceiptTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/pay/$token': {
-      id: '/pay/$token'
-      path: '/pay/$token'
-      fullPath: '/pay/$token'
-      preLoaderRoute: typeof PayTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/bill/$pdfSha256': {
-      id: '/bill/$pdfSha256'
-      path: '/bill/$pdfSha256'
-      fullPath: '/bill/$pdfSha256'
-      preLoaderRoute: typeof BillPdfSha256RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/cron': {
-      id: '/api/cron'
-      path: '/api/cron'
-      fullPath: '/api/cron'
-      preLoaderRoute: typeof ApiCronRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/ai': {
-      id: '/api/ai'
-      path: '/api/ai'
-      fullPath: '/api/ai'
-      preLoaderRoute: typeof ApiAiRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/$': {
-      id: '/api/$'
-      path: '/api/$'
-      fullPath: '/api/$'
-      preLoaderRoute: typeof ApiSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_app/recurring-bills': {
-      id: '/_app/recurring-bills'
-      path: '/recurring-bills'
-      fullPath: '/recurring-bills'
-      preLoaderRoute: typeof AppRecurringBillsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/payment-review': {
-      id: '/_app/payment-review'
-      path: '/payment-review'
-      fullPath: '/payment-review'
-      preLoaderRoute: typeof AppPaymentReviewRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/ledger': {
-      id: '/_app/ledger'
-      path: '/ledger'
-      fullPath: '/ledger'
-      preLoaderRoute: typeof AppLedgerRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/housemates': {
-      id: '/_app/housemates'
-      path: '/housemates'
-      fullPath: '/housemates'
-      preLoaderRoute: typeof AppHousematesRouteImport
+    '/_app/ai': {
+      id: '/_app/ai'
+      path: '/ai'
+      fullPath: '/ai'
+      preLoaderRoute: typeof AppAiRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/bills': {
@@ -445,53 +382,74 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBillsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/ai': {
-      id: '/_app/ai'
-      path: '/ai'
-      fullPath: '/ai'
-      preLoaderRoute: typeof AppAiRouteImport
+    '/_app/housemates': {
+      id: '/_app/housemates'
+      path: '/housemates'
+      fullPath: '/housemates'
+      preLoaderRoute: typeof AppHousematesRouteImport
       parentRoute: typeof AppRoute
     }
-    '/pay/$token_/statement': {
-      id: '/pay/$token_/statement'
-      path: '/pay/$token/statement'
-      fullPath: '/pay/$token/statement'
-      preLoaderRoute: typeof PayTokenStatementRouteImport
+    '/_app/ledger': {
+      id: '/_app/ledger'
+      path: '/ledger'
+      fullPath: '/ledger'
+      preLoaderRoute: typeof AppLedgerRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/payment-review': {
+      id: '/_app/payment-review'
+      path: '/payment-review'
+      fullPath: '/payment-review'
+      preLoaderRoute: typeof AppPaymentReviewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/recurring-bills': {
+      id: '/_app/recurring-bills'
+      path: '/recurring-bills'
+      fullPath: '/recurring-bills'
+      preLoaderRoute: typeof AppRecurringBillsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/api/$': {
+      id: '/api/$'
+      path: '/api/$'
+      fullPath: '/api/$'
+      preLoaderRoute: typeof ApiSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/pdfs/$pdfSha256': {
-      id: '/api/pdfs/$pdfSha256'
-      path: '/api/pdfs/$pdfSha256'
-      fullPath: '/api/pdfs/$pdfSha256'
-      preLoaderRoute: typeof ApiPdfsPdfSha256RouteImport
+    '/api/ai': {
+      id: '/api/ai'
+      path: '/api/ai'
+      fullPath: '/api/ai'
+      preLoaderRoute: typeof ApiAiRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/hooks/whatsapp': {
-      id: '/api/hooks/whatsapp'
-      path: '/api/hooks/whatsapp'
-      fullPath: '/api/hooks/whatsapp'
-      preLoaderRoute: typeof ApiHooksWhatsappRouteImport
+    '/api/cron': {
+      id: '/api/cron'
+      path: '/api/cron'
+      fullPath: '/api/cron'
+      preLoaderRoute: typeof ApiCronRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/hooks/up': {
-      id: '/api/hooks/up'
-      path: '/api/hooks/up'
-      fullPath: '/api/hooks/up'
-      preLoaderRoute: typeof ApiHooksUpRouteImport
+    '/bill/$pdfSha256': {
+      id: '/bill/$pdfSha256'
+      path: '/bill/$pdfSha256'
+      fullPath: '/bill/$pdfSha256'
+      preLoaderRoute: typeof BillPdfSha256RouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/hooks/email': {
-      id: '/api/hooks/email'
-      path: '/api/hooks/email'
-      fullPath: '/api/hooks/email'
-      preLoaderRoute: typeof ApiHooksEmailRouteImport
+    '/pay/$token': {
+      id: '/pay/$token'
+      path: '/pay/$token'
+      fullPath: '/pay/$token'
+      preLoaderRoute: typeof PayTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/cards/$pdfSha256': {
-      id: '/api/cards/$pdfSha256'
-      path: '/api/cards/$pdfSha256'
-      fullPath: '/api/cards/$pdfSha256'
-      preLoaderRoute: typeof ApiCardsPdfSha256RouteImport
+    '/receipt/$token': {
+      id: '/receipt/$token'
+      path: '/receipt/$token'
+      fullPath: '/receipt/$token'
+      preLoaderRoute: typeof ReceiptTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -501,11 +459,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/cards/receipt/$token': {
-      id: '/api/cards/receipt/$token'
-      path: '/api/cards/receipt/$token'
-      fullPath: '/api/cards/receipt/$token'
-      preLoaderRoute: typeof ApiCardsReceiptTokenRouteImport
+    '/api/cards/$pdfSha256': {
+      id: '/api/cards/$pdfSha256'
+      path: '/api/cards/$pdfSha256'
+      fullPath: '/api/cards/$pdfSha256'
+      preLoaderRoute: typeof ApiCardsPdfSha256RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/hooks/email': {
+      id: '/api/hooks/email'
+      path: '/api/hooks/email'
+      fullPath: '/api/hooks/email'
+      preLoaderRoute: typeof ApiHooksEmailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/hooks/up': {
+      id: '/api/hooks/up'
+      path: '/api/hooks/up'
+      fullPath: '/api/hooks/up'
+      preLoaderRoute: typeof ApiHooksUpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/hooks/whatsapp': {
+      id: '/api/hooks/whatsapp'
+      path: '/api/hooks/whatsapp'
+      fullPath: '/api/hooks/whatsapp'
+      preLoaderRoute: typeof ApiHooksWhatsappRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/pdfs/$pdfSha256': {
+      id: '/api/pdfs/$pdfSha256'
+      path: '/api/pdfs/$pdfSha256'
+      fullPath: '/api/pdfs/$pdfSha256'
+      preLoaderRoute: typeof ApiPdfsPdfSha256RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pay/$token_/statement': {
+      id: '/pay/$token_/statement'
+      path: '/pay/$token/statement'
+      fullPath: '/pay/$token/statement'
+      preLoaderRoute: typeof PayTokenStatementRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/cards/pay/$token': {
@@ -513,6 +506,13 @@ declare module '@tanstack/react-router' {
       path: '/api/cards/pay/$token'
       fullPath: '/api/cards/pay/$token'
       preLoaderRoute: typeof ApiCardsPayTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cards/receipt/$token': {
+      id: '/api/cards/receipt/$token'
+      path: '/api/cards/receipt/$token'
+      fullPath: '/api/cards/receipt/$token'
+      preLoaderRoute: typeof ApiCardsReceiptTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/cards/pay/$token_/statement': {
