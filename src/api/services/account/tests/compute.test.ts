@@ -212,7 +212,9 @@ test("owes, balance, overdue and upcoming follow the derivation rules", () => {
 		{ credit: 0, owes: 11000 },
 		{ credit: 4000, owes: 7000 },
 		{ credit: 20000, owes: 0 },
-		{ credit: -500, owes: 11500 },
+		// A refund larger than the credit held is not more owed on bills: owes
+		// floors credit the way the cover does, and the balance keeps the sign.
+		{ credit: -500, owes: 11000 },
 	];
 	for (const item of cases)
 		assert.equal(
@@ -228,9 +230,10 @@ test("owes, balance, overdue and upcoming follow the derivation rules", () => {
 		{ dueAt: sydney("2026-10-10"), leftCents: 300, remainingCents: 300 },
 		{ dueAt: sydney("2026-10-11"), leftCents: 500, remainingCents: 500 },
 		{ dueAt: sydney("2026-10-12"), leftCents: 0, remainingCents: 700 },
+		{ dueAt: sydney("2026-10-13"), leftCents: 200, remainingCents: 900 },
 	];
 	assert.equal(overdueCents(due, now), 300);
-	assert.equal(upcomingCents(due, now), 700);
+	assert.equal(upcomingCents(due, now), 200, "upcoming is what credit leaves");
 });
 
 test("progress is by amount and only reaches 100% when settled", () => {

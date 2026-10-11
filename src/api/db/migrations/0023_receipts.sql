@@ -124,17 +124,20 @@ INSERT INTO `allocation_history`(`receipt_id`,`debt_id`,`amount_cents`,`recorded
 SELECT coalesce((SELECT k.`receipt_id` FROM `receipt_keys` k WHERE k.`source_key`=h.`source_key`),h.`source_key`),h.`debt_id`,h.`amount_cents`,h.`recorded_at`
 FROM `ledger_allocation_history` h ORDER BY h.`id`;--> statement-breakpoint
 INSERT INTO `bill_reviews`(`bill_id`,`reviewed_at`) SELECT `bill_id`,`reviewed_at` FROM `ledger_bill_reviews`;--> statement-breakpoint
--- Totals must survive the move; a failed check aborts the migration.
+-- Totals must survive the move and no bank event may still be waiting for the
+-- journal; a failed check aborts the migration.
 CREATE TABLE `receipts_migration_check` (
 	`receipts_match_sources` integer NOT NULL CHECK (`receipts_match_sources`=1),
 	`allocations_match` integer NOT NULL CHECK (`allocations_match`=1),
-	`bank_receipts_have_transactions` integer NOT NULL CHECK (`bank_receipts_have_transactions`=1)
+	`bank_receipts_have_transactions` integer NOT NULL CHECK (`bank_receipts_have_transactions`=1),
+	`bank_events_processed` integer NOT NULL CHECK (`bank_events_processed`=1)
 );
 --> statement-breakpoint
 INSERT INTO `receipts_migration_check` SELECT
 	(SELECT count(*) FROM `receipts`)=(SELECT count(*) FROM `receipt_keys`) AND (SELECT coalesce(sum(`amount_cents`),0) FROM `receipts`)=(SELECT coalesce(sum(`amount_cents`),0) FROM `receipt_keys`),
 	(SELECT count(*) FROM `allocations`)=(SELECT count(*) FROM `ledger_bill_allocations`) AND (SELECT coalesce(sum(`amount_cents`),0) FROM `allocations`)=(SELECT coalesce(sum(`amount_cents`),0) FROM `ledger_bill_allocations`),
-	NOT EXISTS (SELECT 1 FROM `receipts` WHERE `kind`='bank' AND `bank_transaction_id` IS NULL);--> statement-breakpoint
+	NOT EXISTS (SELECT 1 FROM `receipts` WHERE `kind`='bank' AND `bank_transaction_id` IS NULL),
+	NOT EXISTS (SELECT 1 FROM `ledger_events` WHERE `kind`='bank' AND `processed_at` IS NULL);--> statement-breakpoint
 DROP TABLE `receipts_migration_check`;--> statement-breakpoint
 DROP TABLE `receipt_keys`;--> statement-breakpoint
 DROP TABLE `ledger_allocation_history`;--> statement-breakpoint

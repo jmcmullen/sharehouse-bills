@@ -82,6 +82,7 @@ async function sendPaymentReceipt(notificationId: string) {
 					...shared,
 					before: context.before,
 					after: context.after,
+					voided: context.voided,
 				})
 			: buildPaymentReceiptSummary({ ...shared, covered: context.after });
 

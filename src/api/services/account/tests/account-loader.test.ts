@@ -14,6 +14,8 @@ import {
 	revision,
 	time,
 } from "../../payments/tests/fixture";
+import { loadBillVerification } from "../../payments/verification";
+import { summarizeBills } from "../account";
 import {
 	loadAccount,
 	loadAccounts,
@@ -174,5 +176,58 @@ test("receipts carry their kind and transfer; voided receipts leave the account"
 		assert.deepEqual(
 			voided.map((item) => [item.id, item.voidReason, item.allocations]),
 			[[live.id, "Sent by mistake", []]],
+		);
+	}));
+
+test("a bill's paid and remaining figures count only the shares housemates owe", async () =>
+	fixture(async (client) => {
+		await addShares(client, [
+			["gas-o", "oliver", "bill", 6000],
+			["gas-j", "jay", "bill", 1000],
+		]);
+		await bankPayment(client, "pay", "oliver", 6000, time, "gas-o");
+		const bill = await loadBill("bill", { client });
+		assert.deepEqual(
+			[bill?.status, bill?.paidCents, bill?.remainingCents],
+			["paid", 6000, 0],
+		);
+		assert.deepEqual(summarizeBills(await loadBills({ client })), {
+			totalBills: 1,
+			totalCents: 0,
+			paidCents: 6000,
+			outstandingCents: 0,
+		});
+		const verification = await loadBillVerification(client);
+		assert.deepEqual(
+			[
+				verification.bills[0].amountCents,
+				verification.bills[0].remainingCents,
+				verification.summary.remainingCents,
+			],
+			[6000, 0, 0],
+		);
+	}));
+
+test("a refund larger than credit leaves owes, overdue and the cover in agreement", async () =>
+	fixture(async (client) => {
+		await addShares(client, [["gas-o", "oliver", "bill", 6000]]);
+		await ingest(client, receipt("out", -2000, "refund"));
+		await decideBankTransaction(client, {
+			transactionId: "out",
+			action: "refund",
+			housemateId: "oliver",
+			reason: "refund for overpay",
+			expectedRevision: await revision(client, "out"),
+		});
+		const account = await loadAccount("oliver", { client });
+		assert.deepEqual(
+			[
+				account?.creditCents,
+				account?.owesCents,
+				account?.overdueCents,
+				account?.shares[0].leftCents,
+				account?.balanceCents,
+			],
+			[-2000, 6000, 6000, 6000, 8000],
 		);
 	}));

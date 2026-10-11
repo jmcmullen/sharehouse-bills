@@ -116,7 +116,9 @@ async function applyDecision(tx: Executor, input: Decision): Promise<void> {
 }
 
 // One receipt for the housemate, its bills allocated in the same transaction.
-// Empty allocations keep the money as credit on purpose.
+// Empty allocations keep the money as credit on purpose. Re-confirming the same
+// money for the same housemate keeps its receipt, so the housemate hears a
+// correction rather than a second receipt.
 async function confirm(
 	tx: Executor,
 	bank: BankRow,
@@ -126,15 +128,9 @@ async function confirm(
 	if (amountCents <= 0)
 		throw new Error("Only money received can be confirmed against bills");
 	const housemateId = await requireHousemate(tx, input.housemateId);
-	await voidReceipts(tx, bank.transaction.id, "Replaced by a new decision");
-	const receiptId = await insertReceipt(tx, {
-		housemateId,
-		amountCents,
-		receivedAt: receivedAt(bank.transaction),
-		kind: "bank",
-		bankTransactionId: bank.transaction.id,
-		note: input.reason,
-	});
+	const receiptId =
+		(await keptReceipt(tx, bank, housemateId, input.reason)) ??
+		(await replaceReceipts(tx, bank, housemateId, input.reason));
 	await writeAllocations(
 		tx,
 		await getAccountPayments(tx, housemateId),
@@ -152,6 +148,52 @@ async function confirm(
 		receiptId,
 		await paymentReceiptKind(tx, receiptId),
 	);
+}
+
+// The transfer's single live receipt when it already credits this housemate
+// with this amount, its note updated to the new decision.
+async function keptReceipt(
+	tx: Executor,
+	bank: BankRow,
+	housemateId: string,
+	note: string,
+): Promise<string | null> {
+	const live = (
+		await tx.execute({
+			sql: "SELECT id,housemate_id,amount_cents FROM receipts WHERE bank_transaction_id=? AND voided_at IS NULL",
+			args: [bank.transaction.id],
+		})
+	).rows;
+	const [receipt] = live;
+	if (
+		live.length !== 1 ||
+		String(receipt.housemate_id) !== housemateId ||
+		Number(receipt.amount_cents) !==
+			bank.transaction.attributes.amount.valueInBaseUnits
+	)
+		return null;
+	await tx.execute({
+		sql: "UPDATE receipts SET note=? WHERE id=?",
+		args: [note, receipt.id],
+	});
+	return String(receipt.id);
+}
+
+async function replaceReceipts(
+	tx: Executor,
+	bank: BankRow,
+	housemateId: string,
+	note: string,
+): Promise<string> {
+	await voidReceipts(tx, bank.transaction.id, "Replaced by a new decision");
+	return insertReceipt(tx, {
+		housemateId,
+		amountCents: bank.transaction.attributes.amount.valueInBaseUnits,
+		receivedAt: receivedAt(bank.transaction),
+		kind: "bank",
+		bankTransactionId: bank.transaction.id,
+		note,
+	});
 }
 
 // Money the household sent back to a housemate: a negative receipt.

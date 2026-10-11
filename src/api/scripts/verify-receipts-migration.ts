@@ -35,7 +35,7 @@ async function snapshot(client: Client): Promise<Snapshot> {
 	);
 	if (pending > 0)
 		throw new Error(
-			`${pending} ledger events are unprocessed; run \`bun ledger --sync\` on the pre-migration commit first`,
+			`${pending} ledger events are unprocessed. Check out the previous deployed commit (e4b6b89), where \`bun ledger --sync\` exists, run it there to clear the pending events, then take the snapshot on that commit`,
 		);
 	const housemates = await client.execute(
 		`SELECT h.id,

@@ -7,7 +7,7 @@ import { bills } from "../api/db/schema/bills";
 import { type Bill, summarizeBills } from "../api/services/account/account";
 import { loadBills } from "../api/services/account/account.server";
 import {
-	createShares,
+	insertBillWithShares,
 	splitAcrossHousemates,
 } from "../api/services/bills/shares";
 import {
@@ -99,16 +99,15 @@ export const createBill = createServerFn({ method: "POST" })
 	.handler(async ({ data }) => {
 		const log = getRequestLogger();
 		const splits = await splitAcrossHousemates(data.totalCents);
-		const [newBill] = await db
-			.insert(bills)
-			.values({
+		const newBill = await insertBillWithShares(
+			{
 				billerName: data.billerName,
 				totalCents: data.totalCents,
 				dueDate: data.dueDate,
 				pdfUrl: data.pdfUrl,
-			})
-			.returning();
-		await createShares(newBill.id, splits);
+			},
+			splits,
+		);
 		log?.set({
 			bill: {
 				id: newBill.id,

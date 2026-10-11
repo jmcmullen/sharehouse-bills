@@ -182,12 +182,14 @@ export function buildBill(row: BillRow, accounts: Account[]): Bill {
 				.map((share) => ({ ...share, housemateName: account.housemate.name })),
 		)
 		.sort((a, b) => a.housemateName.localeCompare(b.housemateName));
+	// The owner pays the bill up front, so only housemate shares are owed.
+	const owed = shares.filter((share) => !share.isOwner);
 	return {
 		...row,
 		shares,
 		status: billStatus(shares),
-		paidCents: sum(shares, (share) => share.paidCents),
-		remainingCents: sum(shares, (share) => share.remainingCents),
+		paidCents: sum(owed, (share) => share.paidCents),
+		remainingCents: sum(owed, (share) => share.remainingCents),
 		settledAt: billSettledAt(shares),
 	};
 }

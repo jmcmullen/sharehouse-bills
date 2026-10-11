@@ -94,6 +94,7 @@ test("payment correction lists the bills before and after the change", () => {
 		receivedAt: received,
 		before: [gas],
 		after: [],
+		voided: false,
 		creditCents: 10000,
 		balanceCents: 0,
 	});
@@ -116,6 +117,7 @@ test("payment correction lists the bills before and after the change", () => {
 		receivedAt: received,
 		before: [],
 		after: [cleaners],
+		voided: false,
 		creditCents: 0,
 		balanceCents: 0,
 	}).split("\n");
@@ -125,6 +127,26 @@ test("payment correction lists the bills before and after the change", () => {
 		reallocated[6],
 		"- Cleaners (due Tue 15 Sep) · $99.00 · 3 days early",
 	);
+});
+
+test("a voided payment's correction says the money no longer counts", () => {
+	const lines = buildPaymentCorrectionSummary({
+		firstName: "Oliver",
+		amountCents: 10000,
+		receivedAt: received,
+		before: [gas],
+		after: [],
+		voided: true,
+		creditCents: 0,
+		balanceCents: 10000,
+	}).split("\n");
+	assert.deepEqual(lines.slice(3), [
+		"Previously covered:",
+		"- Gas (due Sat 12 Sep) · $100.00 · on the due date",
+		"",
+		"This payment no longer counts toward your bills or credit.",
+		"You still owe $100.00.",
+	]);
 });
 
 test("payment arrived tells the owner who paid, what it looks like and where to review", () => {

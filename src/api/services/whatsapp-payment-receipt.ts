@@ -25,58 +25,83 @@ interface PaymentReceiptContext {
 	receivedAt: Date;
 	before: ReceiptLine[];
 	after: ReceiptLine[];
+	voided: boolean;
 	creditCents: number;
 	balanceCents: number;
 }
 
 // Rebuilds the receipt message inputs from the decision snapshot the ledger
-// stored, plus the housemate's live balance.
+// stored, plus the housemate's live balance. Money voided since the message was
+// queued is not described, except by the correction that says it was voided.
 export async function getPaymentReceiptNotificationContext(
 	notificationId: string,
+	options: { client?: Executor } = {},
 ): Promise<PaymentReceiptContext | null> {
-	return withLedgerClient(async (client) => {
-		const row = (
-			await client.execute({
-				sql: "SELECT n.event_type,n.payload,h.id AS housemate_id,h.name,h.whatsapp_number FROM whatsapp_notifications n JOIN housemates h ON h.id=n.housemate_id WHERE n.id=?",
-				args: [notificationId],
-			})
-		).rows[0];
-		if (!row) return null;
-		const parsed = paymentReceiptPayloadSchema.safeParse(
-			JSON.parse(String(row.payload)),
-		);
-		if (!parsed.success) return null;
-		const payload = parsed.data;
-		const housemateId = String(row.housemate_id);
-		const name = String(row.name);
-		const [before, after, account] = await Promise.all([
-			billLines(client, payload.before),
-			billLines(client, payload.after),
-			loadAccount(housemateId, { client }),
-		]);
-		return {
-			kind:
-				String(row.event_type) === "payment_correction"
-					? "correction"
-					: "receipt",
-			housemate: {
-				id: housemateId,
-				name,
-				firstName: name.trim().split(/\s+/)[0] ?? name,
-				whatsappNumber:
-					row.whatsapp_number === null ? null : String(row.whatsapp_number),
-			},
-			amountCents: payload.amountCents,
-			receivedAt: new Date(payload.receivedAt * 1000),
-			before,
-			after,
-			// What this payment left as credit, as the admin confirmed it.
-			creditCents: creditCents([
-				{ amountCents: payload.amountCents, allocations: payload.after },
-			]),
-			balanceCents: account?.balanceCents ?? 0,
-		};
-	});
+	return options.client
+		? loadContext(options.client, notificationId)
+		: withLedgerClient((client) => loadContext(client, notificationId));
+}
+
+async function loadContext(
+	client: Executor,
+	notificationId: string,
+): Promise<PaymentReceiptContext | null> {
+	const row = (
+		await client.execute({
+			sql: "SELECT n.event_type,n.payload,h.id AS housemate_id,h.name,h.whatsapp_number FROM whatsapp_notifications n JOIN housemates h ON h.id=n.housemate_id WHERE n.id=?",
+			args: [notificationId],
+		})
+	).rows[0];
+	if (!row) return null;
+	const parsed = paymentReceiptPayloadSchema.safeParse(
+		JSON.parse(String(row.payload)),
+	);
+	if (!parsed.success) return null;
+	const payload = parsed.data;
+	if (!payload.voided && (await isVoided(client, payload.receiptId)))
+		return null;
+	const housemateId = String(row.housemate_id);
+	const name = String(row.name);
+	const [before, after, account] = await Promise.all([
+		billLines(client, payload.before),
+		billLines(client, payload.after),
+		loadAccount(housemateId, { client }),
+	]);
+	return {
+		kind:
+			String(row.event_type) === "payment_correction"
+				? "correction"
+				: "receipt",
+		housemate: {
+			id: housemateId,
+			name,
+			firstName: name.trim().split(/\s+/)[0] ?? name,
+			whatsappNumber:
+				row.whatsapp_number === null ? null : String(row.whatsapp_number),
+		},
+		amountCents: payload.amountCents,
+		receivedAt: new Date(payload.receivedAt * 1000),
+		before,
+		after,
+		voided: payload.voided,
+		// What this payment left as credit, as the admin confirmed it.
+		creditCents: payload.voided
+			? 0
+			: creditCents([
+					{ amountCents: payload.amountCents, allocations: payload.after },
+				]),
+		balanceCents: account?.balanceCents ?? 0,
+	};
+}
+
+async function isVoided(client: Executor, receiptId: string): Promise<boolean> {
+	const row = (
+		await client.execute({
+			sql: "SELECT voided_at FROM receipts WHERE id=?",
+			args: [receiptId],
+		})
+	).rows[0];
+	return row !== undefined && row.voided_at !== null;
 }
 
 async function billLines(

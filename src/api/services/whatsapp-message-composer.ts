@@ -157,6 +157,8 @@ interface PaymentReceiptInput {
 interface PaymentCorrectionInput extends Omit<PaymentReceiptInput, "covered"> {
 	before: ReceiptLine[];
 	after: ReceiptLine[];
+	// The money was voided: it no longer counts toward anything.
+	voided: boolean;
 }
 
 // The day money arrived, read against its own year.
@@ -211,6 +213,21 @@ export function buildPaymentReceiptSummary(input: PaymentReceiptInput) {
 	].join("\n");
 }
 
+function correctionOutcome(input: PaymentCorrectionInput) {
+	if (input.voided)
+		return ["This payment no longer counts toward your bills or credit."];
+	if (!input.after.length) return ["Now held as credit for your next bill."];
+	return [
+		"Now covers:",
+		...receiptLines(input.after, input.receivedAt),
+		...(input.creditCents > 0
+			? [
+					`${formatCents(input.creditCents)} is held as credit for your next bill.`,
+				]
+			: []),
+	];
+}
+
 export function buildPaymentCorrectionSummary(input: PaymentCorrectionInput) {
 	return [
 		`*${input.firstName}, a correction to your payment*`,
@@ -220,17 +237,7 @@ export function buildPaymentCorrectionSummary(input: PaymentCorrectionInput) {
 			? ["Previously covered:", ...receiptLines(input.before, input.receivedAt)]
 			: ["Previously held as credit."]),
 		"",
-		...(input.after.length
-			? [
-					"Now covers:",
-					...receiptLines(input.after, input.receivedAt),
-					...(input.creditCents > 0
-						? [
-								`${formatCents(input.creditCents)} is held as credit for your next bill.`,
-							]
-						: []),
-				]
-			: ["Now held as credit for your next bill."]),
+		...correctionOutcome(input),
 		...receiptFooter(input),
 	].join("\n");
 }

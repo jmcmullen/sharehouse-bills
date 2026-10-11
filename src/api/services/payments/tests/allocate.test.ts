@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Client } from "@libsql/client";
 import { loadAccount, loadBill } from "../../account/account.server";
-import { getAccountPayments } from "../account-payments";
+import { getAccountPayments, toAccountPayments } from "../account-payments";
 import { allocateReceipt } from "../allocate";
 import { recordCashReceipt } from "../cash";
 import {
@@ -223,4 +223,46 @@ test("reallocating sends a numbered correction only when the bills change", asyn
 		assert.deepEqual(held.after, []);
 		assert.equal(held.amountCents, 9000);
 		assert.equal(held.receivedAt, time);
+	}));
+
+test("a bill that stops being paid withdraws its unsent group message so a later payment queues it again", async () =>
+	fixture(async (client) => {
+		await addShares(client, [["gas-share", "oliver", "bill", 6000]]);
+		await ingest(client, receipt("pay", 6000));
+		await confirm(client, "pay", "oliver", [
+			{ debtId: "gas-share", amountCents: 6000 },
+		]);
+		const billPaid = async () =>
+			(
+				await client.execute(
+					"SELECT status FROM whatsapp_notifications WHERE event_key='bill-paid:bill'",
+				)
+			).rows.map((row) => row.status);
+		assert.deepEqual(await billPaid(), ["pending"]);
+		await reallocate(client, []);
+		assert.deepEqual(await billPaid(), [], "unsent message is withdrawn");
+		await reallocate(client, [{ debtId: "gas-share", amountCents: 6000 }]);
+		assert.deepEqual(await billPaid(), ["pending"]);
+		await client.execute(
+			"UPDATE whatsapp_notifications SET status='completed' WHERE event_key='bill-paid:bill'",
+		);
+		await reallocate(client, []);
+		assert.deepEqual(await billPaid(), ["completed"], "a sent message stays");
+	}));
+
+test("the revision covers stored shares, receipts and allocations, not the clock", async () =>
+	fixture(async (client) => {
+		await addShares(client, [["gas-share", "oliver", "bill", 6000]]);
+		await ingest(client, receipt("pay", 6000));
+		await confirm(client, "pay", "oliver");
+		// The gas share falls due during this Sydney night.
+		const revision = async (now: number) => {
+			const account = await loadAccount("oliver", { client, now });
+			assert.ok(account);
+			return toAccountPayments(account).revision;
+		};
+		const evening = await revision(time - 2 * day);
+		assert.equal(await revision(time + 2 * day), evening);
+		await reallocate(client, [{ debtId: "gas-share", amountCents: 6000 }]);
+		assert.notEqual(await revision(time - 2 * day), evening);
 	}));

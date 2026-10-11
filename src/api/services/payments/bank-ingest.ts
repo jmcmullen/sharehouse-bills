@@ -59,7 +59,8 @@ export async function setDecision(
 
 // Upserts the bank's view of a transaction. An automatic classification is
 // redone every time; an admin decision survives unless the money it rests on
-// changed, in which case its receipts are voided and it goes back to review.
+// changed, in which case its receipts are voided and it goes back to review
+// for the same housemate.
 export async function ingestBankTransaction(
 	tx: Executor,
 	input: unknown,
@@ -118,6 +119,8 @@ export async function deleteBankTransaction(
 		);
 }
 
+// Sends a confirmed transfer back to review. The row stays an admin decision
+// so re-ingest never reclassifies a transfer the admin assigned by hand.
 async function reopen(
 	tx: Executor,
 	transaction: { id: string; amountCents: number },
@@ -130,7 +133,7 @@ async function reopen(
 		housemateId:
 			existing.housemate_id === null ? null : String(existing.housemate_id),
 		reason,
-		decided: false,
+		decided: true,
 	});
 }
 

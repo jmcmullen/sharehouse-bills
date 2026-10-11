@@ -152,3 +152,14 @@ test("the verification script reports a difference and exits 1", async () =>
 		assert.match(after.stdout, /gas-s/);
 		assert.match(after.stdout, /creditCents/);
 	}));
+
+test("0023 stops rather than drop a bank event the journal has not processed", async () =>
+	withLegacyDatabase(async (client) => {
+		await client.execute(
+			"INSERT INTO ledger_events(kind,source_id,payload) VALUES('bank','tx-new','{}')",
+		);
+		await assert.rejects(
+			client.executeMultiple(await readMigration("0023_receipts")),
+			/CHECK constraint failed/,
+		);
+	}));

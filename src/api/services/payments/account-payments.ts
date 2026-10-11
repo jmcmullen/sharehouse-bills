@@ -40,9 +40,7 @@ export async function getAccountPayments(
 export function toAccountPayments(account: Account): AccountPayments {
 	const shares = toOpenShares(account);
 	return {
-		revision: createHash("sha256")
-			.update(JSON.stringify([account.shares, account.receipts]))
-			.digest("hex"),
+		revision: revisionOf(account),
 		bills: [...account.shares].sort(
 			(a, b) => b.dueAt - a.dueAt || a.id.localeCompare(b.id),
 		),
@@ -61,6 +59,20 @@ export function toAccountPayments(account: Account): AccountPayments {
 		unallocatedCents: account.creditCents,
 		unpaidCents: account.remainingCents,
 	};
+}
+
+// A hash of what is stored, never of what is derived from the clock, so a form
+// left open across Sydney midnight is not reported as changed.
+function revisionOf(account: Pick<Account, "shares" | "receipts">): string {
+	const stored = [
+		account.shares.map((share) => [share.id, share.amountCents]),
+		account.receipts.map((receipt) => [
+			receipt.id,
+			receipt.amountCents,
+			receipt.allocations.map((item) => [item.debtId, item.amountCents]),
+		]),
+	];
+	return createHash("sha256").update(JSON.stringify(stored)).digest("hex");
 }
 
 function toOpenShares(account: Pick<Account, "shares">): OpenShare[] {

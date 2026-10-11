@@ -1,7 +1,10 @@
 import { formatCents } from "../../lib/money";
 import { db } from "../db/index.server";
 import { bills, debts, housemates } from "../db/schema";
-import { createShares, splitAcrossHousemates } from "../services/bills/shares";
+import {
+	insertBillWithShares,
+	splitAcrossHousemates,
+} from "../services/bills/shares";
 
 // Test data for realistic sharehouse scenario
 const testHousemates = [
@@ -277,18 +280,13 @@ export async function populateTestData() {
 
 		for (const billData of testBills) {
 			// Insert bill
-			const [insertedBill] = await db
-				.insert(bills)
-				.values(billData)
-				.returning();
+			// Shares split equally like any new bill; paid state comes only from
+			// allocations, so seeded shares start unpaid.
+			const splits = await splitAcrossHousemates(billData.totalCents);
+			const insertedBill = await insertBillWithShares(billData, splits);
 			console.log(
 				`💰 Created bill: ${insertedBill.billerName} - ${formatCents(insertedBill.totalCents)}`,
 			);
-
-			// Shares split equally like any new bill; paid state comes only from
-			// allocations, so seeded shares start unpaid.
-			const splits = await splitAcrossHousemates(insertedBill.totalCents);
-			await createShares(insertedBill.id, splits);
 			console.log(`  💸 Created ${splits.length} debt records`);
 		}
 

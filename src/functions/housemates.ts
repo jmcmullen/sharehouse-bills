@@ -74,13 +74,16 @@ export const getHousemateBalances = createServerFn({ method: "GET" })
 			loadAccounts(),
 		]);
 		const active = new Map(rows.map((row) => [row.id, row.isActive]));
-		const balances = accounts.map((account) => ({
-			id: account.housemate.id,
-			name: account.housemate.name,
-			isActive: active.get(account.housemate.id) ?? false,
-			owesCents: account.owesCents,
-			overdueCents: account.overdueCents,
-		}));
+		// The owner pays bills up front and never owes the house.
+		const balances = accounts
+			.filter((account) => !account.housemate.isOwner)
+			.map((account) => ({
+				id: account.housemate.id,
+				name: account.housemate.name,
+				isActive: active.get(account.housemate.id) ?? false,
+				owesCents: account.owesCents,
+				overdueCents: account.overdueCents,
+			}));
 		return {
 			outstanding: toMetric(
 				balances.map(({ owesCents, overdueCents, ...row }) => ({

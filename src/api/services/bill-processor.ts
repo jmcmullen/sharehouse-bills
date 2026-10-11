@@ -4,7 +4,7 @@ import { getRequestLogger } from "../../lib/request-logger";
 import { db } from "../db/index.server";
 import { bills } from "../db/schema/bills";
 import { BillPdfStorageService } from "./bill-pdf-storage";
-import { createShares, splitAcrossHousemates } from "./bills/shares";
+import { insertBillWithShares, splitAcrossHousemates } from "./bills/shares";
 import {
 	type ExtractedBillData,
 	PdfBillExtractorService,
@@ -283,9 +283,8 @@ export class BillProcessorService {
 		pdfUrl: string | null,
 	) {
 		const splits = await splitAcrossHousemates(parsedData.totalCents);
-		const [newBill] = await db
-			.insert(bills)
-			.values({
+		const newBill = await insertBillWithShares(
+			{
 				billerName: parsedData.billerName,
 				provider: parsedData.provider,
 				billType: parsedData.billType,
@@ -304,10 +303,9 @@ export class BillProcessorService {
 				pdfSha256: parsedData.pdfSha256,
 				pdfUrl,
 				stackGroup: utilityStackGroup(parsedData.billType),
-			})
-			.returning();
-
-		await createShares(newBill.id, splits);
+			},
+			splits,
+		);
 		getRequestLogger()?.set({
 			debtCreation: { billId: newBill.id, debtRecordCount: splits.length },
 		});

@@ -2,10 +2,12 @@ import { eq } from "drizzle-orm";
 import { createError } from "evlog";
 import { type Split, splitEqually } from "../../../lib/equal-split";
 import { db } from "../../db/index.server";
+import { bills } from "../../db/schema/bills";
 import { debts } from "../../db/schema/debts";
 import { housemates } from "../../db/schema/housemates";
 
 type Writer = Pick<typeof db, "insert">;
+type Database = Pick<typeof db, "transaction">;
 
 // The one place bill shares are written. Every bill, however it arrives,
 // becomes shares through here.
@@ -28,6 +30,20 @@ export async function createShares(
 			amountCents: split.amountCents,
 		})),
 	);
+}
+
+// A new bill and its shares commit together: a bill left without shares would
+// derive as paid.
+export async function insertBillWithShares(
+	values: typeof bills.$inferInsert,
+	splits: Split[],
+	database: Database = db,
+) {
+	return database.transaction(async (tx) => {
+		const [bill] = await tx.insert(bills).values(values).returning();
+		await createShares(bill.id, splits, tx);
+		return bill;
+	});
 }
 
 // An equal split of a new bill across every active housemate. Owners pay the

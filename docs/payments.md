@@ -78,25 +78,32 @@ functions read through it.
   only when remainingCents = 0.
 - **bill.status** = `paid` when every non-owner share has remainingCents = 0,
   `partially_paid` when some non-owner share has money allocated, otherwise
-  `pending`. **bill.settledAt** is the latest non-owner share settledAt once
-  the bill is paid.
+  `pending`. **bill.paidCents** and **bill.remainingCents** sum non-owner
+  shares only; the owner pays the bill up front and never owes it.
+  **bill.settledAt** is the latest non-owner share settledAt once the bill is
+  paid.
 - **housemate.creditCents** = sum of non-void receipts - sum of their
   allocations.
 - **cover** = creditCents applied to open shares oldest due first
   (`coverShares`). Each share gets `coveredCents` and `leftCents`. Owing,
   overdue, the pay page, the statement and the overdue digest all use the
   covered figures.
-- **housemate.owesCents** = sum of remainingCents - creditCents, floored at 0.
+- **housemate.owesCents** = sum of remainingCents - creditCents floored at 0
+  (the same held credit the cover applies), floored at 0. A refund larger than
+  the credit held lowers the balance, not what is owed on bills.
 - **housemate.overdueCents** = sum of leftCents on shares due before today in
-  Australia/Sydney.
+  Australia/Sydney; **upcomingCents** is the same for shares due after today.
 - **housemate.balanceCents** = sum of debts.amount_cents - sum of non-void
-  receipts. Only the admin statement shows it.
+  receipts, signed. Only the admin statement shows it.
+- Owner accounts are left out of the housemate balances.
 - **statement** = shares and receipts on one timeline grouped by Sydney month,
   newest first. The housemate statement shows money received only; the admin
   statement adds refunds and a running balance, and shows voided receipts only
   when corrections are included.
 - **bill-paid notification** is queued inside the allocation write that makes a
-  bill paid (event key `bill-paid:<billId>`, insert or ignore).
+  bill paid (event key `bill-paid:<billId>`, insert or ignore). A release that
+  makes the bill unpaid again deletes the message while it is still `pending`,
+  so the payment that settles the bill again queues it again.
 
 ## Bank transaction lifecycle
 
@@ -122,11 +129,21 @@ Code: `src/api/services/payments/`. Server functions:
    transactions can be posted; archived rows need a note.
    - **confirm**: one bank receipt for the chosen housemate plus the chosen
      allocations. Empty allocations keep the money as credit. Queues the
-     housemate's `payment_receipt` message.
+     housemate's `payment_receipt` message. Re-confirming a transaction whose
+     single live receipt already has the same housemate and amount keeps that
+     receipt and rewrites its allocations, so the housemate gets a
+     `payment_correction` (or nothing when the allocations are unchanged),
+     never a second receipt. A different housemate or amount voids the old
+     receipt and inserts a new one.
    - **split**: one receipt per housemate, amounts summing to the transfer, no
      allocations. Each housemate's money is held as credit until allocated.
    - **refund** (money out): a negative receipt with a required note.
    - **exclude**: voids any receipts for the transaction with the reason.
+
+   Voiding a receipt whose `payment_receipt` message was already queued queues
+   a `payment_correction` with nothing allocated and `voided: true`, telling
+   the housemate the money no longer counts. A receipt or correction message
+   still pending for money voided since is not sent.
    - **batch**: up to ten rows at once, either exclude or confirm a row whose
      server-side suggestion is an exact single-bill match.
 
@@ -135,10 +152,12 @@ Code: `src/api/services/payments/`. Server functions:
    ever suggest rent bills.
 3. **Re-ingest.** If a confirmed row's amount, currency or bank status changes,
    or the bank deletes it, its receipts are voided with the reason and the row
-   goes back to `review` with `decided_at` cleared. Otherwise only the bank
-   columns update.
+   goes back to `review` for the same housemate. `decided_at` stays set, so a
+   later ingest never reclassifies a row the admin assigned by hand. Otherwise
+   only the bank columns update.
 4. **Reallocate.** The Accounts page replaces a receipt's allocations
-   (`allocateReceipt`). The first allocation message is a receipt; later
+   (`allocateReceipt`). The form's revision hashes the stored shares, receipts
+   and allocations only, so a form open across Sydney midnight still saves. The first allocation message is a receipt; later
    changes queue a `payment_correction` only when the allocations differ from
    the last message.
 5. **Record cash.** The Bills page inserts a cash receipt and allocates it to
@@ -165,7 +184,15 @@ DATABASE_URL=file:local.db bun db:migrate
 bun db:migrate
 ```
 
-Migration 0023 (receipts) has a verification script. Run `snapshot` against
+Migration 0022 (cents) keeps shares paid before the ledger paid. It first
+allocates the housemate's own unallocated legacy payments to those shares,
+oldest money against the oldest share, and mints a migrated cash receipt only
+for what is still unexplained. Owner shares are skipped.
+
+Migration 0023 (receipts) aborts if any bank event is still unprocessed. Take
+the snapshot on the previous deployed commit (e4b6b89), where `bun ledger
+--sync` exists to clear pending events. Migration 0023 has a verification
+script. Run `snapshot` against
 the database before the migration and `check` after it; `check` recomputes
 balances, credit and per-share paid cents through the account module and exits
 1 on any difference.

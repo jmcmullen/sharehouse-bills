@@ -4,6 +4,8 @@ import { getAccountPayments } from "./account-payments";
 import type { Executor } from "./transaction";
 
 type PaymentReceiptKind = "receipt" | "correction";
+// "void" is the correction that tells a housemate money no longer counts.
+type PaymentMessage = PaymentReceiptKind | "void";
 
 const allocationSchema = z.object({
 	debtId: z.string().min(1),
@@ -17,6 +19,7 @@ export const paymentReceiptPayloadSchema = z.object({
 	receivedAt: z.number().int(),
 	before: z.array(allocationSchema),
 	after: z.array(allocationSchema),
+	voided: z.boolean().default(false),
 });
 export type PaymentReceiptPayload = z.infer<typeof paymentReceiptPayloadSchema>;
 
@@ -47,19 +50,23 @@ export async function paymentReceiptKind(
 // Records the housemate's WhatsApp receipt inside the ledger transaction that
 // confirmed the allocations. The payload snapshots the decision so the message
 // describes what the admin confirmed even if allocations change again before
-// dispatch. Returns false when a correction would repeat the last message.
+// dispatch. Returns false when a correction would repeat the last message. A
+// void is queued after the receipt's allocations are released and before it is
+// marked void, so it always goes out with nothing allocated.
 export async function enqueuePaymentReceipt(
 	tx: Executor,
 	housemateId: string,
 	receiptId: string,
-	kind: PaymentReceiptKind,
+	message: PaymentMessage,
 ): Promise<boolean> {
 	const account = await getAccountPayments(tx, housemateId);
 	const receipt = account.receipts.find((item) => item.id === receiptId);
 	if (!receipt) throw new Error("Payment receipt not found");
+	const kind: PaymentReceiptKind =
+		message === "receipt" ? "receipt" : "correction";
 	const latest = await latestPayload(tx, receiptId);
 	const before = kind === "receipt" ? [] : (latest?.after ?? []);
-	if (kind === "correction" && sameAllocations(before, receipt.allocations))
+	if (message === "correction" && sameAllocations(before, receipt.allocations))
 		return false;
 	const sequence = kind === "receipt" ? 0 : (latest?.sequence ?? 0) + 1;
 	const payload: PaymentReceiptPayload = {
@@ -70,6 +77,7 @@ export async function enqueuePaymentReceipt(
 		receivedAt: receipt.receivedAt,
 		before,
 		after: receipt.allocations,
+		voided: message === "void",
 	};
 	const now = Math.floor(Date.now() / 1000);
 	await tx.execute({

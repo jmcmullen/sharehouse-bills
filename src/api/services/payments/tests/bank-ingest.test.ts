@@ -232,7 +232,7 @@ test("a changed amount, currency or status voids the receipts and reopens review
 			await ingest(client, bank);
 			const row = await bankRow(client, id);
 			assert.equal(row.decision, "review", id);
-			assert.equal(row.decided_at, null, id);
+			assert.notEqual(row.decided_at, null, id);
 			assert.match(String(row.reason), /changed/, id);
 		}
 		assert.equal(
@@ -253,8 +253,8 @@ test("a deleted confirmed transfer voids its receipts and returns to review", as
 		await remove(client, "gone");
 		const row = await bankRow(client, "gone");
 		assert.deepEqual(
-			[row.decision, row.bank_status, row.decided_at],
-			["review", "DELETED", null],
+			[row.decision, row.bank_status, row.decided_at !== null],
+			["review", "DELETED", true],
 		);
 		assert.equal(await balance(client), 0);
 		await assert.rejects(confirm(client, "gone", "oliver"), /Deleted bank/);
@@ -297,4 +297,26 @@ test("Up import follows every page and safely reruns without posting money", asy
 		} finally {
 			globalThis.fetch = original;
 		}
+	}));
+
+test("a reopened transfer keeps the housemate the admin chose through later re-ingests", async () =>
+	fixture(async (client) => {
+		const stranger = (amount: number) => {
+			const bank = receipt("pay", amount, "house");
+			bank.attributes.description = "J SMITH";
+			bank.attributes.rawText = "J SMITH";
+			return bank;
+		};
+		await ingest(client, stranger(6000));
+		assert.equal((await bankRow(client, "pay")).decision, "excluded");
+		await confirm(client, "pay", "oliver");
+		await ingest(client, stranger(6100));
+		await ingest(client, stranger(6100));
+		const row = await bankRow(client, "pay");
+		assert.deepEqual(
+			[row.decision, row.housemate_id, row.decided_at !== null],
+			["review", "oliver", true],
+		);
+		assert.match(String(row.reason), /changed/);
+		assert.equal(await balance(client), 0);
 	}));

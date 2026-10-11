@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Client } from "@libsql/client";
 import { loadAccount } from "../../account/account.server";
+import { getPaymentReceiptNotificationContext } from "../../whatsapp-payment-receipt";
 import { getAccountPayments } from "../account-payments";
 import { decideBankTransaction, decideBankTransactions } from "../decisions";
 import { isRentReference } from "../model";
@@ -417,5 +418,110 @@ test("review groups derive from the live suggestion and filter by it", async () 
 		assert.equal(
 			all.accounts.find((a) => a.id === "oliver")?.billing.unpaidCents,
 			9000,
+		);
+	}));
+
+const receiptMessages = async (client: Client) =>
+	(
+		await client.execute(
+			"SELECT id,event_type,status,payload FROM whatsapp_notifications WHERE event_type IN ('payment_receipt','payment_correction') ORDER BY json_extract(payload,'$.sequence')",
+		)
+	).rows.map((row) => ({
+		id: String(row.id),
+		type: String(row.event_type),
+		status: String(row.status),
+		payload: JSON.parse(String(row.payload)),
+	}));
+
+test("re-confirming a transfer for the same housemate keeps its receipt and sends a correction, never a second receipt", async () =>
+	fixture(async (client) => {
+		await addShares(client, [["gas-o", "oliver", "bill", 6000]]);
+		await ingest(client, receipt("pay", 6000, "gas"));
+		await confirm(client, "pay", "oliver", [], "First look");
+		const [first] = (await liveReceipts(client)).rows;
+		await confirm(
+			client,
+			"pay",
+			"oliver",
+			[{ debtId: "gas-o", amountCents: 6000 }],
+			"It was the gas",
+		);
+		await confirm(client, "pay", "oliver", [
+			{ debtId: "gas-o", amountCents: 6000 },
+		]);
+		const receipts = (
+			await client.execute("SELECT id,voided_at,note FROM receipts")
+		).rows;
+		assert.equal(receipts.length, 1, "the receipt is kept, not replaced");
+		assert.equal(receipts[0].voided_at, null);
+		assert.equal(receipts[0].note, "");
+		assert.equal(first.note, "First look");
+		assert.deepEqual(
+			(await receiptMessages(client)).map((item) => [
+				item.type,
+				item.payload.before,
+				item.payload.after,
+			]),
+			[
+				["payment_receipt", [], []],
+				["payment_correction", [], [{ debtId: "gas-o", amountCents: 6000 }]],
+			],
+			"unchanged allocations send nothing",
+		);
+		assert.equal((await loadAccount("oliver", { client }))?.balanceCents, 0);
+	}));
+
+test("excluding a confirmed transfer withdraws its unsent receipt and tells the housemate the money no longer counts", async () =>
+	fixture(async (client) => {
+		await addShares(client, [["gas-o", "oliver", "bill", 6000]]);
+		await ingest(client, receipt("pay", 6000, "gas"));
+		await confirm(client, "pay", "oliver", [
+			{ debtId: "gas-o", amountCents: 6000 },
+		]);
+		await decideBankTransaction(client, {
+			transactionId: "pay",
+			action: "exclude",
+			reason: "Not ours",
+			expectedRevision: await revision(client, "pay"),
+		});
+		const messages = await receiptMessages(client);
+		assert.deepEqual(
+			messages.map((item) => [
+				item.type,
+				item.payload.before,
+				item.payload.after,
+				item.payload.voided,
+			]),
+			[
+				[
+					"payment_receipt",
+					[],
+					[{ debtId: "gas-o", amountCents: 6000 }],
+					false,
+				],
+				[
+					"payment_correction",
+					[{ debtId: "gas-o", amountCents: 6000 }],
+					[],
+					true,
+				],
+			],
+		);
+		const [sent, correction] = messages;
+		assert.equal(
+			await getPaymentReceiptNotificationContext(sent.id, { client }),
+			null,
+			"a pending receipt for voided money is not sent",
+		);
+		const context = await getPaymentReceiptNotificationContext(correction.id, {
+			client,
+		});
+		assert.deepEqual(
+			[context?.kind, context?.voided, context?.after],
+			["correction", true, []],
+		);
+		assert.equal(
+			(await loadAccount("oliver", { client }))?.shares[0].paidCents,
+			0,
 		);
 	}));

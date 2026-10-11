@@ -115,15 +115,24 @@ export function coverShares<T extends OpenShare>(
 				],
 			};
 		},
-		{ left: Math.max(0, credit), rows: [] },
+		{ left: heldCents(credit), rows: [] },
 	).rows;
+}
+
+// Credit that can pay bills. A refund larger than the credit held makes the
+// balance negative but never adds to what is owed on bills.
+function heldCents(credit: number): number {
+	return Math.max(0, credit);
 }
 
 export function owesCents(
 	shares: Array<{ remainingCents: number }>,
 	credit: number,
 ): number {
-	return Math.max(0, sum(shares, (share) => share.remainingCents) - credit);
+	return Math.max(
+		0,
+		sum(shares, (share) => share.remainingCents) - heldCents(credit),
+	);
 }
 
 // Everything charged less everything received. Only the admin statement shows it.
@@ -152,14 +161,14 @@ export function overdueCents(
 	);
 }
 
-// Still unpaid on bills whose due date is ahead in Sydney time.
+// Still to pay after credit on bills whose due date is ahead in Sydney time.
 export function upcomingCents(
-	shares: Array<{ dueAt: number; remainingCents: number }>,
+	shares: Array<{ dueAt: number; leftCents: number }>,
 	now: number,
 ): number {
 	return sum(
 		shares.filter((share) => sydneyDate(share.dueAt) > sydneyDate(now)),
-		(share) => share.remainingCents,
+		(share) => share.leftCents,
 	);
 }
 

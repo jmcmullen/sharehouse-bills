@@ -8,14 +8,52 @@ ALTER TABLE `bills` DROP COLUMN `total_amount`;--> statement-breakpoint
 ALTER TABLE `bills` DROP COLUMN `status`;--> statement-breakpoint
 ALTER TABLE `debts` ADD `amount_cents` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 UPDATE `debts` SET `amount_cents`=CAST(round(`amount_owed`*100) AS integer);--> statement-breakpoint
--- Shares paid before the ledger existed keep their paid state: the paid amount
--- no allocation explains becomes a migrated cash receipt allocated to the share.
--- Allocations are inserted last so every statement sees the same difference.
-INSERT INTO ledger_sources(source_key,entry_id,snapshot) SELECT 'manual:cash-migrated-'||d.id,'manual:cash-migrated-'||d.id,json_object('housemateId',d.housemate_id,'amountCents',-(CAST(round(d.amount_paid*100) AS integer)-coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0)),'kind','payment','description','Recorded as paid before the ledger','billId',NULL,'effectiveAt',coalesce(d.paid_at,d.updated_at,d.created_at),'dueAt',NULL) FROM debts d WHERE CAST(round(d.amount_paid*100) AS integer) > coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0);--> statement-breakpoint
-INSERT INTO ledger_entries(id,housemate_id,source_key,kind,amount_cents,description,bill_id,effective_at,due_at,recorded_at,reverses_entry_id) SELECT 'manual:cash-migrated-'||d.id,d.housemate_id,'manual:cash-migrated-'||d.id,'payment',-(CAST(round(d.amount_paid*100) AS integer)-coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0)),'Recorded as paid before the ledger',NULL,coalesce(d.paid_at,d.updated_at,d.created_at),NULL,unixepoch(),NULL FROM debts d WHERE CAST(round(d.amount_paid*100) AS integer) > coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0);--> statement-breakpoint
-INSERT INTO ledger_allocation_reviews(source_key,reviewed_at) SELECT 'manual:cash-migrated-'||d.id,unixepoch() FROM debts d WHERE CAST(round(d.amount_paid*100) AS integer) > coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0);--> statement-breakpoint
-INSERT INTO ledger_allocation_history(source_key,debt_id,amount_cents,origin) SELECT 'manual:cash-migrated-'||d.id,d.id,(CAST(round(d.amount_paid*100) AS integer)-coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0)),'review' FROM debts d WHERE CAST(round(d.amount_paid*100) AS integer) > coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0);--> statement-breakpoint
-INSERT INTO ledger_bill_allocations(source_key,debt_id,amount_cents,origin) SELECT 'manual:cash-migrated-'||d.id,d.id,(CAST(round(d.amount_paid*100) AS integer)-coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0)),'review' FROM debts d WHERE CAST(round(d.amount_paid*100) AS integer) > coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0);--> statement-breakpoint
+-- Shares paid before the ledger existed keep their paid state. The paid amount
+-- no allocation explains is first taken from the housemate's own legacy
+-- payments that no allocation claimed, oldest money against the oldest share,
+-- as the overlap of the two running totals. Owner shares are never owed.
+CREATE TABLE `cents_gap_allocations` (
+	`source_key` text NOT NULL,
+	`debt_id` text NOT NULL,
+	`amount_cents` integer NOT NULL,
+	PRIMARY KEY(`source_key`, `debt_id`)
+);
+--> statement-breakpoint
+INSERT INTO `cents_gap_allocations`
+WITH gaps AS (
+	SELECT d.id AS debt_id,d.housemate_id,coalesce(d.paid_at,d.updated_at,d.created_at) AS at,
+		CAST(round(d.amount_paid*100) AS integer)-coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0) AS cents
+	FROM debts d JOIN housemates h ON h.id=d.housemate_id AND h.is_owner=0
+),
+open_gaps AS (
+	SELECT debt_id,housemate_id,cents,sum(cents) OVER (PARTITION BY housemate_id ORDER BY at,debt_id ROWS UNBOUNDED PRECEDING) AS upto
+	FROM gaps WHERE cents>0
+),
+credit AS (
+	SELECT s.source_key,e.housemate_id,e.effective_at AS at,
+		-e.amount_cents-coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.source_key=s.source_key),0) AS cents
+	FROM ledger_sources s JOIN ledger_entries e ON e.id=s.entry_id
+	WHERE e.kind IN ('payment','adjustment')
+),
+open_credit AS (
+	SELECT source_key,housemate_id,cents,sum(cents) OVER (PARTITION BY housemate_id ORDER BY at,source_key ROWS UNBOUNDED PRECEDING) AS upto
+	FROM credit WHERE cents>0
+)
+SELECT c.source_key,g.debt_id,min(g.upto,c.upto)-max(g.upto-g.cents,c.upto-c.cents)
+FROM open_gaps g JOIN open_credit c ON c.housemate_id=g.housemate_id
+WHERE min(g.upto,c.upto)>max(g.upto-g.cents,c.upto-c.cents);--> statement-breakpoint
+INSERT INTO ledger_allocation_history(source_key,debt_id,amount_cents,origin) SELECT source_key,debt_id,amount_cents,'review' FROM cents_gap_allocations;--> statement-breakpoint
+INSERT INTO ledger_allocation_reviews(source_key,reviewed_at) SELECT DISTINCT source_key,unixepoch() FROM cents_gap_allocations WHERE true ON CONFLICT(source_key) DO NOTHING;--> statement-breakpoint
+INSERT INTO ledger_bill_allocations(source_key,debt_id,amount_cents,origin) SELECT source_key,debt_id,amount_cents,'review' FROM cents_gap_allocations WHERE true ON CONFLICT(source_key,debt_id) DO UPDATE SET amount_cents=ledger_bill_allocations.amount_cents+excluded.amount_cents;--> statement-breakpoint
+DROP TABLE `cents_gap_allocations`;--> statement-breakpoint
+-- Whatever is still unexplained becomes a migrated cash receipt allocated to
+-- the share. Allocations are inserted last so every statement sees the same
+-- difference.
+INSERT INTO ledger_sources(source_key,entry_id,snapshot) SELECT 'manual:cash-migrated-'||d.id,'manual:cash-migrated-'||d.id,json_object('housemateId',d.housemate_id,'amountCents',-(CAST(round(d.amount_paid*100) AS integer)-coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0)),'kind','payment','description','Recorded as paid before the ledger','billId',NULL,'effectiveAt',coalesce(d.paid_at,d.updated_at,d.created_at),'dueAt',NULL) FROM debts d WHERE d.housemate_id IN (SELECT id FROM housemates WHERE is_owner=0) AND CAST(round(d.amount_paid*100) AS integer) > coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0);--> statement-breakpoint
+INSERT INTO ledger_entries(id,housemate_id,source_key,kind,amount_cents,description,bill_id,effective_at,due_at,recorded_at,reverses_entry_id) SELECT 'manual:cash-migrated-'||d.id,d.housemate_id,'manual:cash-migrated-'||d.id,'payment',-(CAST(round(d.amount_paid*100) AS integer)-coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0)),'Recorded as paid before the ledger',NULL,coalesce(d.paid_at,d.updated_at,d.created_at),NULL,unixepoch(),NULL FROM debts d WHERE d.housemate_id IN (SELECT id FROM housemates WHERE is_owner=0) AND CAST(round(d.amount_paid*100) AS integer) > coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0);--> statement-breakpoint
+INSERT INTO ledger_allocation_reviews(source_key,reviewed_at) SELECT 'manual:cash-migrated-'||d.id,unixepoch() FROM debts d WHERE d.housemate_id IN (SELECT id FROM housemates WHERE is_owner=0) AND CAST(round(d.amount_paid*100) AS integer) > coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0);--> statement-breakpoint
+INSERT INTO ledger_allocation_history(source_key,debt_id,amount_cents,origin) SELECT 'manual:cash-migrated-'||d.id,d.id,(CAST(round(d.amount_paid*100) AS integer)-coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0)),'review' FROM debts d WHERE d.housemate_id IN (SELECT id FROM housemates WHERE is_owner=0) AND CAST(round(d.amount_paid*100) AS integer) > coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0);--> statement-breakpoint
+INSERT INTO ledger_bill_allocations(source_key,debt_id,amount_cents,origin) SELECT 'manual:cash-migrated-'||d.id,d.id,(CAST(round(d.amount_paid*100) AS integer)-coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0)),'review' FROM debts d WHERE d.housemate_id IN (SELECT id FROM housemates WHERE is_owner=0) AND CAST(round(d.amount_paid*100) AS integer) > coalesce((SELECT sum(a.amount_cents) FROM ledger_bill_allocations a WHERE a.debt_id=d.id),0);--> statement-breakpoint
 ALTER TABLE `debts` DROP COLUMN `amount_owed`;--> statement-breakpoint
 ALTER TABLE `debts` DROP COLUMN `amount_paid`;--> statement-breakpoint
 ALTER TABLE `debts` DROP COLUMN `is_paid`;--> statement-breakpoint

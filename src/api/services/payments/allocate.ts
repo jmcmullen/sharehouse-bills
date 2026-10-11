@@ -57,6 +57,8 @@ export async function insertReceipt(
 }
 
 // Voids every live receipt for a bank transaction, releasing what each paid.
+// A housemate who was already sent (or is about to be sent) a receipt is told
+// the money no longer counts.
 export async function voidReceipts(
 	tx: Executor,
 	bankTransactionId: string,
@@ -64,12 +66,20 @@ export async function voidReceipts(
 ): Promise<void> {
 	const live = (
 		await tx.execute({
-			sql: "SELECT id FROM receipts WHERE bank_transaction_id=? AND voided_at IS NULL",
+			sql: "SELECT id,housemate_id FROM receipts WHERE bank_transaction_id=? AND voided_at IS NULL",
 			args: [bankTransactionId],
 		})
 	).rows;
 	for (const row of live) {
-		await releaseAllocations(tx, "receipt_id", String(row.id));
+		const receiptId = String(row.id);
+		await releaseAllocations(tx, "receipt_id", receiptId);
+		if ((await paymentReceiptKind(tx, receiptId)) === "correction")
+			await enqueuePaymentReceipt(
+				tx,
+				String(row.housemate_id),
+				receiptId,
+				"void",
+			);
 		await tx.execute({
 			sql: "UPDATE receipts SET voided_at=?,void_reason=? WHERE id=?",
 			args: [nowSeconds(), reason, row.id],
@@ -77,12 +87,21 @@ export async function voidReceipts(
 	}
 }
 
-// Moves allocated money back to credit, recording each release in history.
+// Moves allocated money back to credit, recording each release in history. A
+// bill this makes unpaid withdraws its group message if it has not gone out,
+// so the payment that settles it again announces it.
 export async function releaseAllocations(
 	tx: Executor,
 	column: "receipt_id" | "debt_id",
 	id: string,
 ): Promise<void> {
+	const billIds = (
+		await tx.execute({
+			sql: `SELECT DISTINCT d.bill_id FROM allocations a JOIN debts d ON d.id=a.debt_id WHERE a.${column}=?`,
+			args: [id],
+		})
+	).rows.map((row) => String(row.bill_id));
+	const paid = await paidBills(tx, billIds);
 	await tx.execute({
 		sql: `INSERT INTO allocation_history(receipt_id,debt_id,amount_cents,recorded_at) SELECT receipt_id,debt_id,-amount_cents,? FROM allocations WHERE ${column}=?`,
 		args: [nowSeconds(), id],
@@ -91,6 +110,20 @@ export async function releaseAllocations(
 		sql: `DELETE FROM allocations WHERE ${column}=?`,
 		args: [id],
 	});
+	const stillPaid = await paidBills(tx, paid);
+	for (const billId of paid.filter((item) => !stillPaid.includes(item)))
+		await tx.execute({
+			sql: "DELETE FROM whatsapp_notifications WHERE event_key=? AND status='pending'",
+			args: [`bill-paid:${billId}`],
+		});
+}
+
+// Checked one at a time: statements inside a transaction run in order.
+async function paidBills(tx: Executor, billIds: string[]): Promise<string[]> {
+	const paid: string[] = [];
+	for (const billId of billIds)
+		if (await isBillPaid(tx, billId)) paid.push(billId);
+	return paid;
 }
 
 // Replaces the receipt's allocations with the admin's decision. An empty list
